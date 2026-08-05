@@ -1,0 +1,42 @@
+name: Tauri スパイク
+
+# 本体の CI から切り離してある。
+# MuPDF を C のソースからビルドするため、キャッシュが冷えていると十数分かかる。
+# 他のジョブが 1〜2 分で終わるのに毎回それを払うのは割に合わない。
+# Rust 側を触ったときと、手で起動したときだけ走らせる。
+on:
+  push:
+    paths:
+      - "spikes/tauri-spike/**"
+      - "spikes/rust-mupdf/**"
+      - ".github/workflows/tauri-spike.yml"
+  workflow_dispatch:
+
+env:
+  # CI では毎回まっさらから作るので増分コンパイルは効かない。
+  # 生成物が増えてキャッシュの出し入れが重くなるだけになる。
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  windows:
+    name: Tauri の前提を Windows で確かめる
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spikes/tauri-spike/src-tauri
+          # 既定では失敗した実行のキャッシュを残さない。
+          # ビルドが通るまで直しを繰り返す間、毎回まっさらから作り直すことになる。
+          cache-on-failure: true
+
+      # macOS では成り立つことを確認済み（spikes/findings-tauri.md のスパイク 6）。
+      # WebView2 は Chromium であり、iframe の sandbox の扱いも生成元の扱いも同じとは限らない。
+      # 書籍は置かないため、判定するのは「書籍の JS を止められるか」と「生成元が揃うか」の 2 点。
+      - name: スパイクを実行する
+        working-directory: spikes/tauri-spike/src-tauri
+        run: cargo run --release
