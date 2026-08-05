@@ -21,8 +21,9 @@ use store::{Bookmark, BookState, Position, Store};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 引数で書籍を渡されたら、それを開いた状態で始める。
-    let opening = std::env::args().nth(1);
+    // 引数で渡された書籍は、1 冊につき 1 つの窓で開く。
+    // 同じ書籍を 2 度渡してもよい。離れた 2 か所を並べて見るための道具である。
+    let opening: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).collect();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -64,11 +65,18 @@ pub fn run() {
         })
         .setup(move |app| {
             app.manage(Store::load(app.handle()));
-            let query = match &opening {
-                Some(path) => format!("?path={}", urlencode(path)),
-                None => String::new(),
-            };
-            open_window(app.handle(), "main", &query)?;
+            if opening.is_empty() {
+                open_window(app.handle(), "main", "")?;
+            } else {
+                for (index, path) in opening.iter().enumerate() {
+                    let label = if index == 0 {
+                        "main".to_string()
+                    } else {
+                        format!("book-{}", NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+                    };
+                    open_window(app.handle(), &label, &format!("?path={}", urlencode(path)))?;
+                }
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -80,6 +88,8 @@ fn open_window(
     label: &str,
     query: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // 同じ大きさで真上に重ねると、増えたことに気付けない。少しずらす。
+    let offset = (app.webview_windows().len() as f64) * 26.0 % 160.0;
     WebviewWindowBuilder::new(
         app,
         label,
@@ -87,6 +97,7 @@ fn open_window(
     )
     .title("tzreader")
     .inner_size(1000.0, 760.0)
+    .position(60.0 + offset, 60.0 + offset)
     .build()?;
     Ok(())
 }
@@ -203,12 +214,14 @@ fn library(store: tauri::State<'_, Store>) -> Vec<Shelved> {
         .collect()
 }
 
+/// 窓の名札。閉じた窓の番号を使い回さないよう、単調に増やす。
+static NEXT_WINDOW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+
 #[tauri::command]
 fn open_in_new_window(app: tauri::AppHandle, path: String, href: String) -> Result<(), String> {
-    // ラベルは重ならなければよい。開いた数を数えて付ける。
-    let label = format!("book-{}", app.webview_windows().len() + 1);
+    let n = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let query = format!("?path={}&href={}", urlencode(&path), urlencode(&href));
-    open_window(&app, &label, &query).map_err(|e| e.to_string())
+    open_window(&app, &format!("book-{n}"), &query).map_err(|e| e.to_string())
 }
 
 // MARK: 表示設定

@@ -343,21 +343,13 @@ body {
 #popover iframe { width: 100%; height: 100%; border: 0; }
 #popover-body { height: 46vh; }
 
-/* キーが届いているかを見るための小窓。原因が分かるまでの仮設。 */
-#probe {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  z-index: 50;
-  max-width: 60ch;
-  padding: 5px 9px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.72);
-  color: #eee;
-  font: 11px/1.5 ui-monospace, Menlo, monospace;
-  white-space: pre;
-  cursor: pointer;
-}
+/* 書棚を出しているあいだは、書籍に紐づく操作を隠して横幅いっぱい使う。 */
+body.shelving #sidebar,
+body.shelving #zoom,
+body.shelving #fit,
+body.shelving #search-input,
+body.shelving #bookmark,
+body.shelving #settings-button { display: none !important; }
 
 #toast {
   position: absolute;

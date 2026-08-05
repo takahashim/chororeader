@@ -23,8 +23,6 @@ const DEFAULT_SETTINGS = {
   codeFont: "SF Mono",
   codeWrap: false,
   publisherStyle: false,
-  /// キーの受け取りを表示するか。原因が分かるまでの仮設。
-  showKeyProbe: true,
 };
 
 const state = {
@@ -173,11 +171,9 @@ async function showChapter(index, fragment) {
         ? d : null;
     }, "本文");
   } catch (error) {
-    probeNote("本文の読み込みが時間切れ: " + chapter.href);
     toast(String(error.message || error));
     return;
   }
-  probeNote(`章 ${index} を読み込んだ: ${chapter.href}`);
 
   decorate(doc);
   markCurrentToc();
@@ -205,7 +201,6 @@ function decorate(doc) {
   addChapterFooter(doc);
 
   doc.addEventListener("click", onBodyClick, true);
-  doc.addEventListener("keydown", recordKey, true);
   doc.addEventListener("keydown", onKeyDown);
   doc.addEventListener("wheel", onWheel, { passive: false });
   doc.addEventListener("scroll", rememberSoon, { passive: true });
@@ -780,6 +775,8 @@ async function showShelf() {
   $("shelf").hidden = false;
   $("shelf-close").hidden = !state.book;
   $("shelf-button").classList.add("on");
+  // 書籍に紐づく操作は書棚では意味を持たない。隠して横幅いっぱい使う。
+  document.body.classList.add("shelving");
 }
 
 function blankArt(book) {
@@ -792,56 +789,8 @@ function blankArt(book) {
 function hideShelf() {
   $("shelf").hidden = true;
   $("shelf-button").classList.remove("on");
+  document.body.classList.remove("shelving");
   focusContent();
-}
-
-// ---- キーの受け取りを見る -----------------------------------------------
-//
-// 矢印キーが効かないという報告を追うための仮設の窓。
-// キーが届いていないのか、届いたが行き先が違うのかを、その場で見分ける。
-// 焦点がどこにも無ければキーはどの文書にも届かないので、焦点も一緒に出す。
-
-const probe = { keys: 0, last: "（まだ来ていない）", note: "", responder: "まだ" };
-
-function recordKey(event) {
-  const inParent = event.target && event.target.ownerDocument === document;
-  probe.keys += 1;
-  probe.last = `${event.key} ← ${inParent ? "親" : "本文"}（${event.target && event.target.tagName}）`;
-  updateProbe();
-}
-
-function probeNote(text) {
-  probe.note = text;
-  updateProbe();
-}
-
-function updateProbe() {
-  const box = $("probe");
-  if (!state.settings.showKeyProbe) {
-    box.hidden = true;
-    return;
-  }
-  box.hidden = false;
-  const doc = $("page").contentDocument;
-  const tag = (element) => (element ? element.tagName : "なし");
-  box.textContent =
-    `焦点  窓=${document.hasFocus()} 親=${tag(document.activeElement)}` +
-    (doc ? ` 本文=${tag(doc.activeElement)}(focus=${doc.hasFocus()})` : " 本文=なし") + "\n" +
-    `キー  ${probe.keys} 件  最後: ${probe.last}  受け手: ${probe.responder}\n` +
-    `動き  ${probe.note}`;
-}
-
-setInterval(updateProbe, 400);
-document.addEventListener("keydown", recordKey, true);
-
-$("probe").addEventListener("click", () => toggleProbe(false));
-$("probe-button").addEventListener("click", () => toggleProbe(!state.settings.showKeyProbe));
-
-function toggleProbe(on) {
-  state.settings.showKeyProbe = on;
-  $("probe-button").classList.toggle("on", on);
-  invoke("save_settings", { settings: state.settings });
-  updateProbe();
 }
 
 // ---- 焦点 ---------------------------------------------------------------
@@ -860,9 +809,7 @@ function focusContent() {
   // 画面側の focus() では動かせず、Rust 側からしか戻せない。
   // ダイアログを開いたあとなどに WebView から外れたまま戻らないことがあり、
   // そうなると画面では焦点が当たって見えるのにキーが 1 つも届かない。
-  invoke("focus_webview").then(
-    () => { probe.responder = "戻した"; },
-    (e) => { probe.responder = "戻せない: " + e; });
+  invoke("focus_webview").catch(() => {});
 
   // 2 段目は文書の中の焦点。**本文の iframe には移さない。**
   // あちらは allow-scripts を与えていないため、焦点を移すとキーの行き先が無くなる。
@@ -882,9 +829,15 @@ function onKeyDown(event) {
   const command = event.metaKey || event.ctrlKey;
 
   if (command && event.key.toLowerCase() === "o") { event.preventDefault(); return pick(); }
+  if (command && event.key.toLowerCase() === "n") {
+    event.preventDefault();
+    return openHere();
+  }
   if (command && event.key.toLowerCase() === "l") {
     event.preventDefault();
-    return $("shelf").hidden ? showShelf() : hideShelf();
+    if ($("shelf").hidden) return showShelf();
+    if (state.book) return hideShelf();
+    return;
   }
   if (command && event.key === "\\") { event.preventDefault(); return toggleSidebar(); }
   if (command && event.key.toLowerCase() === "d") { event.preventDefault(); return toggleBookmark(); }
@@ -933,16 +886,9 @@ function scrollContent(amount, byScreen) {
 }
 
 function step(delta) {
-  if (state.book.format === "pdf") {
-    probeNote(`step(${delta}) → ページ ${state.page + delta}`);
-    return showPdf(state.page + delta);
-  }
+  if (state.book.format === "pdf") return showPdf(state.page + delta);
   const index = state.index + delta;
-  if (index < 0 || index >= state.book.chapters.length) {
-    probeNote(`step(${delta}) → 端なので動かない（いま ${state.index} / ${state.book.chapters.length}）`);
-    return;
-  }
-  probeNote(`step(${delta}) → 章 ${index}`);
+  if (index < 0 || index >= state.book.chapters.length) return;
   showChapter(index);
 }
 
@@ -978,6 +924,16 @@ $("sidebar-tabs").addEventListener("click", (event) => {
   if (event.target.dataset.pane) showPane(event.target.dataset.pane);
 });
 
+/// いま読んでいるところを、もう 1 つの窓で開く。
+/// 同じ書籍でも構わない。離れた 2 か所を並べて見るための道具である。
+function openHere() {
+  if (!state.book) return;
+  const href = state.book.format === "pdf"
+    ? String(state.page)
+    : (state.book.chapters[state.index] || {}).href || "";
+  invoke("open_in_new_window", { path: state.book.path, href });
+}
+
 async function pick() {
   const path = await invoke("pick_book");
   // ダイアログが鍵盤の受け手を持ち去ったままのことがある。閉じた直後に戻す。
@@ -988,9 +944,12 @@ async function pick() {
 
 $("open-button").addEventListener("click", pick);
 $("shelf-open").addEventListener("click", pick);
+$("new-window").addEventListener("click", openHere);
 $("shelf-close").addEventListener("click", hideShelf);
 $("shelf-button").addEventListener("click", () => {
-  if ($("shelf").hidden) showShelf(); else hideShelf();
+  // 書籍を開いていないなら、閉じても見せるものが無い。
+  if ($("shelf").hidden) showShelf();
+  else if (state.book) hideShelf();
 });
 $("toggle-sidebar").addEventListener("click", toggleSidebar);
 $("bookmark").addEventListener("click", toggleBookmark);
