@@ -1,0 +1,262 @@
+/* アプリの外枠だけを整える。本文の見た目は tzreader-core が作る CSS に任せる。 */
+
+:root {
+  --bar: #f2f2f4;
+  --line: #d8d8dc;
+  --text: #1a1a1a;
+  --dim: #6b6b70;
+  --accent: #0b5cad;
+  --panel: #fbfbfc;
+}
+
+body.dark {
+  --bar: #232326;
+  --line: #3a3a3e;
+  --text: #d6d6d6;
+  --dim: #97979c;
+  --accent: #79b1ff;
+  --panel: #1c1c1e;
+}
+
+* { box-sizing: border-box; }
+
+/* id 指定の display は [hidden] の display:none より強い。まとめて押さえておく。 */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font: 13px/1.6 -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+  color: var(--text);
+  background: var(--panel);
+}
+
+#bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+
+#bar .spacer { flex: 1; }
+
+#book-title {
+  font-weight: 600;
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#bar button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 3px 9px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#bar button:hover { border-color: var(--accent); }
+#bar button.on { color: var(--accent); border-color: var(--accent); }
+
+#search-input {
+  width: 22ch;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+#layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+#sidebar {
+  width: 280px;
+  flex: none;
+  border-right: 1px solid var(--line);
+  background: var(--bar);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+
+#sidebar-tabs button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  padding: 7px 0;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+#sidebar-tabs button.on {
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.pane {
+  overflow: auto;
+  padding: 6px 0;
+  flex: 1;
+}
+
+.pane a {
+  display: block;
+  padding: 5px 12px;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+
+.pane a:hover { background: rgba(127, 127, 127, 0.14); }
+.pane a.current { border-left-color: var(--accent); color: var(--accent); }
+.pane .depth-2 { padding-left: 26px; font-size: 12px; }
+.pane .depth-3 { padding-left: 40px; font-size: 12px; color: var(--dim); }
+
+.hit .where { color: var(--dim); font-size: 11px; }
+.hit .excerpt {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hit.code .excerpt { font-family: ui-monospace, Menlo, monospace; }
+
+#stage {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  display: flex;
+}
+
+#page {
+  flex: 1;
+  border: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#pdf {
+  flex: 1;
+  overflow: auto;
+  text-align: center;
+  background: #55555a;
+  padding: 16px 0;
+}
+
+#pdf img {
+  display: block;
+  margin: 0 auto 16px;
+  max-width: 100%;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+  background: #fff;
+}
+
+#welcome {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--panel);
+}
+
+#welcome h1 { margin: 0; font-size: 22px; }
+#welcome p { margin: 0; color: var(--dim); }
+
+#welcome button {
+  border: 1px solid var(--line);
+  background: var(--bar);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 16px;
+  cursor: pointer;
+}
+
+#recent {
+  margin-top: 14px;
+  max-height: 34vh;
+  overflow: auto;
+  width: min(520px, 80%);
+}
+
+#recent a {
+  display: block;
+  padding: 4px 10px;
+  color: var(--accent);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#recent a.missing { color: var(--dim); text-decoration: line-through; }
+
+#settings {
+  position: absolute;
+  top: 42px;
+  right: 10px;
+  z-index: 20;
+  background: var(--bar);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+
+#settings label { display: flex; align-items: center; gap: 8px; }
+#settings input[type="range"] { width: 150px; }
+#settings label span { width: 4ch; color: var(--dim); text-align: right; }
+
+#popover {
+  position: absolute;
+  z-index: 30;
+  width: min(460px, 70vw);
+  max-height: 46vh;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+#popover iframe { width: 100%; height: 100%; border: 0; }
+#popover-body { height: 46vh; }
+
+#toast {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 14px;
+  font-size: 12px;
+}

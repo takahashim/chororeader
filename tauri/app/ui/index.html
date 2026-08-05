@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>tzreader</title>
+<link rel="stylesheet" href="/app/app.css">
+</head>
+<body>
+
+<header id="bar">
+  <button id="toggle-sidebar" title="目次（⌘\）">☰</button>
+  <span id="book-title">tzreader</span>
+  <span class="spacer"></span>
+  <input id="search-input" type="search" placeholder="この書籍を検索" spellcheck="false">
+  <button id="bookmark" title="しおり（⌘D）">☆</button>
+  <button id="settings-button" title="表示設定">Aa</button>
+  <button id="open-button" title="書籍を開く（⌘O）">開く</button>
+</header>
+
+<div id="layout">
+  <nav id="sidebar">
+    <div id="sidebar-tabs">
+      <button data-pane="toc" class="on">目次</button>
+      <button data-pane="results">検索</button>
+      <button data-pane="bookmarks">しおり</button>
+    </div>
+    <div id="toc" class="pane"></div>
+    <div id="results" class="pane" hidden></div>
+    <div id="bookmarks" class="pane" hidden></div>
+  </nav>
+
+  <main id="stage">
+    <!-- 本文。allow-scripts を与えないので書籍の script は動かない。
+         allow-same-origin だけ与えて、親からこの中の DOM を触れるようにする。 -->
+    <iframe id="page" sandbox="allow-same-origin" title="本文"></iframe>
+    <div id="pdf" hidden></div>
+    <div id="welcome">
+      <h1>tzreader</h1>
+      <p>EPUB か PDF を開いてください。</p>
+      <button id="welcome-open">書籍を開く</button>
+      <div id="recent"></div>
+    </div>
+  </main>
+</div>
+
+<div id="settings" hidden>
+  <label>文字サイズ <input type="range" id="fontSizePercent" min="70" max="200" step="5"><span></span></label>
+  <label>行間 <input type="range" id="lineHeight" min="1.2" max="2.6" step="0.1"><span></span></label>
+  <label>本文幅 <input type="range" id="maxWidthEm" min="0" max="80" step="2"><span></span></label>
+  <label>テーマ
+    <select id="theme">
+      <option value="light">明るい</option>
+      <option value="sepia">セピア</option>
+      <option value="dark">暗い</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="codeWrap"> コードを折り返す</label>
+  <label><input type="checkbox" id="publisherStyle"> 出版社のスタイルを優先</label>
+</div>
+
+<div id="popover" hidden><div id="popover-body"></div></div>
+<div id="toast" hidden></div>
+
+<script src="/app/app.js"></script>
+</body>
+</html>

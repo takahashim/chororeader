@@ -1,7 +1,7 @@
 # Tauri 版（Windows を主対象とするが、コードは OS に依らない）。
 # まず契約を通すため、UI 非依存の core と、突き合わせ用の probe から作る。
 [workspace]
-members = ["core", "probe"]
+members = ["core", "probe", "app"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -11,3 +11,4 @@ zip = "2"
 quick-xml = "0.37"
 unicode-normalization = "0.1"
 encoding_rs = "0.8"
+serde = { version = "1", features = ["derive"] }

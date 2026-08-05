@@ -20,6 +20,7 @@ windows/**/obj/
 target/
 node_modules/
 spikes/tauri-spike/src-tauri/gen/
+tauri/app/gen/
 
 *.o
 .DS_Store
