@@ -389,40 +389,73 @@ document.addEventListener("click", (event) => {
 
 // ---- PDF ----------------------------------------------------------------
 
+function onPdfScroll() {
+  // いま画面の上端に来ているページを、位置として覚える。
+  const box = $("pdf");
+  const top = box.scrollTop;
+  for (const img of box.children) {
+    if (img.offsetTop + img.offsetHeight > top) {
+      state.page = Number(img.dataset.page);
+      break;
+    }
+  }
+  markCurrentToc();
+  rememberSoon();
+}
+
+/// ページの枠を並べる。中身は後から入る。
+function buildPdf() {
+  const box = $("pdf");
+  if (box.dataset.book === state.book.id) return;
+  box.dataset.book = state.book.id;
+  box.textContent = "";
+  for (let i = 0; i < state.book.pageCount; i++) {
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.dataset.page = String(i);
+    box.appendChild(img);
+  }
+  box.addEventListener("scroll", onPdfScroll, { passive: true });
+  layoutPdf();
+  renderPdf();
+}
+
+/// 倍率に合わせて枠の大きさだけを整える。
+/// 画像を取り直すより桁違いに軽いので、拡大の手応えはここで出す。
+/// 大きさを与えないと画像がすべて同じ位置に積まれ、loading="lazy" が効かない。
+function layoutPdf() {
+  const box = $("pdf");
+  const [width, height] = state.pageSize || [0, 0];
+  if (width <= 0 || box.children.length === 0) return;
+  const anchor = box.scrollHeight > 0 ? box.scrollTop / box.scrollHeight : 0;
+  const w = Math.round(width * state.zoom) + "px";
+  const h = Math.round(height * state.zoom) + "px";
+  for (const img of box.children) {
+    img.style.width = w;
+    img.style.height = h;
+  }
+  box.scrollTop = anchor * box.scrollHeight;
+  updatePannable();
+}
+
+/// 実際に描き直す。拡大の途中で毎回呼ぶと追いつかないので、落ち着いてから動かす。
+let renderTimer = null;
+function renderPdf() {
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(() => {
+    if (!state.book || state.book.format !== "pdf") return;
+    const box = $("pdf");
+    for (const img of box.children) {
+      const url = `/pdf/${state.book.id}/${img.dataset.page}/${state.zoom}`;
+      if (img.getAttribute("src") !== url) img.src = url;
+    }
+  }, 160);
+}
+
 async function showPdf(page) {
   state.page = Math.max(0, Math.min(state.book.pageCount - 1, page));
+  buildPdf();
   const box = $("pdf");
-  if (box.dataset.book !== state.book.id || box.dataset.zoom !== String(state.zoom)) {
-    box.dataset.book = state.book.id;
-    box.dataset.zoom = String(state.zoom);
-    box.textContent = "";
-    // 大きさを先に決めておく。決めないと画像がすべて同じ位置に積まれ、
-    // loading="lazy" が効かず、何百ページぶんも一度に描いてしまう。
-    const [width, height] = state.pageSize || [0, 0];
-    for (let i = 0; i < state.book.pageCount; i++) {
-      const img = document.createElement("img");
-      img.loading = "lazy";
-      img.dataset.page = String(i);
-      if (width > 0) {
-        img.style.width = Math.round(width * state.zoom) + "px";
-        img.style.height = Math.round(height * state.zoom) + "px";
-      }
-      img.src = `/pdf/${state.book.id}/${i}/${state.zoom}`;
-      box.appendChild(img);
-    }
-    box.addEventListener("scroll", () => {
-      // いま画面の上端に来ているページを、位置として覚える。
-      const top = box.scrollTop;
-      for (const img of box.children) {
-        if (img.offsetTop + img.offsetHeight > top) {
-          state.page = Number(img.dataset.page);
-          break;
-        }
-      }
-      markCurrentToc();
-      rememberSoon();
-    }, { passive: true });
-  }
   const target = box.children[state.page];
   if (target) box.scrollTop = target.offsetTop - 16;
   markCurrentToc();
@@ -433,6 +466,12 @@ async function showPdf(page) {
 
 const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 6;
+
+let saveTimer = null;
+function saveSettingsSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => invoke("save_settings", { settings: state.settings }), 400);
+}
 
 /// 合わせ方から倍率を決める。PDF でページの大きさが分かっているときだけ計算できる。
 function zoomForFit(fit) {
@@ -456,7 +495,7 @@ function setZoom(value, fit) {
   } else {
     state.settings.epubZoom = state.zoom;
   }
-  invoke("save_settings", { settings: state.settings });
+  saveSettingsSoon();
   $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
   $("fit").value = state.settings.fit;
   applyZoom();
@@ -465,8 +504,8 @@ function setZoom(value, fit) {
 function applyZoom() {
   if (!state.book) return;
   if (state.book.format === "pdf") {
-    showPdf(state.page);
-    updatePannable();
+    layoutPdf();
+    renderPdf();
     return;
   }
   // リフローする本文は、文字も図も一緒に拡大する。
@@ -503,8 +542,9 @@ function onWheel(event) {
   if (!event.ctrlKey) return;
   event.preventDefault();
   if (!state.book) return;
-  setZoom(state.zoom * Math.exp(-event.deltaY / 180), "custom");
-  $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
+  // ピンチ 1 回ぶんの deltaY は小さい。180 で割ると 1 回あたり 0.5% ほどにしかならず、
+  // 指を動かしても倍率がほとんど変わらない。
+  setZoom(state.zoom * Math.exp(-event.deltaY / 50), "custom");
 }
 document.addEventListener("wheel", onWheel, { passive: false });
 
