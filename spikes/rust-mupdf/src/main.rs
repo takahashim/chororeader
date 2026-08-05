@@ -74,6 +74,40 @@ fn run(path: &str, needle: &str) -> Result<(), Box<dyn std::error::Error>> {
         searched.as_millis()
     );
 
+    // 文字ごとの位置。PDF.js が既製で持っている「選択できるテキスト層」を
+    // MuPDF で自前に作れるかどうかは、ここが取れるかで決まる。
+    let structured = Instant::now();
+    let text_page = page.to_text_page(mupdf::TextPageOptions::empty())?;
+    let mut chars = 0;
+    let mut sample = Vec::new();
+    let mut vertical = 0;
+    let mut lines = 0;
+    for block in text_page.blocks() {
+        for line in block.lines() {
+            lines += 1;
+            if line.wmode() == mupdf::WriteMode::Vertical {
+                vertical += 1;
+            }
+            for ch in line.chars() {
+                chars += 1;
+                if sample.len() < 4 {
+                    if let Some(c) = ch.char() {
+                        let q = ch.quad();
+                        sample.push(format!(
+                            "{c}({:.0},{:.0})-({:.0},{:.0})",
+                            q.ul.x, q.ul.y, q.lr.x, q.lr.y
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    println!(
+        "文字ごとの位置: {} ms  {lines} 行 {chars} 文字（縦書きの行 {vertical}）  {}",
+        structured.elapsed().as_millis(),
+        sample.join(" ")
+    );
+
     // 描画。WebView へ渡すことを想定して、符号化までの費用を分けて測る。
     let matrix = mupdf::Matrix::new_scale(1.5, 1.5);
     let rendered = Instant::now();
