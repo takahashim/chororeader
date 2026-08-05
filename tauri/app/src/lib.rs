@@ -45,7 +45,18 @@ pub fn run() {
             remember_position,
             toggle_bookmark,
             open_external,
+            focus_webview,
         ])
+        // 窓が鍵盤を得たら、WebView を受け手に戻す。
+        // ファイルダイアログが受け手を奪ったまま返さないことがあり、
+        // そうなると画面側では焦点が当たって見えるのにキーが 1 つも届かない。
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(true) = event {
+                for webview in window.webviews() {
+                    let _ = webview.set_focus();
+                }
+            }
+        })
         .register_asynchronous_uri_scheme_protocol(protocol::SCHEME, |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             // 描画で画面を止めないため、要求ごとに別スレッドで応える。
@@ -358,6 +369,16 @@ fn toggle_bookmark(
     bookmark: Bookmark,
 ) -> Vec<Bookmark> {
     store.toggle_bookmark(&path, bookmark)
+}
+
+/// WebView を鍵盤の受け手にする。
+///
+/// 画面側の focus() では届かない。あちらが動かすのは文書の中の焦点だけで、
+/// OS から見た受け手（macOS の first responder）は別にあるためである。
+/// 窓の処理なので、ワーカースレッドへは逃がさない。
+#[tauri::command]
+fn focus_webview(webview: tauri::Webview) -> Result<(), String> {
+    webview.set_focus().map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]

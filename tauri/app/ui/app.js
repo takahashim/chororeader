@@ -718,7 +718,7 @@ function fillSettings() {
 // キーが届いていないのか、届いたが行き先が違うのかを、その場で見分ける。
 // 焦点がどこにも無ければキーはどの文書にも届かないので、焦点も一緒に出す。
 
-const probe = { keys: 0, last: "（まだ来ていない）", note: "" };
+const probe = { keys: 0, last: "（まだ来ていない）", note: "", responder: "まだ" };
 
 function recordKey(event) {
   const inParent = event.target && event.target.ownerDocument === document;
@@ -744,7 +744,7 @@ function updateProbe() {
   box.textContent =
     `焦点  窓=${document.hasFocus()} 親=${tag(document.activeElement)}` +
     (doc ? ` 本文=${tag(doc.activeElement)}(focus=${doc.hasFocus()})` : " 本文=なし") + "\n" +
-    `キー  ${probe.keys} 件  最後: ${probe.last}\n` +
+    `キー  ${probe.keys} 件  最後: ${probe.last}  受け手: ${probe.responder}\n` +
     `動き  ${probe.note}`;
 }
 
@@ -771,10 +771,22 @@ function toggleProbe(on) {
 // その途中で focus() を呼んでも、あとから来る復帰に打ち消される。
 // そのため、窓が焦点を得たときにも当て直す。
 function focusContent() {
+  // 2 段ある。
+  //
+  // 1 段目は OS から見た鍵盤の受け手（macOS の first responder）。
+  // 画面側の focus() では動かせず、Rust 側からしか戻せない。
+  // ダイアログを開いたあとなどに WebView から外れたまま戻らないことがあり、
+  // そうなると画面では焦点が当たって見えるのにキーが 1 つも届かない。
+  invoke("focus_webview").then(
+    () => { probe.responder = "戻した"; },
+    (e) => { probe.responder = "戻せない: " + e; });
+
+  // 2 段目は文書の中の焦点。**本文の iframe には移さない。**
+  // あちらは allow-scripts を与えていないため、焦点を移すとキーの行き先が無くなる。
+  // 親に置いておけば、上下やスペースはこちらから本文へ送れる（scrollContent）。
   if (!state.book) return;
   if (document.activeElement === $("search-input")) return;
-  const target = state.book.format === "pdf" ? $("pdf") : $("page");
-  target.focus();
+  $("stage").focus();
 }
 
 window.addEventListener("focus", focusContent);
@@ -807,8 +819,7 @@ function onKeyDown(event) {
   if (event.key === back) { event.preventDefault(); return step(-1); }
   if (event.key === forward) { event.preventDefault(); return step(1); }
 
-  // 縦の送り。焦点が本文にあるときは WebKit が勝手にやってくれるが、
-  // 親にあるときは何も起きない。どちらでも同じ動きになるよう、こちらでも送る。
+  // 縦の送り。焦点は親に置いてあるので、本文へはこちらから送る。
   if (event.target && event.target.ownerDocument !== document) return;
   const step_ = { ArrowDown: 60, ArrowUp: -60, PageDown: 0.9, PageUp: -0.9 }[event.key];
   const space = event.key === " " ? (event.shiftKey ? -0.9 : 0.9) : null;
@@ -878,7 +889,10 @@ $("sidebar-tabs").addEventListener("click", (event) => {
 
 async function pick() {
   const path = await invoke("pick_book");
-  if (path) openPath(path);
+  // ダイアログが鍵盤の受け手を持ち去ったままのことがある。閉じた直後に戻す。
+  invoke("focus_webview").catch(() => {});
+  if (path) await openPath(path);
+  focusContent();
 }
 
 $("open-button").addEventListener("click", pick);
