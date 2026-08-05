@@ -1,0 +1,124 @@
+# Tauri スパイクの結果
+
+Windows 版を C# + WinUI + WebView2 で作るか、Tauri（Rust + OS 標準の WebView）で作るかを決めるために測った。
+2026-08-06、macOS 15 / Apple Silicon。
+
+動かしたもの:
+
+- `spikes/rust-mupdf/` — MuPDF の Rust バインディングだけを単体で試すコマンド
+- `spikes/tauri-spike/` — Tauri アプリ。独自スキーム、iframe の sandbox、PDF の描画をまとめて判定する
+
+## 判定したかったこと
+
+C# 版で成り立っていた前提が、Tauri でも成り立つかどうか。
+
+1. 書籍由来の JavaScript を止めたまま、アプリ側のコードで本文の DOM を触れるか
+2. EPUB を展開せずに ZIP から独自スキームで配れるか
+3. MuPDF で描いたページを WebView へ渡したとき、拡大しながらの連続再描画に耐えるか
+4. MuPDF の Rust バインディングが、MuPDFCore と同じ API を備えているか
+
+## スパイク 5：MuPDF の Rust バインディング（spikes/rust-mupdf）
+
+`mupdf = "0.5"` は C のソースからビルドされる。
+macOS arm64 で問題なく通り、**素の状態から 69 秒**（release、8 コア並列）。以後の増分ビルドは 2 秒。
+
+実書籍（技評『関数プログラミング実践入門』401 ページ）に対する実測:
+
+| 項目 | Rust の mupdf 0.5 | C# の MuPDFCore 2.0.1 |
+| --- | --- | --- |
+| 開く（2 回目以降） | 0 ms | 0 ms |
+| 本文抽出（1 ページ） | 28 ms | 10 ms |
+| 検索（先頭 20 ページ、124 件） | 37 ms | 11 ms |
+| 描画（1.5 倍、630x893） | 58 ms | 72 ms |
+| 目次 | 第 1 階層 18 項目 | 27 項目（PDFKit と一致） |
+
+抽出と検索は Rust 側が遅く見えるが、測り方が違う（C# は 1 ページあたり、こちらは初回を含む）ため、この表から優劣は言えない。
+どちらも実用の範囲に収まっている、という以上のことはこの数字からは読み取らない。
+
+API は必要なものが揃っていた。ページ数、目次（`down` で階層をたどれる）、`to_text`、`search`、`to_pixmap`、`write_to` による PNG 符号化。
+
+落とし穴が 2 つあった。
+
+- `Pixmap::get_image_data` は非公開。PNG にするには `write_to` を使う。
+- `Document` はスレッドを跨げない。開いたスレッドに閉じ込め、チャネル越しに描画を依頼する形にした。
+
+## スパイク 6：Tauri（spikes/tauri-spike）
+
+Tauri 2.11、`WebviewWindowBuilder` でウィンドウを作り、`register_asynchronous_uri_scheme_protocol` で `tzr` スキームを配る。
+判定は画面側の JavaScript が行い、結果を `invoke` で Rust へ返して JSON を標準出力へ書く。
+
+### 前提 1・4：書籍の JavaScript を止められるか
+
+**Tauri では、macOS 版・WebView2 版と同じ手は使えない。**
+アプリの画面そのものが JavaScript でできているため、WebView 全体でスクリプトを止めるわけにいかない。
+
+代わりに、本文を `sandbox="allow-same-origin"` を付けた iframe に入れる。
+`allow-scripts` を与えなければ、その iframe の中でスクリプトは動かない。
+
+測った結果:
+
+- sandbox 付きの iframe：書籍の `<script>` は**動かない**
+- sandbox 無しの iframe（対照）：同じ文書で `<script>` は**動く**
+
+対照を並べたのは、動かなかった理由が sandbox 以外（CSP など）でないことを示すため。
+
+**アプリ側のコードは、注入ではなく親から直接触る形になる。**
+親の文書から `iframe.contentDocument` を辿り、要素の追加、本文の書き換え、`scrollHeight` の読み取りができることを確認した。
+macOS 版は本文の文書へスクリプトを注入していたが、Tauri ではその必要がない。
+
+これが成り立つのは、**画面と本文を同じ生成元から配ったとき**に限る。
+アプリの画面を `frontendDist` から（`tauri://localhost`）、本文を `tzr://localhost` から配ると生成元が分かれ、親から `contentDocument` に届かない。
+そこで画面自体も `tzr://localhost/app/index.html` として独自スキームから配った。実測した生成元は `tzr://localhost`。
+
+### 前提 2：EPUB を展開せずに配れるか
+
+`zip` クレートでアーカイブを開いたまま持ち、要求のたびに該当エントリだけを展開して返す。
+実書籍の章を ZIP から取り出して iframe に表示できた（330 文字）。macOS 版の自前 ZIP リーダーと同じ方式が取れる。
+
+### 前提 3：拡大しながらの連続再描画に耐えるか
+
+`X-Render-Ms` ヘッダで MuPDF の描画時間を返し、画面側で測る往復時間との差から内訳を出した。
+release ビルドでの中央値（ミリ秒）:
+
+| 操作 | 合計 | 描画 | 転送 | 表示 |
+| --- | --- | --- | --- | --- |
+| ページ送り 10 回（1.5 倍） | 29 | 23 | 1 | 5 |
+| 拡大 10 回（1.0〜1.9 倍） | 30 | 22 | 1 | 6 |
+| 拡大 20 回（1.0〜3.85 倍） | 91 | 71 | 1 | 14 |
+
+最初の 1 ページが出るまでは 130 ms。
+
+**転送が 1 ms である**ことが重要だった。
+独自スキームで PNG を渡す経路は費用にならず、時間はほぼ MuPDF の描画そのものである。
+つまり、速さの上限を決めるのは Tauri ではなく MuPDF であり、この点で C# + WebView2 と差が付く理由はない。
+
+倍率を上げると描画は重くなる（3.85 倍で 71 ms）が、拡大の途中は CSS の変倍で見せ、指を離してから描き直せばよい。
+読む倍率の範囲（1.0〜1.9 倍）では 30 ms に収まっている。
+
+なお debug ビルドでは同じ操作が 207 ms かかった。MuPDF は C のソースからビルドされるため、profile の影響を強く受ける。計測は release で行う。
+
+## 分かったこと
+
+4 つの前提はすべて成り立つ。Tauri で Windows 版を作れる。
+
+C# + WinUI と比べたときの違いは、速さではなく次の 2 点にある。
+
+- **開発を macOS で進められる**。Rust と Web の資産は OS に依らない。Windows 実機が要るのは、WebView2 での確認とビルドの最終確認だけになる。
+- **書籍の JavaScript を止める仕組みが変わる**。WebView 全体の設定ではなく iframe の sandbox になり、アプリ側のコードは注入ではなく親からの直接操作になる。
+
+**確かめていないこと**：ここで測ったのは macOS の WKWebView である。
+Windows の WebView2 は Chromium であり、iframe の sandbox の扱いも生成元の扱いも同じとは限らない。
+同じスパイクを windows-latest の CI で走らせて確かめる（`.github/workflows/ci.yml` の `tauri-spike-windows`）。
+
+## 再現の仕方
+
+```sh
+cd spikes/rust-mupdf
+cargo run --release -- <PDF のパス> 型
+
+cd spikes/tauri-spike/src-tauri
+cargo build --release
+TZR_EPUB=<EPUB のパス> TZR_PDF=<PDF のパス> ./target/release/app
+```
+
+環境変数を省くと、その部分の判定を飛ばす。書籍が無くても前提 1・4 は測れる。

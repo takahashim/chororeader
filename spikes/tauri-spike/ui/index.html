@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>tzreader Tauri スパイク</title>
+<style>
+  body { font: 13px/1.7 -apple-system, sans-serif; margin: 12px; }
+  iframe { width: 300px; height: 90px; border: 1px solid #ccc; }
+  #shot { max-width: 100%; border: 1px solid #ccc; }
+  pre { background: #f4f4f4; padding: 8px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>判定中</h1>
+<div>
+  <iframe id="sandboxed" sandbox="allow-same-origin" src="/probe/chapter.xhtml"></iframe>
+  <iframe id="control" src="/probe/chapter.xhtml"></iframe>
+  <iframe id="real"></iframe>
+</div>
+<img id="shot" alt="">
+<pre id="log"></pre>
+
+<script>
+const log = (m) => { document.getElementById('log').textContent += m + "\n"; };
+
+// iframe は生成直後に about:blank を持っており、それも readyState は 'complete' を返す。
+// load イベントや readyState で待つと空の文書を掴む。目当ての文書に現れる印を待つ。
+const waitUntil = (fn, what, timeout = 15000) => new Promise((resolve, reject) => {
+  const started = performance.now();
+  const tick = () => {
+    let value = null;
+    try { value = fn(); } catch (e) { /* 生成元が違えば例外。その判定は呼び出し側でする */ }
+    if (value) return resolve(value);
+    if (performance.now() - started > timeout) return reject(new Error(what + ' を待って時間切れになった'));
+    requestAnimationFrame(tick);
+  };
+  tick();
+});
+
+// 目当ての文書が入ったことを、その中の要素の有無で確かめる。
+// 読み込みの完了も併せて要求する。要素が現れた直後は、その後ろの script がまだ走っていない。
+const loaded = (frame, selector) =>
+  waitUntil(() => {
+    const doc = frame.contentDocument;
+    return doc && doc.readyState === 'complete' && doc.querySelector(selector);
+  }, frame.id + ' の ' + selector);
+
+// 1 ページが画面に出るまでを測り、内訳を分ける。
+// MuPDF が描く時間、WebView へ渡す時間、WebView が復号して描く時間。
+// どこが重いかで打ち手が変わるため、合計だけでは判断できない。
+async function showPage(page, scale, nonce) {
+  const started = performance.now();
+  const res = await fetch(`/pdf/${page}/${scale}?n=${nonce}`);
+  const render = Number(res.headers.get('X-Render-Ms'));
+  const blob = await res.blob();
+  const delivered = performance.now();
+
+  const img = document.getElementById('shot');
+  const previous = img.src;
+  img.src = URL.createObjectURL(blob);
+  await img.decode();
+  if (previous.startsWith('blob:')) URL.revokeObjectURL(previous);
+
+  return {
+    total: performance.now() - started,
+    render,
+    transfer: (delivered - started) - render,
+    paint: performance.now() - delivered,
+    bytes: blob.size,
+  };
+}
+
+const median = (xs) => {
+  const s = [...xs].sort((a, b) => a - b);
+  return Math.round(s[Math.floor(s.length / 2)]);
+};
+
+// 内訳ごとの中央値をまとめる。
+const summarize = (samples) => ({
+  totalMs: median(samples.map((s) => s.total)),
+  renderMs: median(samples.map((s) => s.render)),
+  transferMs: median(samples.map((s) => s.transfer)),
+  paintMs: median(samples.map((s) => s.paint)),
+  maxTotalMs: Math.round(Math.max(...samples.map((s) => s.total))),
+  medianBytes: median(samples.map((s) => s.bytes)),
+});
+
+async function main() {
+  const result = { steps: [] };
+  const step = (s) => { result.steps.push(s); log(s); };
+
+  const info = await (await fetch('/probe/info.json')).json();
+  step('独自スキームから JSON を取得できた');
+
+  // 問い 4：画面と本文が同じ生成元に載るか。
+  const sandboxed = document.getElementById('sandboxed');
+  const control = document.getElementById('control');
+  // 対照側は必ず読める。sandbox 側が読めるかどうかがここでの問い。
+  await loaded(control, '#p');
+
+  let sameOrigin = false;
+  try {
+    await loaded(sandboxed, '#p');
+    sameOrigin = true;
+  } catch (e) {
+    result.sameOriginError = String(e.message || e);
+  }
+  result.origin = location.origin;
+  result.parentCanReachSandboxedFrame = sameOrigin;
+  step(`生成元 ${location.origin}／sandbox 付き iframe の DOM に${sameOrigin ? '届く' : '届かない'}`);
+
+  // 問い 1：sandbox で書籍側の JavaScript が止まるか。
+  // 止まったことを CSP など別の理由と取り違えないよう、sandbox 無しの対照を並べる。
+  const sandboxedRan = sameOrigin
+    && sandboxed.contentDocument.getElementById('p').textContent.includes('CONTENT-JS-RAN');
+  const controlRan = control.contentDocument.getElementById('p').textContent.includes('CONTENT-JS-RAN');
+  result.bookScriptRanInSandbox = sandboxedRan;
+  result.bookScriptRanWithoutSandbox = controlRan;
+  step(`書籍の script：sandbox 有り ${sandboxedRan ? '動いた' : '動かない'}／無し ${controlRan ? '動いた' : '動かない'}`);
+
+  // アプリ側のコードが本文に手を入れられるか。
+  // Tauri では注入ではなく、親から iframe の DOM を直接触る形になる。
+  let injected = false;
+  if (sameOrigin) {
+    const doc = sandboxed.contentDocument;
+    const marker = doc.createElement('span');
+    marker.id = 'tzr-marker';
+    doc.body.appendChild(marker);
+    doc.getElementById('p').textContent = 'TOUCHED-BY-APP';
+    injected = doc.getElementById('tzr-marker') !== null
+      && doc.getElementById('p').textContent === 'TOUCHED-BY-APP';
+    // 位置の読み取りも要る。スクロール量が取れるかを見る。
+    result.scrollReadable = typeof doc.documentElement.scrollHeight === 'number'
+      && doc.documentElement.scrollHeight > 0;
+  }
+  result.appCanEditBookDom = injected;
+  step(`アプリから本文の DOM を${injected ? '書き換えられた' : '書き換えられない'}`);
+
+  // 問い 2：EPUB を展開せずに ZIP から配れるか。
+  if (info.epubChapter) {
+    const real = document.getElementById('real');
+    real.setAttribute('sandbox', 'allow-same-origin');
+    real.src = '/book/' + info.epubChapter.split('/').map(encodeURIComponent).join('/');
+    result.epubChapter = info.epubChapter;
+    try {
+      const doc = await waitUntil(() => {
+        const d = real.contentDocument;
+        return d && d.readyState === 'complete' && d.body && d.body.textContent.trim().length > 0
+          ? d : null;
+      }, '実書籍の章');
+      result.epubChapterTextLength = doc.body.textContent.trim().length;
+      result.epubServedFromZip = true;
+    } catch (e) {
+      result.epubChapterTextLength = 0;
+      result.epubServedFromZip = false;
+      result.epubError = String(e.message || e);
+    }
+    step(`EPUB の章「${info.epubChapter}」を ZIP から配って ${result.epubChapterTextLength} 文字を表示した`);
+  }
+
+  // 問い 3：拡大しながらの連続再描画に耐えるか。
+  if (info.pdfPages > 0) {
+    result.pdfPages = info.pdfPages;
+    const page = Math.min(10, info.pdfPages - 1);
+
+    result.firstPaintMs = Math.round((await showPage(page, 1.5, 'first')).total);
+    step(`最初の 1 ページ表示まで ${result.firstPaintMs} ms`);
+
+    // 拡大操作を模す。倍率を少しずつ変えながら描き直す。
+    const zoom = [];
+    for (let i = 0; i < 20; i++) {
+      const scale = 1.0 + i * 0.15;
+      zoom.push(await showPage(page, scale.toFixed(2), 'z' + i));
+    }
+    result.zoom = summarize(zoom);
+    step(`倍率 1.0〜3.85 で 20 回描き直し：合計 ${result.zoom.totalMs} ms`
+       + `（描画 ${result.zoom.renderMs} ／転送 ${result.zoom.transferMs} ／表示 ${result.zoom.paintMs}）`
+       + `、最大 ${result.zoom.maxTotalMs} ms`);
+
+    // 画面に収まる倍率だけで測り直す。拡大の上限まで毎回描き直す作りにはしないため。
+    const modest = [];
+    for (let i = 0; i < 10; i++) {
+      modest.push(await showPage(page, (1.0 + i * 0.1).toFixed(2), 'm' + i));
+    }
+    result.zoomToFit = summarize(modest);
+    step(`倍率 1.0〜1.9 で 10 回描き直し：合計 ${result.zoomToFit.totalMs} ms`
+       + `（描画 ${result.zoomToFit.renderMs} ／転送 ${result.zoomToFit.transferMs} ／表示 ${result.zoomToFit.paintMs}）`);
+
+    // ページ送りを模す。等倍で連続するページを描く。
+    const flip = [];
+    for (let i = 0; i < 10; i++) {
+      flip.push(await showPage(Math.min(page + i, info.pdfPages - 1), 1.5, 'f' + i));
+    }
+    result.pageTurn = summarize(flip);
+    step(`ページ送り 10 回：合計 ${result.pageTurn.totalMs} ms`
+       + `（描画 ${result.pageTurn.renderMs} ／転送 ${result.pageTurn.transferMs} ／表示 ${result.pageTurn.paintMs}）`
+       + `、PNG ${Math.round(result.pageTurn.medianBytes / 1024)} KB`);
+  }
+
+  // macOS 版・WebView2 版と同じ前提が保てる条件。
+  result.assumptionHolds = result.parentCanReachSandboxedFrame
+    && !result.bookScriptRanInSandbox
+    && result.bookScriptRanWithoutSandbox
+    && result.appCanEditBookDom
+    && (info.epubChapter ? result.epubServedFromZip : true);
+
+  result.conclusion = result.assumptionHolds
+    ? 'sandbox 付き iframe で書籍の JS を止めたまま、親から本文の DOM を触れる。独自スキームも使える。'
+    : '前提が崩れる。EPUB ナビゲータの作りを見直す必要がある。';
+
+  document.querySelector('h1').textContent = result.assumptionHolds ? '前提は成り立つ' : '前提が崩れる';
+  await window.__TAURI__.core.invoke('report', { result });
+}
+
+main().catch(async (e) => {
+  log('失敗: ' + (e && e.stack || e));
+  try {
+    await window.__TAURI__.core.invoke('report', { result: { error: String(e), assumptionHolds: false } });
+  } catch (_) {}
+});
+</script>
+</body>
+</html>

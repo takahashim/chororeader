@@ -16,5 +16,10 @@ macos/Tests/local-books.json
 windows/**/bin/
 windows/**/obj/
 
+# Rust と Node のビルド生成物
+target/
+node_modules/
+spikes/tauri-spike/src-tauri/gen/
+
 *.o
 .DS_Store

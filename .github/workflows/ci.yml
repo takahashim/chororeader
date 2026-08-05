@@ -79,6 +79,28 @@ jobs:
         working-directory: windows
         run: dotnet run --project TZReader.WebViewSpike/TZReader.WebViewSpike.csproj
 
+  tauri-spike-windows:
+    name: Tauri の前提を Windows で確かめる
+    runs-on: windows-latest
+    # MuPDF を C のソースからビルドするため、初回は長い。
+    # プログラム側にも 120 秒の見張りがある。
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spikes/tauri-spike/src-tauri
+
+      # macOS では成り立つことを確認済み（spikes/findings-tauri.md のスパイク 6）。
+      # WebView2 は Chromium であり、iframe の sandbox の扱いも生成元の扱いも同じとは限らない。
+      # 書籍は置かないため、判定するのは「書籍の JS を止められるか」と「生成元が揃うか」の 2 点。
+      - name: スパイクを実行する
+        working-directory: spikes/tauri-spike/src-tauri
+        run: cargo run --release
+
   windows-build:
     name: Windows 実装のビルド
     runs-on: windows-latest
