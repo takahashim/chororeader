@@ -1,6 +1,7 @@
 # 実装間の契約
 
-macOS 版（Swift）と Windows 版（C#）が同じ振る舞いをすることを、機械的に確かめるための取り決め。
+実装が同じ振る舞いをすることを、機械的に確かめるための取り決め。
+いまは macOS 版（Swift）、Windows 版（C#）、Tauri 版（Rust）の 3 つがある。
 
 ## 揃えるもの
 
@@ -54,10 +55,12 @@ macOS 版（Swift）と Windows 版（C#）が同じ振る舞いをすること�
 `preview` は整形の細部ではなく、切り出した範囲を揃える。
 出力の `text` は抜粋からタグとスタイルを除いたもので、注入した CSS は含めない。
 
-macOS 版の実体は次のとおり。
+各実装の実体は次のとおり。起動方法は `conformance/probes.json` に書く。
 
 ```
 macos/build/TZReader.app/Contents/MacOS/TZReader probe parse foo.epub
+dotnet windows/TZReader.Probe/bin/Debug/net10.0/tzprobe.dll probe parse foo.epub
+tauri/target/release/tzprobe probe parse foo.epub
 ```
 
 ## 正規化の規約

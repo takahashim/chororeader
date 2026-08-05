@@ -1,0 +1,15 @@
+[package]
+name = "tzreader-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde_json.workspace = true
+regex.workspace = true
+zip.workspace = true
+quick-xml.workspace = true
+unicode-normalization.workspace = true
+encoding_rs.workspace = true
+# 0.5 は Windows でビルドできない（spikes/findings-tauri.md）。
+# 既定の機能は使わない。OCR や XPS はこのアプリでは使わない。
+mupdf = { version = "0.8", default-features = false, features = ["system-fonts"] }

@@ -1,0 +1,12 @@
+[package]
+name = "tzprobe"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tzprobe"
+path = "src/main.rs"
+
+[dependencies]
+tzreader-core = { path = "../core" }
+serde_json.workspace = true

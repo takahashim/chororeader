@@ -22,6 +22,15 @@ jobs:
         with:
           dotnet-version: "10.0"
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      # MuPDF を C のソースからビルドするため、キャッシュが無いと数分かかる。
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri
+          shared-key: tauri-core
+          cache-on-failure: true
+
       - name: 検証ツール自身のテスト
         working-directory: conformance
         run: bundle exec ruby test/runner_test.rb
@@ -46,19 +55,28 @@ jobs:
         working-directory: windows
         run: dotnet build TZReader.Probe/TZReader.Probe.csproj
 
-      # .NET は macOS でも動くため、2 実装の突き合わせはこのジョブ 1 つで完結する。
+      - name: Rust のビルドとテスト
+        working-directory: tauri
+        run: |
+          cargo build --release
+          cargo test --release
+
+      # .NET も Rust も macOS で動くため、3 実装の突き合わせはこのジョブ 1 つで完結する。
       - name: 期待値との照合と、実装間の突き合わせ
         working-directory: conformance
         run: |
           cat > probes.json <<'JSON'
           {
             "swift": ["macos/build/TZReader.app/Contents/MacOS/TZReader"],
-            "csharp": ["dotnet", "windows/TZReader.Probe/bin/Debug/net10.0/tzprobe.dll"]
+            "csharp": ["dotnet", "windows/TZReader.Probe/bin/Debug/net10.0/tzprobe.dll"],
+            "rust": ["tauri/target/release/tzprobe"]
           }
           JSON
           bundle exec ./tzconf check swift
           bundle exec ./tzconf check csharp
+          bundle exec ./tzconf check rust
           bundle exec ./tzconf diff swift csharp
+          bundle exec ./tzconf diff swift rust
 
   webview2-spike:
     name: WebView2 の前提を確かめる
