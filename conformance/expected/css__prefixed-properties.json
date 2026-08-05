@@ -1,0 +1,22 @@
+{
+  "changes": [
+    {
+      "count": 1,
+      "from": "-epub-hyphens",
+      "to": "hyphens"
+    },
+    {
+      "count": 1,
+      "from": "-epub-text-orientation",
+      "to": "text-orientation"
+    },
+    {
+      "count": 1,
+      "from": "-epub-writing-mode",
+      "to": "writing-mode"
+    }
+  ],
+  "command": "css",
+  "output": ".v { writing-mode: vertical-rl; text-orientation: upright; }\n.h { hyphens: auto; }\n",
+  "schema": 1
+}

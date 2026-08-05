@@ -1,0 +1,7 @@
+{
+  "base": "OEBPS/text",
+  "command": "resolve",
+  "href": "ch01.xhtml",
+  "result": "OEBPS/text/ch01.xhtml",
+  "schema": 1
+}

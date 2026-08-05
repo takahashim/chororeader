@@ -1,0 +1,20 @@
+{
+  "command": "search",
+  "query": "本文",
+  "results": [
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "isCode": false,
+      "match": "本文",
+      "progression": 0.371
+    },
+    {
+      "href": "OEBPS/text/ch02.xhtml",
+      "isCode": false,
+      "match": "本文",
+      "progression": 0.727
+    }
+  ],
+  "schema": 1,
+  "truncated": false
+}

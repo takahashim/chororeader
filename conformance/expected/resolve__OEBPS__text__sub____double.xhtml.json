@@ -1,0 +1,7 @@
+{
+  "base": "OEBPS/text",
+  "command": "resolve",
+  "href": "sub//double.xhtml",
+  "result": "OEBPS/text/sub/double.xhtml",
+  "schema": 1
+}

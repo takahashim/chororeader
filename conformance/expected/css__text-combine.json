@@ -1,0 +1,12 @@
+{
+  "changes": [
+    {
+      "count": 1,
+      "from": "-epub-text-combine: horizontal",
+      "to": "text-combine-upright: all"
+    }
+  ],
+  "command": "css",
+  "output": ".k { text-combine-upright: all; }\n",
+  "schema": 1
+}

@@ -1,0 +1,27 @@
+{
+  "command": "report",
+  "report": {
+    "cssChanges": [],
+    "cssFileCount": 1,
+    "deflatedEntryCount": 7,
+    "direction": "ltr",
+    "fontCount": 0,
+    "format": "reflowableEPUB",
+    "hasCover": false,
+    "hasEncryptionMetadata": false,
+    "imageCount": 0,
+    "layout": "reflowable",
+    "legacyCSSFileCount": 0,
+    "malformedXHTMLCount": 0,
+    "missingResources": [],
+    "missingSpineItems": [],
+    "missingTOCTargets": [],
+    "nonUTF8CSSCount": 0,
+    "spineCount": 2,
+    "storedEntryCount": 1,
+    "tocEntryCount": 3,
+    "tocMaxDepth": 1,
+    "xhtmlCount": 4
+  },
+  "schema": 1
+}

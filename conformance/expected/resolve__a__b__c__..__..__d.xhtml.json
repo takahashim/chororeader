@@ -1,0 +1,7 @@
+{
+  "base": "a/b/c",
+  "command": "resolve",
+  "href": "../../d.xhtml",
+  "result": "a/d.xhtml",
+  "schema": 1
+}

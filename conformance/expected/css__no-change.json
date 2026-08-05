@@ -1,0 +1,6 @@
+{
+  "changes": [],
+  "command": "css",
+  "output": "body { margin: 0; }\n",
+  "schema": 1
+}

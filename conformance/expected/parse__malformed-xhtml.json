@@ -1,0 +1,24 @@
+{
+  "authors": [],
+  "command": "parse",
+  "direction": "ltr",
+  "format": "reflowableEPUB",
+  "identifier": "urn:uuid:malformed-xhtml",
+  "language": "ja",
+  "layout": "reflowable",
+  "readingOrder": [
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "mediaType": "application/xhtml+xml"
+    }
+  ],
+  "schema": 1,
+  "tableOfContents": [
+    {
+      "children": [],
+      "href": "OEBPS/text/ch01.xhtml",
+      "title": "第 1 章"
+    }
+  ],
+  "title": "壊れた XHTML"
+}

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  macos:
+    name: macOS 実装と実装間の検証
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+          working-directory: conformance
+
+      - name: 検証ツール自身のテスト
+        working-directory: conformance
+        run: bundle exec ruby test/runner_test.rb
+
+      - name: 合成フィクスチャを作る
+        working-directory: conformance
+        run: ./tzconf generate
+
+      - name: Swift のビルドとテスト
+        working-directory: macos
+        # 実書籍を使うテストは手元にファイルが無ければスキップされる
+        run: |
+          swift build
+          swift test
+
+      - name: アプリを組み立てる
+        working-directory: macos
+        run: ./make-app.sh
+
+      - name: 期待値との照合
+        working-directory: conformance
+        run: ./tzconf check swift
+
+      # C# 実装が入ったら有効にする。.NET は macOS でも動くため、
+      # 2 実装の突き合わせはこのジョブ 1 つで完結する。
+      # - uses: actions/setup-dotnet@v4
+      #   with:
+      #     dotnet-version: "8.0"
+      # - name: 実装間の突き合わせ
+      #   working-directory: conformance
+      #   run: |
+      #     cp probes.example.json probes.json
+      #     ./tzconf check csharp
+      #     ./tzconf diff swift csharp
+
+  # UI は Windows でしか組めない。コアの検証は macOS ジョブが済ませているので、
+  # ここはビルドが通ることの確認に絞る。
+  # windows:
+  #   name: Windows 実装
+  #   runs-on: windows-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-dotnet@v4
+  #       with:
+  #         dotnet-version: "8.0"
+  #     - working-directory: windows
+  #       run: dotnet build

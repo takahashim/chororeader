@@ -1,0 +1,12 @@
+{
+  "swift": [
+    "macos/build/TZReader.app/Contents/MacOS/TZReader"
+  ],
+  "csharp": [
+    "dotnet",
+    "run",
+    "--project",
+    "windows/TZReader.Probe",
+    "--"
+  ]
+}

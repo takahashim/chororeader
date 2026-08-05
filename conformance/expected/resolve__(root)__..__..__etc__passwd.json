@@ -1,0 +1,7 @@
+{
+  "base": "",
+  "command": "resolve",
+  "href": "../../etc/passwd",
+  "result": "etc/passwd",
+  "schema": 1
+}

@@ -1,0 +1,40 @@
+{
+  "authors": [],
+  "command": "parse",
+  "direction": "ltr",
+  "format": "fixedEPUB",
+  "identifier": "urn:uuid:fixed",
+  "language": "ja",
+  "layout": "fixed",
+  "readingOrder": [
+    {
+      "href": "OEBPS/text/p001.xhtml",
+      "mediaType": "application/xhtml+xml"
+    },
+    {
+      "href": "OEBPS/text/p002.xhtml",
+      "mediaType": "application/xhtml+xml"
+    },
+    {
+      "href": "OEBPS/text/p003.xhtml",
+      "mediaType": "application/xhtml+xml"
+    },
+    {
+      "href": "OEBPS/text/p004.xhtml",
+      "mediaType": "application/xhtml+xml"
+    },
+    {
+      "href": "OEBPS/text/p005.xhtml",
+      "mediaType": "application/xhtml+xml"
+    }
+  ],
+  "schema": 1,
+  "tableOfContents": [
+    {
+      "children": [],
+      "href": "OEBPS/text/p001.xhtml",
+      "title": "1 ページ"
+    }
+  ],
+  "title": "固定レイアウトの書籍"
+}

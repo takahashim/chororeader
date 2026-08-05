@@ -1,0 +1,33 @@
+{
+  "authors": [],
+  "command": "parse",
+  "direction": "ltr",
+  "format": "reflowableEPUB",
+  "identifier": "urn:uuid:encoded-paths",
+  "language": "ja",
+  "layout": "reflowable",
+  "readingOrder": [
+    {
+      "href": "OEBPS/text/第1章.xhtml",
+      "mediaType": "application/xhtml+xml"
+    },
+    {
+      "href": "OEBPS/text/second chapter.xhtml",
+      "mediaType": "application/xhtml+xml"
+    }
+  ],
+  "schema": 1,
+  "tableOfContents": [
+    {
+      "children": [],
+      "href": "OEBPS/text/第1章.xhtml",
+      "title": "第 1 章"
+    },
+    {
+      "children": [],
+      "href": "OEBPS/text/second chapter.xhtml",
+      "title": "Second"
+    }
+  ],
+  "title": "符号化されたパス"
+}

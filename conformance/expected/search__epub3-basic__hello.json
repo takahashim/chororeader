@@ -1,0 +1,14 @@
+{
+  "command": "search",
+  "query": "hello",
+  "results": [
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "isCode": true,
+      "match": "hello",
+      "progression": 0.743
+    }
+  ],
+  "schema": 1,
+  "truncated": false
+}

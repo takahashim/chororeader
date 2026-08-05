@@ -1,0 +1,20 @@
+{
+  "command": "search",
+  "query": "ファイル名",
+  "results": [
+    {
+      "href": "OEBPS/text/第1章.xhtml",
+      "isCode": false,
+      "match": "ファイル名",
+      "progression": 0.611
+    },
+    {
+      "href": "OEBPS/text/second chapter.xhtml",
+      "isCode": false,
+      "match": "ファイル名",
+      "progression": 0.65
+    }
+  ],
+  "schema": 1,
+  "truncated": false
+}

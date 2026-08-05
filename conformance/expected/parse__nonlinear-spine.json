@@ -1,0 +1,38 @@
+{
+  "authors": [],
+  "command": "parse",
+  "direction": "ltr",
+  "format": "reflowableEPUB",
+  "identifier": "urn:uuid:nonlinear",
+  "language": "ja",
+  "layout": "reflowable",
+  "readingOrder": [
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "mediaType": "application/xhtml+xml"
+    },
+    {
+      "href": "OEBPS/text/ch02.xhtml",
+      "mediaType": "application/xhtml+xml"
+    }
+  ],
+  "schema": 1,
+  "tableOfContents": [
+    {
+      "children": [],
+      "href": "OEBPS/text/ch01.xhtml",
+      "title": "第 1 章"
+    },
+    {
+      "children": [],
+      "href": "OEBPS/text/aux.xhtml",
+      "title": "付録"
+    },
+    {
+      "children": [],
+      "href": "OEBPS/text/ch02.xhtml",
+      "title": "第 2 章"
+    }
+  ],
+  "title": "補助ページのある書籍"
+}

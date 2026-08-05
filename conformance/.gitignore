@@ -1,0 +1,5 @@
+# 生成物。fixtures.rb から作り直せるうえ、ZIP は毎回バイト列が変わるため追跡しない。
+fixtures/
+# 各自の環境に合わせた実装の起動方法。probes.example.json を複製して使う。
+probes.json
+# Markdown の検証用ファイルは追跡する（fixtures/ と違い手で書いたもの）

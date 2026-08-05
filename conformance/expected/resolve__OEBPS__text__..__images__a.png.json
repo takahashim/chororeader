@@ -1,0 +1,7 @@
+{
+  "base": "OEBPS/text",
+  "command": "resolve",
+  "href": "../images/a.png",
+  "result": "OEBPS/images/a.png",
+  "schema": 1
+}

@@ -1,0 +1,32 @@
+{
+  "authors": [],
+  "command": "parse",
+  "coverHref": "OEBPS/images/cover.png",
+  "direction": "ltr",
+  "format": "reflowableEPUB",
+  "identifier": "urn:uuid:epub2-ncx",
+  "language": "ja",
+  "layout": "reflowable",
+  "readingOrder": [
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "mediaType": "application/xhtml+xml"
+    }
+  ],
+  "schema": 1,
+  "tableOfContents": [
+    {
+      "children": [
+        {
+          "children": [],
+          "fragment": "sec1",
+          "href": "OEBPS/text/ch01.xhtml",
+          "title": "1.1 節"
+        }
+      ],
+      "href": "OEBPS/text/ch01.xhtml",
+      "title": "第 1 章"
+    }
+  ],
+  "title": "EPUB2 の書籍"
+}

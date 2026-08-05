@@ -1,0 +1,29 @@
+{
+  "authors": [],
+  "command": "parse",
+  "direction": "ltr",
+  "format": "reflowableEPUB",
+  "identifier": "urn:uuid:broken-refs",
+  "language": "ja",
+  "layout": "reflowable",
+  "readingOrder": [
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "mediaType": "application/xhtml+xml"
+    }
+  ],
+  "schema": 1,
+  "tableOfContents": [
+    {
+      "children": [],
+      "href": "OEBPS/text/ch01.xhtml",
+      "title": "第 1 章"
+    },
+    {
+      "children": [],
+      "href": "OEBPS/text/missing.xhtml",
+      "title": "存在しない章"
+    }
+  ],
+  "title": "参照の壊れた書籍"
+}

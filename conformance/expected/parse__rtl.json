@@ -1,0 +1,24 @@
+{
+  "authors": [],
+  "command": "parse",
+  "direction": "rtl",
+  "format": "reflowableEPUB",
+  "identifier": "urn:uuid:rtl",
+  "language": "ja",
+  "layout": "reflowable",
+  "readingOrder": [
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "mediaType": "application/xhtml+xml"
+    }
+  ],
+  "schema": 1,
+  "tableOfContents": [
+    {
+      "children": [],
+      "href": "OEBPS/text/ch01.xhtml",
+      "title": "第 1 章"
+    }
+  ],
+  "title": "右開きの書籍"
+}
