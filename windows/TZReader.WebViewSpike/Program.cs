@@ -13,7 +13,8 @@ namespace TZReader.WebViewSpike;
 /// これが WebView2 でも成り立つかどうかで、EPUB ナビゲータの作りが変わる。
 /// スクロール位置の通知、コードのコピーボタン、位置復元がこの前提に乗っているため。
 ///
-/// 画面は出さない。結果を JSON で標準出力へ書き、すべて成立すれば終了コード 0 を返す。
+/// 画面は出さない。結果を JSON で標準出力へ書き、前提が成り立てば終了コード 0 を返す。
+/// どこで転んだか分かるよう、通過した段階を steps に積む。
 /// </summary>
 internal static class Program
 {
@@ -41,7 +42,8 @@ internal static class Program
         """;
 
     private const string SchemeName = "tzreader";
-    private const string BookUrl = "tzreader://book/chapter.xhtml";
+
+    private static readonly JsonArray Steps = [];
 
     [STAThread]
     private static int Main()
@@ -58,45 +60,54 @@ internal static class Program
             result["error"] = e.ToString();
         }
 
+        result["steps"] = Steps;
         Console.Out.Write(result.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
         Console.Out.Write('\n');
         return exitCode;
     }
 
+    private static void Step(string name) => Steps.Add(name);
+
     private static async Task<int> RunAsync(JsonObject result)
     {
         var userDataFolder = Path.Combine(Path.GetTempPath(), "tzr-webview-spike");
         Directory.CreateDirectory(userDataFolder);
+        Step("作業フォルダを用意した");
 
         // 書籍内リソースを配るための独自スキーム。WKURLSchemeHandler に当たるもの。
-        var options = new CoreWebView2EnvironmentOptions();
-        options.CustomSchemeRegistrations.Add(
-            new CoreWebView2CustomSchemeRegistration(SchemeName) { TreatAsSecure = true });
-
-        var environment = await CoreWebView2Environment.CreateAsync(
-            browserExecutableFolder: null, userDataFolder: userDataFolder, options: options);
+        // 登録に失敗しても、肝心の JavaScript の問いには答えられるよう別扱いにする。
+        var (environment, customSchemeRegistered) = await CreateEnvironment(userDataFolder, result);
+        result["customSchemeRegistered"] = customSchemeRegistered;
         result["webView2Version"] = environment.BrowserVersionString;
+        Step($"環境を作った（独自スキーム: {(customSchemeRegistered ? "登録できた" : "登録できない")}）");
+
+        // 独自スキームが使えないときは、実在しないホスト名を横取りして同じことを試す。
+        var bookUrl = customSchemeRegistered
+            ? $"{SchemeName}://book/chapter.xhtml"
+            : "https://tzr.invalid/chapter.xhtml";
+        var filter = customSchemeRegistered ? $"{SchemeName}://*" : "https://tzr.invalid/*";
 
         using var form = new Form { Width = 400, Height = 300, ShowInTaskbar = false };
         using var webView = new WebView2 { Dock = DockStyle.Fill };
         form.Controls.Add(webView);
-
-        var messages = new List<string>();
-        var loaded = new TaskCompletionSource<bool>();
+        form.Show();
+        Step("ウィンドウを作った");
 
         await webView.EnsureCoreWebView2Async(environment);
         var core = webView.CoreWebView2;
+        Step("WebView2 を初期化した");
 
         // 書籍側の JavaScript を止める。ここが macOS 版の allowsContentJavaScript = false に当たる。
         core.Settings.IsScriptEnabled = false;
         core.Settings.AreDefaultContextMenusEnabled = false;
         core.Settings.IsWebMessageEnabled = true;
 
+        var messages = new List<string>();
         core.WebMessageReceived += (_, e) =>
         {
             try
             {
-                messages.Add(e.TryGetWebMessageAsString());
+                messages.Add(e.TryGetWebMessageAsString() ?? e.WebMessageAsJson);
             }
             catch (Exception)
             {
@@ -104,8 +115,8 @@ internal static class Program
             }
         };
 
-        // 独自スキームの要求を横取りして、メモリ上の文書を返す。
-        core.AddWebResourceRequestedFilter($"{SchemeName}://*", CoreWebView2WebResourceContext.All);
+        // 要求を横取りして、メモリ上の文書を返す。
+        core.AddWebResourceRequestedFilter(filter, CoreWebView2WebResourceContext.All);
         core.WebResourceRequested += (_, e) =>
         {
             var bytes = Encoding.UTF8.GetBytes(BookHtml);
@@ -114,34 +125,42 @@ internal static class Program
         };
 
         await core.AddScriptToExecuteOnDocumentCreatedAsync(InjectedScript);
-        core.NavigationCompleted += (_, e) => loaded.TrySetResult(e.IsSuccess);
+        Step("注入スクリプトを登録した");
 
-        form.Show();
-        core.Navigate(BookUrl);
+        var loaded = new TaskCompletionSource<bool>();
+        core.NavigationCompleted += (_, e) =>
+        {
+            result["navigationStatus"] = e.WebErrorStatus.ToString();
+            loaded.TrySetResult(e.IsSuccess);
+        };
 
+        core.Navigate(bookUrl);
         var navigated = await WithTimeout(loaded.Task, TimeSpan.FromSeconds(30));
+        result["navigatedTo"] = bookUrl;
         result["navigationSucceeded"] = navigated;
+        Step($"読み込みが{(navigated ? "成功した" : "失敗した")}");
+
         if (!navigated)
         {
-            result["conclusion"] = "独自スキームの文書を読み込めなかった";
+            result["conclusion"] = "横取りした文書を読み込めなかった";
             return 1;
         }
 
-        // 少し待つ。メッセージは読み込み完了と前後しうる。
+        // メッセージは読み込み完了と前後しうる。少し待つ。
         await Task.Delay(500);
 
         var injected = await core.ExecuteScriptAsync("window.__tzrInjected === true");
-        var contentRan = await core.ExecuteScriptAsync("document.getElementById('p').textContent");
+        var paragraph = await core.ExecuteScriptAsync("document.getElementById('p').textContent");
         var title = await core.ExecuteScriptAsync("document.title");
         var postFailure = await core.ExecuteScriptAsync("window.__tzrPostFailed || null");
+        Step("判定用のスクリプトを実行した");
 
         var injectedRan = injected.Trim() == "true";
-        var bookScriptRan = contentRan.Contains("CONTENT-JS-RAN", StringComparison.Ordinal)
+        var bookScriptRan = paragraph.Contains("CONTENT-JS-RAN", StringComparison.Ordinal)
                             || title.Contains("CONTENT-JS-RAN", StringComparison.Ordinal);
         var messageArrived = messages.Any(m => m.Contains("hello", StringComparison.Ordinal));
-        var executeScriptWorks = contentRan.Trim() != "null" && contentRan.Length > 0;
+        var executeScriptWorks = paragraph.Contains("untouched", StringComparison.Ordinal);
 
-        result["customSchemeServed"] = true;
         result["injectedScriptRan"] = injectedRan;
         result["bookScriptRan"] = bookScriptRan;
         result["webMessageArrived"] = messageArrived;
@@ -158,6 +177,37 @@ internal static class Program
 
         form.Close();
         return holds ? 0 : 1;
+    }
+
+    /// <summary>
+    /// 独自スキームを登録した環境を作る。
+    /// この API は版によって扱いが違うため、失敗したら登録なしで作り直す。
+    /// </summary>
+    private static async Task<(CoreWebView2Environment Environment, bool CustomScheme)> CreateEnvironment(
+        string userDataFolder, JsonObject result)
+    {
+        var options = new CoreWebView2EnvironmentOptions();
+
+        // CustomSchemeRegistrations は読み取り専用で、しかも null を返すことがある。
+        // 実際 CI の Windows ランナーで null だった。使えるかどうかもこのスパイクの答えの一部。
+        var registrations = options.CustomSchemeRegistrations;
+        if (registrations is null)
+        {
+            result["customSchemeError"] = "CustomSchemeRegistrations が null。この環境では独自スキームを登録できない。";
+            return (await CoreWebView2Environment.CreateAsync(null, userDataFolder, options), false);
+        }
+
+        try
+        {
+            registrations.Add(new CoreWebView2CustomSchemeRegistration(SchemeName) { TreatAsSecure = true });
+            return (await CoreWebView2Environment.CreateAsync(null, userDataFolder, options), true);
+        }
+        catch (Exception e)
+        {
+            result["customSchemeError"] = e.Message;
+            // 登録に失敗した環境オプションは使い回さない。
+            return (await CoreWebView2Environment.CreateAsync(null, userDataFolder), false);
+        }
     }
 
     private static async Task<bool> WithTimeout(Task<bool> task, TimeSpan timeout)

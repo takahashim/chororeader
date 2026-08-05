@@ -18,7 +18,7 @@ USAGE = <<~TEXT
 TEXT
 
 def probes
-  registry = Probe.load_all(File.join(Runner::ROOT, "conformance", "probes.json"))
+  registry = Probe.load_all(File.join(Runner::ROOT, "conformance", "probes.json"), root: Runner::ROOT)
   registry["swift"] ||= Probe.default_swift(Runner::ROOT)
   registry.compact
 end

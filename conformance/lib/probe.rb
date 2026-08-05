@@ -15,10 +15,24 @@ class Probe
   end
 
   # conformance/probes.json に実装の起動方法を書く。
-  def self.load_all(path)
+  def self.load_all(path, root: Runner::ROOT)
     return {} unless File.exist?(path)
 
-    JSON.parse(File.read(path)).map { |name, argv| [name, new(name, Array(argv))] }.to_h
+    JSON.parse(File.read(path)).map do |name, argv|
+      [name, new(name, resolve_paths(Array(argv), root))]
+    end.to_h
+  end
+
+  # パスはリポジトリの根から解いた形にする。
+  # tzconf をどこから起動しても同じ場所を指すようにするため。
+  # 区切りを含まない要素（"dotnet" など）は PATH から探すものとみなして触らない。
+  def self.resolve_paths(argv, root)
+    argv.map do |arg|
+      next arg unless arg.include?("/")
+      next arg if arg.start_with?("/")
+
+      File.join(root, arg)
+    end
   end
 
   # macOS 実装は macos/ の下に置く。実装ごとにディレクトリを分けているため。
