@@ -109,9 +109,20 @@ C# + WinUI と比べたときの違いは、速さではなく次の 2 点にあ
 - **開発を macOS で進められる**。Rust と Web の資産は OS に依らない。Windows 実機が要るのは、WebView2 での確認とビルドの最終確認だけになる。
 - **書籍の JavaScript を止める仕組みが変わる**。WebView 全体の設定ではなく iframe の sandbox になり、アプリ側のコードは注入ではなく親からの直接操作になる。
 
-**確かめていないこと**：ここで測ったのは macOS の WKWebView である。
-Windows の WebView2 は Chromium であり、iframe の sandbox の扱いも生成元の扱いも同じとは限らない。
-同じスパイクを windows-latest の CI で走らせて確かめる（`.github/workflows/ci.yml` の `tauri-spike-windows`）。
+**Windows でも同じだった（2026-08-06、実行 31024070987）**。
+windows-latest の CI で同じスパイクを走らせ、4 つの前提がすべて成り立った。
+
+```json
+{ "assumptionHolds": true,
+  "origin": "http://tzr.localhost",
+  "bookScriptRanInSandbox": false,
+  "bookScriptRanWithoutSandbox": true,
+  "parentCanReachSandboxedFrame": true,
+  "appCanEditBookDom": true }
+```
+
+生成元の書き方だけが違う。Tauri は Windows では独自スキームを `http://<スキーム名>.localhost` に割り当てる。
+sandbox の効き方も、親から `contentDocument` に届くことも、WKWebView と変わらない。
 
 ## Windows でのビルドが失敗した（2026-08-06）
 
@@ -147,6 +158,12 @@ mupdf = { version = "0.8", default-features = false, features = ["system-fonts"]
 tzreader はどれも使わない。CI のログではビルド時間の大半をこれらが占めていた。
 素のビルドは 69 秒から **30 秒**に減り、実書籍に対する結果（目次 18 項目、抽出 31 ms、検索 36 ms、描画 52 ms、
 PNG 69153 バイト）は 0.5 と 1 バイトも変わらなかった。
+
+**Windows では機能を切ってもビルドは軽くならない。**
+`make_bool` は Make のときだけ効き、MSBuild では何もしない（`build.rs` の `Build::make_bool`）。
+つまり `FZ_ENABLE_*` の `#ifdef` は渡るが、`mupdf.sln` は tesseract と leptonica を変わらず全部コンパイルする。
+実際 windows-latest でのビルドは 17 分 37 秒かかり、ログには `libtesseract.vcxproj` が並んでいる。
+Windows でこれを短くする手は、いまのところキャッシュしかない。
 
 0.5 から 0.8 への移行で 3 か所直した。
 

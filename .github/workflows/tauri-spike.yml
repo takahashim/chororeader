@@ -30,6 +30,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: spikes/tauri-spike/src-tauri
+          # 既定のキャッシュキーはジョブ名から作られるため、ジョブを移したり
+          # 名前を変えたりするだけで取り違える。固定の名前を与えて動かないようにする。
+          shared-key: tauri-spike
           # 既定では失敗した実行のキャッシュを残さない。
           # ビルドが通るまで直しを繰り返す間、毎回まっさらから作り直すことになる。
           cache-on-failure: true
