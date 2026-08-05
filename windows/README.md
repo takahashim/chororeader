@@ -94,9 +94,9 @@ macOS 版が PDFKit を AppKit のビューで使っているのと同じ形に�
 3. ~~`probe parse`~~（済）
 4. ~~`probe detect` と `probe report`~~（済）
 5. ~~`probe search`~~（済。`./tzconf check csharp` が 49 件通る）
-6. **WebView2 のスパイク**：プログラムは用意済み（`TZReader.WebViewSpike/`）。
-   実行だけが残っている。GitHub へ push すれば CI の `webview2-spike` ジョブが答えを出す
-7. UI（TZReader.App）
+6. ~~WebView2 のスパイク~~（済。前提は成り立つ。[../spikes/findings-windows.md](../spikes/findings-windows.md)）
+7. UI（TZReader.App）。EPUB のリソースは独自スキームではなく、`https://tzr.invalid/` への
+   要求を `WebResourceRequested` で横取りして配る（独自スキームは登録できなかった）
 
 各段階で `./tzconf diff swift csharp` を回すと、食い違いがその場で出る。
 実際、この突き合わせは macOS 版の目次の不具合を 1 件見つけた（findings-windows.md）。

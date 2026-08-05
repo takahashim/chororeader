@@ -12,7 +12,7 @@ UI に依存しない部分は macOS 上で検証できるため、Windows 機�
   `tzconf diff swift csharp` も、合成フィクスチャと手元の実書籍 2 冊で完全に一致する。
 - **突き合わせは実バグを見つけた。** macOS 版の目次に、語が繋がる不具合があった（後述）。
 - **MuPDF は Windows 版の PDF に足りている。** 描画、テキスト抽出、目次、検索のいずれも実用的な速さで動く。
-- **WebView2 の検証だけは Windows 機が要る。** ここは未実施のまま残る。
+- **WebView2 でも macOS と同じ前提が成り立つ。** CI の Windows ランナーで確かめた。ただし独自スキームは登録できず、ホスト名の横取りで代える。
 
 ## スパイク 1：C# 実装と契約の突き合わせ（windows/）
 
@@ -105,30 +105,59 @@ macOS 版の目次解析を SAX（`XMLParser`）へ置き換えて解決した�
   Probe は標準出力に JSON だけを書く決まりなので影響は無いが、アプリ側ではログへ回す
 - 初回呼び出しにネイティブライブラリの読み込みが乗る。起動直後の 1 冊目だけ僅かに遅い
 
-## スパイク 3：WebView2 の前提（用意済み、実行待ち）
+## スパイク 3：WebView2 の前提
 
-確かめる問いは、macOS 版でスパイク 4 として確かめたのと同じである。
+確かめた問いは、macOS 版でスパイク 4 として確かめたのと同じである。
 
 > 書籍由来の JavaScript を止めたまま、アプリが注入したスクリプトとメッセージは動くか。
 
-macOS では成立した。Windows で崩れると、スクロール位置の通知、コードのコピーボタン、
-章末の行き先、位置復元、暗いテーマでの文字色の当て先の判定を、別の手段へ置き換える必要がある。
+**成り立った。macOS 版と同じ設計で組める。**
 
-**検証プログラムは書き終えている**（`windows/TZReader.WebViewSpike/`）。
-見ているのは 5 点で、独自スキームでの配信、書籍側 script の抑止、注入スクリプトの実行、
-`postMessage` の到達、`ExecuteScriptAsync` の可否である。
+GitHub Actions の windows-latest 上で実行した（WebView2 150.0.4078.105）。
+`.github/workflows/ci.yml` の `webview2-spike` ジョブが毎回これを走らせる。
 
-### 実行はまだできていない
+| 見たこと | 結果 |
+| --- | --- |
+| `IsScriptEnabled = false` で書籍側の `<script>` が実行されるか | されない（期待どおり） |
+| 同じ状態で `AddScriptToExecuteOnDocumentCreated` が実行されるか | される |
+| 同じ状態で `chrome.webview.postMessage` が届くか | 届く |
+| 同じ状態で `ExecuteScriptAsync` が使えるか | 使える |
+| 独自スキームを登録できるか | **できなかった** |
 
-WebView2 は Windows でしか動かない。ただし次の 2 点は済ませてある。
+つまり、スクロール位置の通知、コードブロックのコピーボタン、章末の行き先、位置復元、
+暗いテーマでの文字色の当て先の判定は、macOS 版と同じ作りで実現できる。
 
-- **macOS でコンパイルは通る。** `EnableWindowsTargeting` を立てることで、型と API の誤りは
-  開発機で潰せた。CI へ出す前の空振りを減らせる
-- **CI で自動実行できる形にした。** `.github/workflows/ci.yml` の `webview2-spike` ジョブが
-  windows-latest 上でこれを走らせる。判定は終了コードで返るので、通れば緑、崩れれば赤になる
+### 独自スキームは使えなかった
 
-**リポジトリを GitHub へ push すれば、Windows 機を用意せずに答えが出る。**
-ランナーで GUI コンポーネントを作れるか、WebView2 ランタイムが入っているかは、実際に走らせるまで
-確実とは言えない。作れなかった場合は、ローカルの Windows 仮想機で同じプログラムを動かす。
+`CoreWebView2EnvironmentOptions.CustomSchemeRegistrations` が **null を返した**。
+このプロパティは読み取り専用なので、一覧を差し替えることもできない。
+macOS 版が `tzreader://` を `WKURLSchemeHandler` で捌いているのと同じ形は取れない。
 
-結果が出たら、この節に判定と数値を追記する。
+**代わりに、解決されないホスト名への要求を横取りする。**
+`https://tzr.invalid/` へ navigate し、`AddWebResourceRequestedFilter` と
+`WebResourceRequested` でメモリ上の内容を返す。これは実際に動いた。
+
+この形には副次的な利点もある。
+
+- `.invalid` は RFC 2606 で予約されていて、名前解決に成功することがない。
+  横取りに失敗しても外へ出ていかない
+- `https` なので secure context になる。macOS 版で `TreatAsSecure` を付けているのと揃う
+
+null になる理由までは特定していない。ランナーの WebView2 の版か、マネージドラッパの版に
+依るのかもしれない。実機の Windows で改めて確かめる価値はあるが、**ホスト名の横取りで
+必要なことは足りているので、実装をそこに依存させない。**
+
+### 注入スクリプトが走る時点
+
+届いたメッセージは `{"kind":"hello","title":""}` で、`document.title` が空だった。
+`AddScriptToExecuteOnDocumentCreated` は文書の生成直後に走るため、まだ head を読んでいない。
+macOS 版のスタイル注入スクリプトも同じ時点で走らせているので、扱いは揃っている。
+文書を読み終えてから何かする必要があるものは、`DOMContentLoaded` を待つ。
+
+### 途中で踏んだこと
+
+- **`CustomSchemeRegistrations` の null**。コレクション初期化子（`= { ... }`）は
+  結局 `Add` を呼ぶので、null 相手では同じ例外になる。null を確かめてから使う
+- **メッセージポンプを止めての待ち合わせ**。WebView2 の初期化はポンプが回っていないと
+  完了しない。主スレッドで `GetAwaiter().GetResult()` すると自分で止めて永久に待つ。
+  `Application.Run` を回しながら非同期に進める形にした。CI が 6 分ハングして気づいた
