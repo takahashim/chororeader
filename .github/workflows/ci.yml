@@ -63,6 +63,8 @@ jobs:
   webview2-spike:
     name: WebView2 の前提を確かめる
     runs-on: windows-latest
+    # 判定が終わらないまま占有しないよう上限を置く。プログラム側にも 120 秒の見張りがある。
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 

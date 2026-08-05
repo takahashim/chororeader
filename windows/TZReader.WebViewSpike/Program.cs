@@ -45,20 +45,46 @@ internal static class Program
 
     private static readonly JsonArray Steps = [];
 
+    /// <summary>判定が終わらないまま CI を占有しないための上限。</summary>
+    private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(120);
+
     [STAThread]
     private static int Main()
     {
         var result = new JsonObject();
         var exitCode = 1;
 
-        try
+        // WebView2 の初期化はメッセージポンプが回っていないと完了しない。
+        // 待ち合わせを主スレッドでブロックすると自分で止めてしまうため、
+        // Application.Run でポンプを回しながら非同期に進める。
+        using var form = new Form { Width = 400, Height = 300, ShowInTaskbar = false };
+
+        form.Shown += async (_, _) =>
         {
-            exitCode = RunAsync(result).GetAwaiter().GetResult();
-        }
-        catch (Exception e)
+            try
+            {
+                exitCode = await RunAsync(result, form);
+            }
+            catch (Exception e)
+            {
+                result["error"] = e.ToString();
+            }
+            finally
+            {
+                form.Close();
+            }
+        };
+
+        using var watchdog = new System.Windows.Forms.Timer { Interval = (int)Deadline.TotalMilliseconds };
+        watchdog.Tick += (_, _) =>
         {
-            result["error"] = e.ToString();
-        }
+            watchdog.Stop();
+            result["error"] = $"{Deadline.TotalSeconds} 秒以内に判定が終わらなかった";
+            form.Close();
+        };
+        watchdog.Start();
+
+        Application.Run(form);
 
         result["steps"] = Steps;
         Console.Out.Write(result.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
@@ -68,7 +94,7 @@ internal static class Program
 
     private static void Step(string name) => Steps.Add(name);
 
-    private static async Task<int> RunAsync(JsonObject result)
+    private static async Task<int> RunAsync(JsonObject result, Form form)
     {
         var userDataFolder = Path.Combine(Path.GetTempPath(), "tzr-webview-spike");
         Directory.CreateDirectory(userDataFolder);
@@ -87,11 +113,9 @@ internal static class Program
             : "https://tzr.invalid/chapter.xhtml";
         var filter = customSchemeRegistered ? $"{SchemeName}://*" : "https://tzr.invalid/*";
 
-        using var form = new Form { Width = 400, Height = 300, ShowInTaskbar = false };
-        using var webView = new WebView2 { Dock = DockStyle.Fill };
+        var webView = new WebView2 { Dock = DockStyle.Fill };
         form.Controls.Add(webView);
-        form.Show();
-        Step("ウィンドウを作った");
+        Step("WebView2 を配置した");
 
         await webView.EnsureCoreWebView2Async(environment);
         var core = webView.CoreWebView2;
@@ -175,7 +199,6 @@ internal static class Program
             ? "macOS 版と同じ前提が成り立つ。注入スクリプトとメッセージで組める。"
             : "前提が崩れる。EPUB ナビゲータの作りを見直す必要がある。";
 
-        form.Close();
         return holds ? 0 : 1;
     }
 
