@@ -81,7 +81,7 @@ async function openPath(path, href) {
 
   document.title = state.book.title;
   $("book-title").textContent = state.book.title;
-  $("welcome").hidden = true;
+  hideShelf();
 
   const saved = await invoke("book_state", { path });
   state.bookmarks = saved.bookmarks || [];
@@ -684,10 +684,18 @@ async function refreshStyle() {
   if (doc && doc.body) applyStyle(doc);
 }
 
+// 表示設定の欄。ここに無い設定（倍率など）は道具帯で扱う。
+const SETTING_FIELDS = ["fontSizePercent", "lineHeight", "maxWidthEm", "theme", "codeWrap", "publisherStyle"];
+
+// 設定の欄は #settings の中だけを見る。
+// id だけで引くと、zoom や fit のように道具帯の要素と名前がぶつかり、
+// 関係ない場所（題名の欄）に値を書き込んでしまう。
+const settingField = (name) => document.querySelector("#settings #" + name);
+
 function bindSettings() {
-  const fields = ["fontSizePercent", "lineHeight", "maxWidthEm", "theme", "codeWrap", "publisherStyle"];
-  for (const name of fields) {
-    const input = $(name);
+  for (const name of SETTING_FIELDS) {
+    const input = settingField(name);
+    if (!input) continue;
     const apply = () => {
       state.settings[name] = input.type === "checkbox" ? input.checked
         : input.type === "range" ? Number(input.value) : input.value;
@@ -702,14 +710,89 @@ function bindSettings() {
 }
 
 function fillSettings() {
-  for (const [name, value] of Object.entries(state.settings)) {
-    const input = $(name);
+  for (const name of SETTING_FIELDS) {
+    const input = settingField(name);
+    const value = state.settings[name];
     if (!input) continue;
     if (input.type === "checkbox") input.checked = Boolean(value);
     else input.value = value;
     const label = input.parentElement.querySelector("span");
     if (label) label.textContent = input.value;
   }
+}
+
+// ---- 書棚 ---------------------------------------------------------------
+//
+// 読んでいる途中でも戻れるようにする。読み比べる道具なので、
+// 「次はどれを開くか」を選ぶ場面は読書の最中にも来る。
+
+async function showShelf() {
+  const grid = $("shelf-grid");
+  grid.textContent = "";
+  const books = await invoke("library");
+  $("shelf-empty").hidden = books.length > 0;
+
+  for (const book of books) {
+    const card = document.createElement("div");
+    card.className = "book" + (book.exists ? "" : " missing");
+    card.title = book.path;
+
+    const art = document.createElement("div");
+    art.className = "art";
+    if (book.cover) {
+      const img = document.createElement("img");
+      img.src = "/cover/" + encodeURIComponent(book.cover);
+      img.alt = "";
+      // 表紙が消えていたら、代わりの枠を出す。
+      img.addEventListener("error", () => art.replaceChildren(blankArt(book)));
+      art.appendChild(img);
+    } else {
+      art.appendChild(blankArt(book));
+    }
+
+    const name = document.createElement("div");
+    name.className = "name";
+    name.textContent = book.title;
+
+    card.append(art, name);
+    if (book.authors.length > 0) {
+      const by = document.createElement("div");
+      by.className = "by";
+      by.textContent = book.authors.join("、");
+      card.appendChild(by);
+    }
+    const kind = document.createElement("div");
+    kind.className = "kind";
+    kind.textContent = book.format === "pdf" ? "PDF" : "EPUB";
+    card.appendChild(kind);
+
+    if (book.exists) {
+      card.addEventListener("click", (event) => {
+        if (event.metaKey || event.ctrlKey) {
+          return invoke("open_in_new_window", { path: book.path, href: "" });
+        }
+        openPath(book.path);
+      });
+    }
+    grid.appendChild(card);
+  }
+
+  $("shelf").hidden = false;
+  $("shelf-close").hidden = !state.book;
+  $("shelf-button").classList.add("on");
+}
+
+function blankArt(book) {
+  const blank = document.createElement("div");
+  blank.className = "blank";
+  blank.textContent = book.exists ? "表紙なし" : "見つかりません";
+  return blank;
+}
+
+function hideShelf() {
+  $("shelf").hidden = true;
+  $("shelf-button").classList.remove("on");
+  focusContent();
 }
 
 // ---- キーの受け取りを見る -----------------------------------------------
@@ -799,6 +882,10 @@ function onKeyDown(event) {
   const command = event.metaKey || event.ctrlKey;
 
   if (command && event.key.toLowerCase() === "o") { event.preventDefault(); return pick(); }
+  if (command && event.key.toLowerCase() === "l") {
+    event.preventDefault();
+    return $("shelf").hidden ? showShelf() : hideShelf();
+  }
   if (command && event.key === "\\") { event.preventDefault(); return toggleSidebar(); }
   if (command && event.key.toLowerCase() === "d") { event.preventDefault(); return toggleBookmark(); }
   if (command && event.key.toLowerCase() === "f") {
@@ -810,7 +897,11 @@ function onKeyDown(event) {
   if (command && (event.key === "+" || event.key === "=")) { event.preventDefault(); return zoomBy(1.25); }
   if (command && event.key === "-") { event.preventDefault(); return zoomBy(1 / 1.25); }
   if (command && event.key === "0") { event.preventDefault(); return resetZoom(); }
-  if (event.key === "Escape") { hidePopover(); return; }
+  if (event.key === "Escape") {
+    hidePopover();
+    if (!$("shelf").hidden && state.book) hideShelf();
+    return;
+  }
   if (editing || command || !state.book) return;
 
   // 右開きの出版物では左右の意味を入れ替える。
@@ -896,7 +987,11 @@ async function pick() {
 }
 
 $("open-button").addEventListener("click", pick);
-$("welcome-open").addEventListener("click", pick);
+$("shelf-open").addEventListener("click", pick);
+$("shelf-close").addEventListener("click", hideShelf);
+$("shelf-button").addEventListener("click", () => {
+  if ($("shelf").hidden) showShelf(); else hideShelf();
+});
 $("toggle-sidebar").addEventListener("click", toggleSidebar);
 $("bookmark").addEventListener("click", toggleBookmark);
 $("settings-button").addEventListener("click", (event) => {
@@ -928,16 +1023,7 @@ async function main() {
   const path = parameters.get("path");
   if (path) return openPath(path, parameters.get("href"));
 
-  const recent = await invoke("recent_books");
-  const box = $("recent");
-  for (const book of recent) {
-    const a = document.createElement("a");
-    a.textContent = book.name;
-    a.title = book.path;
-    if (!book.exists) a.className = "missing";
-    else a.addEventListener("click", () => openPath(book.path));
-    box.appendChild(a);
-  }
+  showShelf();
 }
 
 main();

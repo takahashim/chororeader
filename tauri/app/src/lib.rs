@@ -6,7 +6,7 @@
 
 mod library;
 mod protocol;
-mod store;
+pub mod store;
 
 use serde::Serialize;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -30,7 +30,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_book,
             pick_book,
-            recent_books,
+            library,
             reader_css,
             settings,
             save_settings,
@@ -106,10 +106,44 @@ fn urlencode(value: &str) -> String {
 // MARK: 書籍を開く
 
 #[tauri::command(async)]
-fn open_book(library: tauri::State<'_, Library>, path: String) -> Result<BookInfo, String> {
-    let book = library.open(&path)?;
+fn open_book(
+    books: tauri::State<'_, Library>,
+    store: tauri::State<'_, Store>,
+    path: String,
+) -> Result<BookInfo, String> {
+    let book = books.open(&path)?;
     let book = book.lock().unwrap();
-    Ok(describe(&book))
+    let info = describe(&book);
+    // 書棚に出すための覚え書きを残す。表紙もここで作る。
+    store.remember_meta(&path, &info.title, &info.authors, &info.format, cover_of(&book));
+    Ok(info)
+}
+
+/// 書棚に並べる表紙。EPUB は書籍が指す画像をそのまま、PDF は 1 ページ目を小さく描く。
+fn cover_of(book: &library::Book) -> Option<(String, Vec<u8>)> {
+    let key = fingerprint(&book.path);
+    match &book.content {
+        Content::Epub {
+            archive,
+            publication,
+        } => {
+            let href = publication.cover_href.as_ref()?;
+            let bytes = archive.read(href)?;
+            let extension = href.rsplit_once('.').map(|(_, e)| e.to_lowercase());
+            Some((format!("{key}.{}", extension.unwrap_or_else(|| "img".into())), bytes))
+        }
+        Content::Pdf { worker, .. } => Some((format!("{key}.png"), worker.render_page(0, 0.35)?)),
+    }
+}
+
+/// パスから決まる短い名前。表紙の置き場所に使う。
+fn fingerprint(path: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in path.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 /// 書籍を選ぶダイアログ。
@@ -137,19 +171,32 @@ async fn pick_book(app: tauri::AppHandle) -> Option<String> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RecentBook {
+struct Shelved {
     path: String,
     name: String,
+    title: String,
+    authors: Vec<String>,
+    format: String,
+    cover: String,
     exists: bool,
 }
 
+/// 書棚。書籍を開き直さずに並べられるよう、覚え書きから作る。
 #[tauri::command(async)]
-fn recent_books(store: tauri::State<'_, Store>) -> Vec<RecentBook> {
+fn library(store: tauri::State<'_, Store>) -> Vec<Shelved> {
     store
-        .recent()
+        .library()
         .into_iter()
-        .map(|path| RecentBook {
+        .map(|(path, state)| Shelved {
             name: paths::last_component(&path).to_string(),
+            title: if state.title.is_empty() {
+                paths::last_component(&path).to_string()
+            } else {
+                state.title
+            },
+            authors: state.authors,
+            format: state.format,
+            cover: state.cover,
             exists: std::path::Path::new(&path).exists(),
             path,
         })

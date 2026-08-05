@@ -10,6 +10,17 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
+use tzreader_core::paths;
+
+/// 書籍のパスを鍵にするときの形。
+///
+/// macOS は経路によって分解形（NFD）と合成形（NFC）のどちらも返す。
+/// ファイルダイアログからは分解形、引数からは合成形で来ることがあり、
+/// そのまま鍵にすると同じ本が二重に並ぶ。
+fn key(path: &str) -> String {
+    paths::normalize(path)
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Position {
@@ -40,6 +51,17 @@ pub struct BookState {
     pub position: Position,
     #[serde(default)]
     pub bookmarks: Vec<Bookmark>,
+    /// 書棚に並べるための覚え書き。開いたときに書き込む。
+    /// これがあると、書棚を出すために書籍を開き直さずに済む。
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub authors: Vec<String>,
+    #[serde(default)]
+    pub format: String,
+    /// 表紙の画像を置いたファイル名。covers/ の下にある。
+    #[serde(default)]
+    pub cover: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -55,6 +77,7 @@ struct Stored {
 
 pub struct Store {
     path: PathBuf,
+    covers: PathBuf,
     data: Mutex<Stored>,
 }
 
@@ -65,15 +88,68 @@ impl Store {
             .app_config_dir()
             .unwrap_or_else(|_| PathBuf::from("."));
         let _ = std::fs::create_dir_all(&directory);
+        let covers = directory.join("covers");
+        let _ = std::fs::create_dir_all(&covers);
         let path = directory.join("state.json");
-        let data = std::fs::read(&path)
+        let mut data: Stored = std::fs::read(&path)
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
-        Self {
+        // 正規化の違いで分かれた項目をここで畳む。畳んだ結果はそのまま書き戻す。
+        let merged = merge_by_key(&mut data);
+        let store = Self {
             path,
+            covers,
             data: Mutex::new(data),
+        };
+        if merged {
+            store.write_now();
         }
+        store
+    }
+
+    fn write_now(&self) {
+        let data = self.data.lock().unwrap();
+        self.write(&data);
+    }
+
+    pub fn cover_path(&self, name: &str) -> PathBuf {
+        self.covers.join(name)
+    }
+
+    /// 書棚に出す覚え書きを残す。表紙は画像のまま置く。
+    pub fn remember_meta(
+        &self,
+        book_path: &str,
+        title: &str,
+        authors: &[String],
+        format: &str,
+        cover: Option<(String, Vec<u8>)>,
+    ) {
+        let mut data = self.data.lock().unwrap();
+        let state = data.books.entry(key(book_path)).or_default();
+        state.title = title.to_string();
+        state.authors = authors.to_vec();
+        state.format = format.to_string();
+        if let Some((name, bytes)) = cover {
+            if std::fs::write(self.covers.join(&name), bytes).is_ok() {
+                state.cover = name;
+            }
+        }
+        let k = key(book_path);
+        data.recent.retain(|p| *p != k);
+        data.recent.insert(0, k);
+        data.recent.truncate(60);
+        self.write(&data);
+    }
+
+    /// 書棚。新しく開いたものが先。
+    pub fn library(&self) -> Vec<(String, BookState)> {
+        let data = self.data.lock().unwrap();
+        data.recent
+            .iter()
+            .map(|path| (path.clone(), data.books.get(path).cloned().unwrap_or_default()))
+            .collect()
     }
 
     fn write(&self, data: &Stored) {
@@ -87,16 +163,17 @@ impl Store {
             .lock()
             .unwrap()
             .books
-            .get(book_path)
+            .get(&key(book_path))
             .cloned()
             .unwrap_or_default()
     }
 
     pub fn remember(&self, book_path: &str, position: Position) {
         let mut data = self.data.lock().unwrap();
-        data.books.entry(book_path.to_string()).or_default().position = position;
-        data.recent.retain(|p| p != book_path);
-        data.recent.insert(0, book_path.to_string());
+        data.books.entry(key(book_path)).or_default().position = position;
+        let k = key(book_path);
+        data.recent.retain(|p| *p != k);
+        data.recent.insert(0, k);
         data.recent.truncate(30);
         self.write(&data);
     }
@@ -104,7 +181,7 @@ impl Store {
     /// 同じ位置にしおりがあれば外し、無ければ付ける。
     pub fn toggle_bookmark(&self, book_path: &str, bookmark: Bookmark) -> Vec<Bookmark> {
         let mut data = self.data.lock().unwrap();
-        let state = data.books.entry(book_path.to_string()).or_default();
+        let state = data.books.entry(key(book_path)).or_default();
         let same = |b: &Bookmark| {
             b.href == bookmark.href
                 && b.page == bookmark.page
@@ -128,9 +205,7 @@ impl Store {
         bookmarks
     }
 
-    pub fn recent(&self) -> Vec<String> {
-        self.data.lock().unwrap().recent.clone()
-    }
+
 
     pub fn settings(&self) -> serde_json::Value {
         self.data.lock().unwrap().settings.clone()
@@ -141,4 +216,31 @@ impl Store {
         data.settings = settings;
         self.write(&data);
     }
+}
+
+/// 正規化の違いで分かれてしまった項目を 1 つにまとめる。
+/// 覚え書きを持っているほうを残す。
+fn merge_by_key(data: &mut Stored) -> bool {
+    let before = (data.books.len(), data.recent.len());
+    let mut books: BTreeMap<String, BookState> = BTreeMap::new();
+    for (path, state) in std::mem::take(&mut data.books) {
+        let k = key(&path);
+        match books.get(&k) {
+            Some(existing) if !existing.title.is_empty() => {}
+            _ => {
+                books.insert(k, state);
+            }
+        }
+    }
+    data.books = books;
+
+    let mut recent = Vec::new();
+    for path in std::mem::take(&mut data.recent) {
+        let k = key(&path);
+        if !recent.contains(&k) {
+            recent.push(k);
+        }
+    }
+    data.recent = recent;
+    before != (data.books.len(), data.recent.len())
 }

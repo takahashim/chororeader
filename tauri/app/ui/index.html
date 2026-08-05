@@ -25,6 +25,7 @@
   <input id="search-input" type="search" placeholder="この書籍を検索" spellcheck="false">
   <button id="bookmark" title="しおり（⌘D）">☆</button>
   <button id="settings-button" title="表示設定">Aa</button>
+  <button id="shelf-button" title="書棚（⌘L）">書棚</button>
   <button id="probe-button" title="キーの受け取りを表示">⌨</button>
   <button id="open-button" title="書籍を開く（⌘O）">開く</button>
 </header>
@@ -46,11 +47,15 @@
          allow-same-origin だけ与えて、親からこの中の DOM を触れるようにする。 -->
     <iframe id="page" sandbox="allow-same-origin" title="本文"></iframe>
     <div id="pdf" tabindex="-1" hidden></div>
-    <div id="welcome">
-      <h1>tzreader</h1>
-      <p>EPUB か PDF を開いてください。</p>
-      <button id="welcome-open">書籍を開く</button>
-      <div id="recent"></div>
+    <div id="shelf">
+      <div id="shelf-bar">
+        <h1>書棚</h1>
+        <span class="spacer"></span>
+        <button id="shelf-open">書籍を開く…</button>
+        <button id="shelf-close" hidden>読書に戻る</button>
+      </div>
+      <div id="shelf-grid"></div>
+      <p id="shelf-empty" hidden>まだ開いた書籍がありません。EPUB か PDF を開いてください。</p>
     </div>
   </main>
 </div>

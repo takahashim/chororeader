@@ -42,6 +42,8 @@ pub struct Library {
 
 impl Library {
     pub fn open(&self, path: &str) -> Result<Arc<Mutex<Book>>, String> {
+        // 鍵にする前に形を揃える。macOS は経路によって分解形と合成形のどちらも返す。
+        let path = &paths::normalize(path);
         if let Some(id) = self.by_path.lock().unwrap().get(path) {
             if let Some(book) = self.books.lock().unwrap().get(id) {
                 return Ok(book.clone());

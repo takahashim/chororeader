@@ -201,47 +201,113 @@ body {
   background: #fff;
 }
 
-#welcome {
+#shelf {
   position: absolute;
   inset: 0;
+  z-index: 15;
   display: flex;
   flex-direction: column;
+  background: var(--panel);
+  overflow: auto;
+}
+
+#shelf-bar {
+  display: flex;
   align-items: center;
-  justify-content: center;
   gap: 10px;
+  padding: 14px 20px 8px;
+  position: sticky;
+  top: 0;
   background: var(--panel);
 }
 
-#welcome h1 { margin: 0; font-size: 22px; }
-#welcome p { margin: 0; color: var(--dim); }
+#shelf-bar h1 { margin: 0; font-size: 17px; }
+#shelf-bar .spacer { flex: 1; }
 
-#welcome button {
+#shelf-bar button {
   border: 1px solid var(--line);
   background: var(--bar);
   color: var(--text);
   border-radius: 6px;
-  padding: 6px 16px;
+  padding: 5px 14px;
   cursor: pointer;
+  font: inherit;
 }
 
-#recent {
-  margin-top: 14px;
-  max-height: 34vh;
-  overflow: auto;
-  width: min(520px, 80%);
+#shelf-bar button:hover { border-color: var(--accent); }
+
+#shelf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 20px 16px;
+  padding: 10px 20px 28px;
+  align-items: start;
 }
 
-#recent a {
-  display: block;
-  padding: 4px 10px;
-  color: var(--accent);
+.book {
   cursor: pointer;
+  text-align: center;
+}
+
+.book .art {
+  height: 168px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  margin-bottom: 7px;
+}
+
+.book img,
+.book .blank {
+  max-width: 100%;
+  max-height: 168px;
+  border-radius: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  background: var(--bar);
+}
+
+.book .blank {
+  width: 118px;
+  height: 168px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
+  font-size: 11px;
+  border: 1px solid var(--line);
+}
+
+.book .name {
+  font-size: 12px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.book .by {
+  font-size: 11px;
+  color: var(--dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-#recent a.missing { color: var(--dim); text-decoration: line-through; }
+.book .kind {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.book.missing { opacity: 0.45; }
+.book.missing .name { text-decoration: line-through; }
+
+.book:hover .name { color: var(--accent); }
+
+#shelf-empty {
+  padding: 0 20px;
+  color: var(--dim);
+}
 
 #settings {
   position: absolute;

@@ -55,6 +55,18 @@ pub fn serve(app: &tauri::AppHandle, request: &Request<Vec<u8>>) -> Response<Vec
         return serve_pdf(&library, rest);
     }
 
+    // 書棚に並べる表紙。開いたときに置いた画像をそのまま返す。
+    if let Some(name) = path.strip_prefix("cover/") {
+        if name.contains('/') || name.contains("..") {
+            return not_found();
+        }
+        let store = app.state::<crate::store::Store>();
+        return match std::fs::read(store.cover_path(name)) {
+            Ok(bytes) => typed(bytes, mime_of(&extension(name))),
+            Err(_) => not_found(),
+        };
+    }
+
     not_found()
 }
 
