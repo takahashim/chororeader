@@ -160,6 +160,14 @@ async function showChapter(index, fragment) {
   decorate(doc);
   markCurrentToc();
 
+  // キー入力の行き先を決めておく。
+  // 親と本文のどちらにも焦点が無いと、矢印キーがどちらの文書にも届かず、
+  // 章が進まないことがある（起動直後に起きやすい）。
+  // 検索欄に入力しているときだけは奪わない。
+  if (document.activeElement !== $("search-input")) {
+    frame.focus();
+  }
+
   if (fragment) {
     const target = doc.getElementById(fragment);
     if (target) target.scrollIntoView();
@@ -339,6 +347,12 @@ async function showPopover(anchor, href, fragment) {
 
   frame.srcdoc = built.html;
   frame.style.height = built.isFootnote ? "auto" : "100%";
+
+  // 抜粋の中に焦点が移ったままでも操作できるようにする。
+  waitUntil(() => {
+    const d = frame.contentDocument;
+    return d && d.readyState === "complete" && d.body ? d : null;
+  }, "抜粋", 3000).then((d) => d.addEventListener("keydown", onKeyDown)).catch(() => {});
 }
 
 function hidePopover() {
