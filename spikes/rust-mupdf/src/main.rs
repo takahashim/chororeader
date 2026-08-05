@@ -45,10 +45,14 @@ fn run(path: &str, needle: &str) -> Result<(), Box<dyn std::error::Error>> {
     // 目次
     let outline = document.outlines()?;
     println!("目次: 第 1 階層 {} 項目", outline.len());
+    // 0.8 では飛び先が dest に変わった。章と章内ページを解決した通しページ番号が入る。
+    let page_of = |item: &mupdf::Outline| {
+        item.dest.map(|d| d.loc.page_number + 1).unwrap_or(0)
+    };
     for item in outline.iter().take(6) {
-        println!("   {}  [p.{}]", item.title, item.page.unwrap_or(0) + 1);
+        println!("   {}  [p.{}]", item.title, page_of(item));
         for child in item.down.iter().take(2) {
-            println!("     {}  [p.{}]", child.title, child.page.unwrap_or(0) + 1);
+            println!("     {}  [p.{}]", child.title, page_of(child));
         }
     }
 
@@ -56,7 +60,7 @@ fn run(path: &str, needle: &str) -> Result<(), Box<dyn std::error::Error>> {
     let index = (page_count - 1).min(10);
     let page = document.load_page(index)?;
     let extracted = Instant::now();
-    let text = page.to_text()?;
+    let text = page.text(Default::default())?;
     let extracted = extracted.elapsed();
     let sample: String = text.replace('\n', " ").chars().take(80).collect();
     println!("本文抽出: {} ms  {sample}", extracted.as_millis());
@@ -77,7 +81,7 @@ fn run(path: &str, needle: &str) -> Result<(), Box<dyn std::error::Error>> {
     // 文字ごとの位置。PDF.js が既製で持っている「選択できるテキスト層」を
     // MuPDF で自前に作れるかどうかは、ここが取れるかで決まる。
     let structured = Instant::now();
-    let text_page = page.to_text_page(mupdf::TextPageOptions::empty())?;
+    let text_page = page.to_text_page(mupdf::TextPageFlags::empty())?;
     let mut chars = 0;
     let mut sample = Vec::new();
     let mut vertical = 0;

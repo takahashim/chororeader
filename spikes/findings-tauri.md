@@ -19,12 +19,12 @@ C# 版で成り立っていた前提が、Tauri でも成り立つかどうか�
 
 ## スパイク 5：MuPDF の Rust バインディング（spikes/rust-mupdf）
 
-`mupdf = "0.5"` は C のソースからビルドされる。
-macOS arm64 で問題なく通り、**素の状態から 69 秒**（release、8 コア並列）。以後の増分ビルドは 2 秒。
+`mupdf` クレートは C のソースからビルドされる。
+macOS arm64 で問題なく通り、**素の状態から 30 秒**（release、8 コア並列、後述の削った機能構成）。以後の増分ビルドは 2 秒。
 
 実書籍（技評『関数プログラミング実践入門』401 ページ）に対する実測:
 
-| 項目 | Rust の mupdf 0.5 | C# の MuPDFCore 2.0.1 |
+| 項目 | Rust の mupdf 0.8 | C# の MuPDFCore 2.0.1 |
 | --- | --- | --- |
 | 開く（2 回目以降） | 0 ms | 0 ms |
 | 本文抽出（1 ページ） | 28 ms | 10 ms |
@@ -35,12 +35,15 @@ macOS arm64 で問題なく通り、**素の状態から 69 秒**（release、8 
 抽出と検索は Rust 側が遅く見えるが、測り方が違う（C# は 1 ページあたり、こちらは初回を含む）ため、この表から優劣は言えない。
 どちらも実用の範囲に収まっている、という以上のことはこの数字からは読み取らない。
 
-API は必要なものが揃っていた。ページ数、目次（`down` で階層をたどれる）、`to_text`、`search`、`to_pixmap`、`write_to` による PNG 符号化。
+API は必要なものが揃っていた。ページ数、目次（`down` で階層をたどれる）、本文抽出、`search`、`to_pixmap`、`write_to` による PNG 符号化。
+加えて `TextPage` から文字ごとの矩形と縦書きの別が取れる（実書籍の 1 ページで 51 行 2812 文字、うち縦書き 2 行）。
+PDF.js が既製で持つ「選択できるテキスト層」を自前で組み立てられる、ということである。
 
-落とし穴が 2 つあった。
+落とし穴が 3 つあった。
 
 - `Pixmap::get_image_data` は非公開。PNG にするには `write_to` を使う。
 - `Document` はスレッドを跨げない。開いたスレッドに閉じ込め、チャネル越しに描画を依頼する形にした。
+- `WriteMode` は `text_page` からは見えない。クレート直下から使う。
 
 ## スパイク 6：Tauri（spikes/tauri-spike）
 
@@ -109,6 +112,47 @@ C# + WinUI と比べたときの違いは、速さではなく次の 2 点にあ
 **確かめていないこと**：ここで測ったのは macOS の WKWebView である。
 Windows の WebView2 は Chromium であり、iframe の sandbox の扱いも生成元の扱いも同じとは限らない。
 同じスパイクを windows-latest の CI で走らせて確かめる（`.github/workflows/ci.yml` の `tauri-spike-windows`）。
+
+## Windows でのビルドが失敗した（2026-08-06）
+
+上の CI ジョブを初めて走らせたところ、MuPDF のビルドで転んだ。
+懸念していた「C のソースからビルドすること」が、そのまま失敗として出た形になる。
+
+```
+bin2coff.targets(76,5): error MSB3721: The command
+  "Release\bin2coff.exe "...\resources\fonts\droid\DroidSansFallback.ttf"
+   "x64\Release\libresources\DroidSansFallback_ttf.obj" ..." exited with code 1.
+```
+
+**原因は mupdf-sys 0.5.0 の同梱漏れである。**
+このクレートはパッケージを小さくするためフォントの `.ttf` を同梱していない。
+Unix 側の Makefile は `TOFU_CJK` などの定義でフォントの埋め込みを飛ばすため気付かないが、
+MSVC 側の `libresources.vcxproj` はファイル一覧に基づいて `bin2coff` を回すので、
+存在しない `DroidSansFallback.ttf` を埋め込もうとして落ちる。
+macOS でだけ通っていたのはこのためで、機能の差ではなく経路の差である。
+
+**0.8.0 で解決していた。**
+フォントを `.ttf` ではなく生成済みの `.c`（`mupdf/generated/resources/fonts/urw/`）として持つようになり、
+`bin2coff` を回す段階そのものが無くなっている。
+CJK のフォールバックフォントは同梱されないままだが、`system-fonts` 機能が OS のフォントを使うため、
+日本語の表示は macOS でも Windows でも OS 側から供給される（リーダーとしてはむしろ望ましい）。
+
+あわせて既定の機能を切った。
+
+```toml
+mupdf = { version = "0.8", default-features = false, features = ["system-fonts"] }
+```
+
+既定には OCR（tesseract と leptonica）、XPS、SVG、CBZ、EPUB の版面エンジンが含まれる。
+tzreader はどれも使わない。CI のログではビルド時間の大半をこれらが占めていた。
+素のビルドは 69 秒から **30 秒**に減り、実書籍に対する結果（目次 18 項目、抽出 31 ms、検索 36 ms、描画 52 ms、
+PNG 69153 バイト）は 0.5 と 1 バイトも変わらなかった。
+
+0.5 から 0.8 への移行で 3 か所直した。
+
+- `Outline::page` が無くなり、`dest: Option<LinkDestination>` になった。通しページ番号は `dest.loc.page_number`。
+- `Page::to_text` が `Page::text(TextExtractOptions)` になった。
+- `TextPageOptions` が `TextPageFlags` に改名された。
 
 ## 再現の仕方
 

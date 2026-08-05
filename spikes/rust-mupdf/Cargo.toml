@@ -4,5 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# MuPDF の Rust バインディング。C のソースからビルドされる想定。
-mupdf = "0.5"
+# MuPDF の Rust バインディング。C のソースからビルドされる。
+#
+# 0.5 は Windows でビルドできない。フォントを .ttf のまま同梱せず、
+# それでいて MSVC の libresources プロジェクトが bin2coff で埋め込もうとするため。
+# 0.8 はフォントを生成済みの .c として持つので、この段階が要らない。
+#
+# 既定の機能は使わない。OCR(tesseract)、XPS、SVG、CBZ、EPUB の版面エンジンは
+# tzreader では使わないうえ、ビルド時間の大半を占めるため。
+mupdf = { version = "0.8", default-features = false, features = ["system-fonts"] }

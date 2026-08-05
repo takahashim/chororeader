@@ -23,5 +23,7 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.11.3" }
 tauri-plugin-log = "2"
-mupdf = "0.5"
+# 0.5 は Windows でビルドできない（spikes/findings-tauri.md を見よ）。
+# 既定の機能は使わない。OCR や XPS はこのアプリでは使わず、ビルド時間の大半を占めるため。
+mupdf = { version = "0.8", default-features = false, features = ["system-fonts"] }
 zip = "2"
