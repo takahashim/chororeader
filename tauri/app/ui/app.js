@@ -23,6 +23,8 @@ const DEFAULT_SETTINGS = {
   codeFont: "SF Mono",
   codeWrap: false,
   publisherStyle: false,
+  /// キーの受け取りを表示するか。原因が分かるまでの仮設。
+  showKeyProbe: true,
 };
 
 const state = {
@@ -171,9 +173,11 @@ async function showChapter(index, fragment) {
         ? d : null;
     }, "本文");
   } catch (error) {
+    probeNote("本文の読み込みが時間切れ: " + chapter.href);
     toast(String(error.message || error));
     return;
   }
+  probeNote(`章 ${index} を読み込んだ: ${chapter.href}`);
 
   decorate(doc);
   markCurrentToc();
@@ -201,6 +205,7 @@ function decorate(doc) {
   addChapterFooter(doc);
 
   doc.addEventListener("click", onBodyClick, true);
+  doc.addEventListener("keydown", recordKey, true);
   doc.addEventListener("keydown", onKeyDown);
   doc.addEventListener("wheel", onWheel, { passive: false });
   doc.addEventListener("scroll", rememberSoon, { passive: true });
@@ -707,6 +712,55 @@ function fillSettings() {
   }
 }
 
+// ---- キーの受け取りを見る -----------------------------------------------
+//
+// 矢印キーが効かないという報告を追うための仮設の窓。
+// キーが届いていないのか、届いたが行き先が違うのかを、その場で見分ける。
+// 焦点がどこにも無ければキーはどの文書にも届かないので、焦点も一緒に出す。
+
+const probe = { keys: 0, last: "（まだ来ていない）", note: "" };
+
+function recordKey(event) {
+  const inParent = event.target && event.target.ownerDocument === document;
+  probe.keys += 1;
+  probe.last = `${event.key} ← ${inParent ? "親" : "本文"}（${event.target && event.target.tagName}）`;
+  updateProbe();
+}
+
+function probeNote(text) {
+  probe.note = text;
+  updateProbe();
+}
+
+function updateProbe() {
+  const box = $("probe");
+  if (!state.settings.showKeyProbe) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  const doc = $("page").contentDocument;
+  const tag = (element) => (element ? element.tagName : "なし");
+  box.textContent =
+    `焦点  窓=${document.hasFocus()} 親=${tag(document.activeElement)}` +
+    (doc ? ` 本文=${tag(doc.activeElement)}(focus=${doc.hasFocus()})` : " 本文=なし") + "\n" +
+    `キー  ${probe.keys} 件  最後: ${probe.last}\n` +
+    `動き  ${probe.note}`;
+}
+
+setInterval(updateProbe, 400);
+document.addEventListener("keydown", recordKey, true);
+
+$("probe").addEventListener("click", () => toggleProbe(false));
+$("probe-button").addEventListener("click", () => toggleProbe(!state.settings.showKeyProbe));
+
+function toggleProbe(on) {
+  state.settings.showKeyProbe = on;
+  $("probe-button").classList.toggle("on", on);
+  invoke("save_settings", { settings: state.settings });
+  updateProbe();
+}
+
 // ---- 焦点 ---------------------------------------------------------------
 
 // キー入力の行き先を決めておく。
@@ -777,9 +831,16 @@ function scrollContent(amount, byScreen) {
 }
 
 function step(delta) {
-  if (state.book.format === "pdf") return showPdf(state.page + delta);
+  if (state.book.format === "pdf") {
+    probeNote(`step(${delta}) → ページ ${state.page + delta}`);
+    return showPdf(state.page + delta);
+  }
   const index = state.index + delta;
-  if (index < 0 || index >= state.book.chapters.length) return;
+  if (index < 0 || index >= state.book.chapters.length) {
+    probeNote(`step(${delta}) → 端なので動かない（いま ${state.index} / ${state.book.chapters.length}）`);
+    return;
+  }
+  probeNote(`step(${delta}) → 章 ${index}`);
   showChapter(index);
 }
 
