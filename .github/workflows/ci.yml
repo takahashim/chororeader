@@ -10,7 +10,7 @@ jobs:
     name: macOS 実装と実装間の検証
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -18,7 +18,7 @@ jobs:
           bundler-cache: true
           working-directory: conformance
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0"
 
@@ -28,7 +28,8 @@ jobs:
 
       - name: 合成フィクスチャを作る
         working-directory: conformance
-        run: ./tzconf generate
+        run: |
+          bundle exec ./tzconf generate
 
       - name: Swift のビルドとテスト
         working-directory: macos
@@ -55,17 +56,17 @@ jobs:
             "csharp": ["dotnet", "windows/TZReader.Probe/bin/Debug/net10.0/tzprobe.dll"]
           }
           JSON
-          ./tzconf check swift
-          ./tzconf check csharp
-          ./tzconf diff swift csharp
+          bundle exec ./tzconf check swift
+          bundle exec ./tzconf check csharp
+          bundle exec ./tzconf diff swift csharp
 
   webview2-spike:
     name: WebView2 の前提を確かめる
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0"
 
@@ -80,8 +81,8 @@ jobs:
     name: Windows 実装のビルド
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0"
       - working-directory: windows
