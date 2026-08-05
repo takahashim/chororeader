@@ -1,0 +1,7 @@
+{
+  "command": "preview",
+  "isFootnote": false,
+  "path": "OEBPS/text/__tzr_preview__.xhtml",
+  "schema": 1,
+  "text": "1.2 後の節 ここが参照先の節である。 節の 2 段落目。 これは脚注の中身です。"
+}

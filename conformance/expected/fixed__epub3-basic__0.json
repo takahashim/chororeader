@@ -1,0 +1,28 @@
+{
+  "command": "fixed",
+  "direction": "ltr",
+  "pages": [
+    {
+      "href": "OEBPS/images/cover.png",
+      "index": 0,
+      "kind": "image"
+    },
+    {
+      "href": "OEBPS/text/ch02.xhtml",
+      "index": 1,
+      "kind": "document"
+    }
+  ],
+  "schema": 1,
+  "spreadForPage": [
+    0
+  ],
+  "spreads": [
+    [
+      0
+    ],
+    [
+      1
+    ]
+  ]
+}

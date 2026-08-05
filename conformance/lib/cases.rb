@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 # 実装に投げる検証項目の定義。
 # フィクスチャに依らないもの（パス解決、CSS 変換）と、フィクスチャを開くものがある。
 module Cases
@@ -34,6 +36,38 @@ module Cases
     "no-change" => "body { margin: 0; }\n",
   }.freeze
 
+  # 表示設定から作る CSS。境界になる組み合わせを並べる。
+  STYLES = {
+    "default" => {},
+    "dark" => { "theme" => "dark" },
+    "sepia-large" => { "theme" => "sepia", "fontSizePercent" => 140, "lineHeight" => 2.2 },
+    "publisher" => { "publisherStyle" => true, "theme" => "dark" },
+    "code-wrap" => { "codeWrap" => true, "codeFont" => "Menlo", "maxWidthEm" => 0 },
+    "body-font" => { "bodyFont" => "Hiragino Mincho ProN", "maxWidthEm" => 60 },
+  }.freeze
+
+  # 章のテキスト抽出。検索も診断も抜粋もこの結果に乗っている。
+  TEXT = {
+    "epub3-basic" => ["OEBPS/text/ch01.xhtml"],
+    "legacy-css" => ["OEBPS/text/ch01.xhtml"],
+    "malformed-xhtml" => ["OEBPS/text/ch01.xhtml"],
+    "footnotes" => ["OEBPS/text/ch01.xhtml"],
+  }.freeze
+
+  # リンク先の抜粋。脚注と節と、見つからない fragment を見る。
+  PREVIEW = {
+    "footnotes" => [
+      ["OEBPS/text/ch01.xhtml", "fn1"],
+      ["OEBPS/text/ch01.xhtml", "sec2"],
+      ["OEBPS/text/ch01.xhtml", "no-such-id"],
+      ["OEBPS/text/ch01.xhtml", ""],
+    ],
+    "epub3-basic" => [["OEBPS/text/ch01.xhtml", "sec1"]],
+  }.freeze
+
+  # 固定レイアウトの組み立て。ページの種別と見開きの組み方。
+  FIXED = { "fixed-layout" => [0, 1, 4], "epub3-basic" => [0] }.freeze
+
   SEARCH = {
     "epub3-basic" => ["本文", "hello"],
     "legacy-css" => ["本文"],
@@ -50,6 +84,16 @@ module Cases
     (SEARCH[name] || []).each do |query|
       cases << { id: "search/#{name}/#{query}", args: ["search", :fixture, query] }
     end
+    (TEXT[name] || []).each do |href|
+      cases << { id: "text/#{name}/#{File.basename(href)}", args: ["text", :fixture, href] }
+    end
+    (PREVIEW[name] || []).each do |href, fragment|
+      label = fragment.empty? ? "(先頭)" : fragment
+      cases << { id: "preview/#{name}/#{label}", args: ["preview", :fixture, href, fragment] }
+    end
+    (FIXED[name] || []).each do |page|
+      cases << { id: "fixed/#{name}/#{page}", args: ["fixed", :fixture, page] }
+    end
     cases
   end
 
@@ -60,6 +104,9 @@ module Cases
     end
     CSS_INPUTS.each do |id, css|
       cases << { id: "css/#{id}", args: ["css"], stdin: css }
+    end
+    STYLES.each do |id, settings|
+      cases << { id: "style/#{id}", args: ["style"], stdin: JSON.generate(settings) }
     end
     cases
   end

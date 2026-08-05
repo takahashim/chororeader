@@ -10,11 +10,7 @@ import WebKit
 @MainActor
 final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNavigationDelegate,
                                             WKScriptMessageHandler {
-    /// ページの中身。画像 1 枚で構成されるページと、そうでないページを区別する。
-    enum PageContent {
-        case image(href: String)
-        case document(href: String)
-    }
+    typealias PageContent = FixedLayoutPlan.PageContent
 
     let document: BookDocument
     let settings: ReaderSettings
@@ -55,9 +51,9 @@ final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNaviga
         super.init()
 
         pages = publication.readingOrder.map { link in
-            Self.pageContent(for: link.href, resources: resources)
+            FixedLayoutPlan.pageContent(for: link.href, resources: resources)
         }
-        spreads = Self.spreads(pageCount: pages.count, rtl: isRTL)
+        spreads = FixedLayoutPlan.spreads(pageCount: pages.count, rtl: isRTL)
 
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(schemeHandler, forURLScheme: ResourceSchemeHandler.scheme)
@@ -217,59 +213,6 @@ final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNaviga
         </style></head>
         <body>\(ordered)</body></html>
         """
-    }
-
-    // MARK: - ページの中身を見分ける
-
-    /// ページが画像 1 枚で構成されているなら、その画像を直接表示する。
-    /// 文字が固定座標で置かれているページは、元の XHTML をそのまま埋め込む。
-    static func pageContent(for href: String, resources: ResourceProvider) -> PageContent {
-        guard let data = try? resources.read(href) else { return .document(href: href) }
-        let source = CSSCompat.decodeText(data)
-        guard let reference = primaryImageReference(in: source) else { return .document(href: href) }
-        let base = (href as NSString).deletingLastPathComponent
-        let resolved = EPUBParser.resolve(base: base, href: reference)
-        guard resources.contains(resolved) else { return .document(href: href) }
-
-        // 画像以外に本文が載っているページは、画像だけを出すと内容が落ちる。
-        let text = HTMLText.stripTags(source).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard text.count < 40 else { return .document(href: href) }
-        return .image(href: resolved)
-    }
-
-    private static func primaryImageReference(in html: String) -> String? {
-        let patterns = [
-            #"(?i)<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']"#,
-            #"(?i)<image\b[^>]*\bxlink:href\s*=\s*["']([^"']+)["']"#,
-            #"(?i)<image\b[^>]*\bhref\s*=\s*["']([^"']+)["']"#,
-        ]
-        var found: [String] = []
-        for pattern in patterns {
-            guard let re = try? NSRegularExpression(pattern: pattern) else { continue }
-            for match in re.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
-                guard let range = Range(match.range(at: 1), in: html) else { continue }
-                found.append(String(html[range]))
-            }
-        }
-        // 画像が複数あるページは、単純な 1 枚もののページではない。
-        return found.count == 1 ? found.first : nil
-    }
-
-    /// 見開きの組み方。表紙は単独で見せ、以降を 2 枚ずつまとめる。
-    static func spreads(pageCount: Int, rtl: Bool) -> [[Int]] {
-        guard pageCount > 0 else { return [] }
-        var result: [[Int]] = [[0]]
-        var index = 1
-        while index < pageCount {
-            if index + 1 < pageCount {
-                result.append([index, index + 1])
-                index += 2
-            } else {
-                result.append([index])
-                index += 1
-            }
-        }
-        return result
     }
 
     // MARK: - WKNavigationDelegate

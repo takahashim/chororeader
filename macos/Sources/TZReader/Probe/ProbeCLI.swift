@@ -21,6 +21,10 @@ enum ProbeCLI {
         switch command {
         case "parse": parse(Array(args.dropFirst()))
         case "report": report(Array(args.dropFirst()))
+        case "style": style()
+        case "text": text(Array(args.dropFirst()))
+        case "preview": preview(Array(args.dropFirst()))
+        case "fixed": fixed(Array(args.dropFirst()))
         case "resolve": resolve(Array(args.dropFirst()))
         case "css": css()
         case "search": search(Array(args.dropFirst()))
@@ -65,6 +69,83 @@ enum ProbeCLI {
             let pub = try EPUBParser.parse(archive)
             emit(ReportOutput(schema: schemaVersion, command: "report",
                               report: BookReport.make(archive: archive, publication: pub)))
+        } catch {
+            emitError(error)
+        }
+    }
+
+    /// 表示設定から作る CSS。設定は標準入力から JSON で受け取る。
+    private static func style() -> Never {
+        let input = FileHandle.standardInput.readDataToEndOfFile()
+        let style = (try? JSONDecoder().decode(ReaderStyle.self, from: input)) ?? ReaderStyle()
+        emit(StyleOutput(schema: schemaVersion, command: "style",
+                         css: normalizeNewlines(style.css()),
+                         needsForegroundMarking: style.needsForegroundMarking))
+    }
+
+    /// 章から取り出した本文。検索も診断も抜粋もこの結果に乗っているため、ここを揃える。
+    private static func text(_ args: [String]) -> Never {
+        guard args.count >= 2 else { fail("usage: probe text <epub> <href>") }
+        do {
+            let archive = try ZipArchive(url: URL(fileURLWithPath: args[0]))
+            let extracted = HTMLText.extract(CSSCompat.decodeText(try archive.read(args[1])))
+            emit(TextOutput(schema: schemaVersion, command: "text",
+                            href: norm(args[1]),
+                            text: norm(extracted.text),
+                            codeRanges: extracted.codeRanges.map { [$0.lowerBound, $0.upperBound] }))
+        } catch {
+            emitError(error)
+        }
+    }
+
+    /// リンク先の抜粋。整形の細部ではなく、どこを切り出したかを揃える。
+    private static func preview(_ args: [String]) -> Never {
+        guard args.count >= 2 else { fail("usage: probe preview <epub> <href> [fragment]") }
+        do {
+            let archive = try ZipArchive(url: URL(fileURLWithPath: args[0]))
+            let fragment = args.count >= 3 && !args[2].isEmpty ? args[2] : nil
+            guard let built = PreviewProvider.make(resources: archive, href: args[1],
+                                                   fragment: fragment, css: "") else {
+                emit(PreviewOutput(schema: schemaVersion, command: "preview",
+                                   path: nil, isFootnote: false, text: nil))
+            }
+            emit(PreviewOutput(schema: schemaVersion, command: "preview",
+                               path: norm(built.path),
+                               isFootnote: built.isFootnote,
+                               // 抜粋に混ざる自前の CSS は比較の対象にしない。
+                               text: norm(HTMLText.extract(built.html).text
+                                   .trimmingCharacters(in: .whitespacesAndNewlines))))
+        } catch {
+            emitError(error)
+        }
+    }
+
+    /// 固定レイアウトの組み立て。ページの種別と、見開きの組み方を揃える。
+    private static func fixed(_ args: [String]) -> Never {
+        guard args.count >= 1 else { fail("usage: probe fixed <epub> [ページ番号]") }
+        do {
+            let archive = try ZipArchive(url: URL(fileURLWithPath: args[0]))
+            let publication = try EPUBParser.parse(archive)
+            let page = args.count >= 2 ? Int(args[1]) ?? 0 : 0
+            let rtl = publication.direction == .rtl
+            let spreads = FixedLayoutPlan.spreads(pageCount: publication.readingOrder.count, rtl: rtl)
+
+            let pages = publication.readingOrder.map { link -> FixedOutput.Page in
+                switch FixedLayoutPlan.pageContent(for: link.href, resources: archive) {
+                case let .image(href):
+                    return FixedOutput.Page(index: 0, kind: "image", href: norm(href))
+                case let .document(href):
+                    return FixedOutput.Page(index: 0, kind: "document", href: norm(href))
+                }
+            }.enumerated().map { index, page in
+                FixedOutput.Page(index: index, kind: page.kind, href: page.href)
+            }
+
+            emit(FixedOutput(schema: schemaVersion, command: "fixed",
+                             direction: publication.direction.rawValue,
+                             pages: pages,
+                             spreads: spreads,
+                             spreadForPage: spreads.first { $0.contains(page) } ?? [page]))
         } catch {
             emitError(error)
         }
@@ -263,6 +344,43 @@ struct DetectOutput: Codable {
     var command: String
     var format: String?
     var error: ProbeError?
+}
+
+struct StyleOutput: Codable {
+    var schema: Int
+    var command: String
+    var css: String
+    var needsForegroundMarking: Bool
+}
+
+struct TextOutput: Codable {
+    var schema: Int
+    var command: String
+    var href: String
+    var text: String
+    var codeRanges: [[Int]]
+}
+
+struct PreviewOutput: Codable {
+    var schema: Int
+    var command: String
+    var path: String?
+    var isFootnote: Bool
+    var text: String?
+}
+
+struct FixedOutput: Codable {
+    struct Page: Codable {
+        var index: Int
+        var kind: String
+        var href: String
+    }
+    var schema: Int
+    var command: String
+    var direction: String
+    var pages: [Page]
+    var spreads: [[Int]]
+    var spreadForPage: [Int]
 }
 
 struct ReportOutput: Codable {

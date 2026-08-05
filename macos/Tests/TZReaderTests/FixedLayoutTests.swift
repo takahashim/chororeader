@@ -23,7 +23,7 @@ final class FixedLayoutTests: XCTestCase {
         let publication = try EPUBParser.parse(archive)
 
         for link in publication.readingOrder {
-            let content = FixedLayoutNavigatorController.pageContent(for: link.href, resources: archive)
+            let content = FixedLayoutPlan.pageContent(for: link.href, resources: archive)
             guard case let .image(href) = content else {
                 return XCTFail("画像ページとして扱われていない: \(link.href)")
             }
@@ -39,7 +39,7 @@ final class FixedLayoutTests: XCTestCase {
         try XCTSkipUnless(FileManager.default.fileExists(atPath: textBook.path))
         let textArchive = try ZipArchive(url: textBook)
 
-        let content = FixedLayoutNavigatorController.pageContent(
+        let content = FixedLayoutPlan.pageContent(
             for: "OEBPS/text/ch01.xhtml", resources: textArchive)
         guard case .document = content else {
             return XCTFail("本文のあるページを画像に置き換えてしまっている")
@@ -49,12 +49,12 @@ final class FixedLayoutTests: XCTestCase {
 
     /// 見開きは表紙を単独にし、以降を 2 枚ずつまとめる。
     func testSpreadPairing() {
-        XCTAssertEqual(FixedLayoutNavigatorController.spreads(pageCount: 5, rtl: false),
+        XCTAssertEqual(FixedLayoutPlan.spreads(pageCount: 5, rtl: false),
                        [[0], [1, 2], [3, 4]])
-        XCTAssertEqual(FixedLayoutNavigatorController.spreads(pageCount: 6, rtl: false),
+        XCTAssertEqual(FixedLayoutPlan.spreads(pageCount: 6, rtl: false),
                        [[0], [1, 2], [3, 4], [5]])
-        XCTAssertEqual(FixedLayoutNavigatorController.spreads(pageCount: 1, rtl: false), [[0]])
-        XCTAssertEqual(FixedLayoutNavigatorController.spreads(pageCount: 0, rtl: false), [])
+        XCTAssertEqual(FixedLayoutPlan.spreads(pageCount: 1, rtl: false), [[0]])
+        XCTAssertEqual(FixedLayoutPlan.spreads(pageCount: 0, rtl: false), [])
     }
 
     func testArrowKeysMovePages() throws {

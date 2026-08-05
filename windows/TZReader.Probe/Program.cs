@@ -43,6 +43,10 @@ public static class Program
                 }),
                 "parse" => Parse(rest),
                 "report" => Report(rest),
+                "style" => Style(),
+                "text" => Text(rest),
+                "preview" => Preview(rest),
+                "fixed" => Fixed(rest),
                 "resolve" => Resolve(rest),
                 "css" => Css(),
                 "search" => Search(rest),
@@ -130,6 +134,140 @@ public static class Program
         });
     }
 
+    /// <summary>表示設定から作る CSS。設定は標準入力から JSON で受け取る。</summary>
+    private static int Style()
+    {
+        var input = ReadStandardInput();
+        var style = ParseStyle(input);
+
+        return Emit(new JsonObject
+        {
+            ["schema"] = SchemaVersion,
+            ["command"] = "style",
+            ["css"] = NormalizeNewlines(style.Css()),
+            ["needsForegroundMarking"] = style.NeedsForegroundMarking,
+        });
+    }
+
+    private static ReaderStyle ParseStyle(byte[] input)
+    {
+        if (input.Length == 0)
+        {
+            return new ReaderStyle();
+        }
+        try
+        {
+            var node = JsonNode.Parse(input)?.AsObject();
+            if (node is null)
+            {
+                return new ReaderStyle();
+            }
+            var fallback = new ReaderStyle();
+            return new ReaderStyle
+            {
+                FontSizePercent = node["fontSizePercent"]?.GetValue<double>() ?? fallback.FontSizePercent,
+                LineHeight = node["lineHeight"]?.GetValue<double>() ?? fallback.LineHeight,
+                MaxWidthEm = node["maxWidthEm"]?.GetValue<double>() ?? fallback.MaxWidthEm,
+                Theme = ReaderThemes.Parse(node["theme"]?.GetValue<string>()),
+                BodyFont = node["bodyFont"]?.GetValue<string>() ?? fallback.BodyFont,
+                CodeFont = node["codeFont"]?.GetValue<string>() ?? fallback.CodeFont,
+                CodeWrap = node["codeWrap"]?.GetValue<bool>() ?? fallback.CodeWrap,
+                PublisherStyle = node["publisherStyle"]?.GetValue<bool>() ?? fallback.PublisherStyle,
+            };
+        }
+        catch (Exception)
+        {
+            return new ReaderStyle();
+        }
+    }
+
+    /// <summary>章から取り出した本文。検索も診断も抜粋もこの結果に乗っているため、ここを揃える。</summary>
+    private static int Text(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            return Fail("usage: probe text <epub> <href>");
+        }
+        using var archive = new EpubArchive(args[0]);
+        var extracted = HtmlText.Extract(CssCompat.DecodeText(archive.Read(args[1])));
+
+        return Emit(new JsonObject
+        {
+            ["schema"] = SchemaVersion,
+            ["command"] = "text",
+            ["href"] = Norm(args[1]),
+            ["text"] = Norm(extracted.Text),
+            ["codeRanges"] = Array(extracted.CodeRanges.Select(r => (JsonNode?)new JsonArray(r.Start, r.End))),
+        });
+    }
+
+    /// <summary>リンク先の抜粋。整形の細部ではなく、どこを切り出したかを揃える。</summary>
+    private static int Preview(string[] args)
+    {
+        if (args.Length < 2)
+        {
+            return Fail("usage: probe preview <epub> <href> [fragment]");
+        }
+        using var archive = new EpubArchive(args[0]);
+        var fragment = args.Length >= 3 && args[2].Length > 0 ? args[2] : null;
+        var built = PreviewProvider.Make(archive, args[1], fragment, string.Empty);
+
+        return Emit(new JsonObject
+        {
+            ["schema"] = SchemaVersion,
+            ["command"] = "preview",
+            ["path"] = built is null ? null : JsonValue.Create(Norm(built.Path)),
+            ["isFootnote"] = built?.IsFootnote ?? false,
+            // 抜粋に混ざる自前の CSS は比較の対象にしない。
+            ["text"] = built is null ? null : JsonValue.Create(Norm(HtmlText.Extract(built.Html).Text.Trim())),
+        });
+    }
+
+    /// <summary>固定レイアウトの組み立て。ページの種別と、見開きの組み方を揃える。</summary>
+    private static int Fixed(string[] args)
+    {
+        if (args.Length < 1)
+        {
+            return Fail("usage: probe fixed <epub> [ページ番号]");
+        }
+        using var archive = new EpubArchive(args[0]);
+        var publication = EpubParser.Parse(archive);
+        var page = args.Length >= 2 && int.TryParse(args[1], out var parsed) ? parsed : 0;
+        var rtl = publication.Direction == ReadingDirection.Rtl;
+        var spreads = FixedLayoutPlan.Spreads(publication.ReadingOrder.Count, rtl);
+
+        var pages = publication.ReadingOrder.Select((link, index) =>
+        {
+            var content = FixedLayoutPlan.Content(link.Href, archive);
+            return (JsonNode?)new JsonObject
+            {
+                ["index"] = index,
+                ["kind"] = content.Kind,
+                ["href"] = Norm(content.Href),
+            };
+        });
+
+        var spreadForPage = spreads.FirstOrDefault(s => s.Contains(page)) ?? [page];
+
+        return Emit(new JsonObject
+        {
+            ["schema"] = SchemaVersion,
+            ["command"] = "fixed",
+            ["direction"] = rtl ? "rtl" : "ltr",
+            ["pages"] = Array(pages),
+            ["spreads"] = Array(spreads.Select(s => (JsonNode?)new JsonArray(s.Select(i => (JsonNode?)i).ToArray()))),
+            ["spreadForPage"] = new JsonArray(spreadForPage.Select(i => (JsonNode?)i).ToArray()),
+        });
+    }
+
+    private static byte[] ReadStandardInput()
+    {
+        using var input = Console.OpenStandardInput();
+        using var buffer = new MemoryStream();
+        input.CopyTo(buffer);
+        return buffer.ToArray();
+    }
+
     private static int Resolve(string[] args)
     {
         if (args.Length < 2)
@@ -148,11 +286,7 @@ public static class Program
 
     private static int Css()
     {
-        using var input = Console.OpenStandardInput();
-        using var buffer = new MemoryStream();
-        input.CopyTo(buffer);
-
-        var result = CssCompat.Rewrite(CssCompat.DecodeText(buffer.ToArray()));
+        var result = CssCompat.Rewrite(CssCompat.DecodeText(ReadStandardInput()));
         var changes = result.Changes
             .OrderBy(c => c.From, StringComparer.Ordinal)
             .ThenBy(c => c.To, StringComparer.Ordinal);

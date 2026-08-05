@@ -9,9 +9,13 @@ macOS 版（Swift）と Windows 版（C#）が同じ振る舞いをすること�
 - EPUB のパース結果（読み順、目次の階層、href の正規化結果、書誌情報、レイアウト種別、綴じ方向）
 - 相対パスの解決規則
 - CSS 互換レイヤーの変換結果と変更内訳
+- 章から取り出す本文と、その中でコードが占める範囲
 - 検索のヒット位置、件数、順序
 - 形式判定とエラーの分類
 - 書籍の診断レポート
+- 表示設定から作る CSS
+- リンク先の抜粋として、どこを切り出すか
+- 固定レイアウトのページ種別と、見開きの組み方
 
 ## 揃えないもの
 
@@ -30,11 +34,25 @@ macOS 版（Swift）と Windows 版（C#）が同じ振る舞いをすること�
 <probe> probe version
 <probe> probe parse   <epub>
 <probe> probe report  <epub>
+<probe> probe text    <epub> <href>
+<probe> probe preview <epub> <href> [fragment]
+<probe> probe fixed   <epub> [ページ番号]
 <probe> probe resolve <base> <href>
 <probe> probe css                     # 標準入力から CSS を受け取る
+<probe> probe style                   # 標準入力から表示設定を JSON で受け取る
 <probe> probe search  <epub> <query>
 <probe> probe detect  <file>
 ```
+
+`style` が受け取る設定。欠けているキーは既定値で補う。
+
+```json
+{"fontSizePercent": 100, "lineHeight": 1.8, "maxWidthEm": 42, "theme": "light",
+ "bodyFont": "", "codeFont": "SF Mono", "codeWrap": false, "publisherStyle": false}
+```
+
+`preview` は整形の細部ではなく、切り出した範囲を揃える。
+出力の `text` は抜粋からタグとスタイルを除いたもので、注入した CSS は含めない。
 
 macOS 版の実体は次のとおり。
 
@@ -51,6 +69,7 @@ macos/build/TZReader.app/Contents/MacOS/TZReader probe parse foo.epub
 - **改行**：CSS の出力は `\n` に統一する。
 - **小数**：`progression` は小数第 3 位へ丸める。丸め方の差で落ちないようにするため。
 - **順序**：`readingOrder` と `tableOfContents` は書籍が定める順のまま。`changes` と診断レポートの配列は辞書順に整列する。
+- **値の無いキー**：出力しない。「キーが無い」と「キーがあって null」を揃えないと差になる。
 
 ## エラーの分類
 

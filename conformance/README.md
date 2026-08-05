@@ -57,5 +57,10 @@ bundle exec ruby test/runner_test.rb
 | `fixed-layout` | `rendition:layout` による固定レイアウト判定 |
 | `rtl` | 右開き |
 
+## 検証する項目
+
+契約の 11 コマンドを、合成フィクスチャに対して 68 通り実行して突き合わせる。
+内訳は、パス解決 10、CSS 変換 5、表示設定 6、書籍ごとの parse・report・detect・text・preview・fixed・search である。
+
 生成物と `probes.json` は追跡しない。ZIP は生成のたびにバイト列が変わり、`probes.json` は環境ごとに違うため。
 `expected/` は追跡する。これが実装間の合意そのものだから。

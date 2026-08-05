@@ -1,0 +1,49 @@
+{
+  "command": "fixed",
+  "direction": "ltr",
+  "pages": [
+    {
+      "href": "OEBPS/images/p001.png",
+      "index": 0,
+      "kind": "image"
+    },
+    {
+      "href": "OEBPS/images/p002.png",
+      "index": 1,
+      "kind": "image"
+    },
+    {
+      "href": "OEBPS/images/p003.png",
+      "index": 2,
+      "kind": "image"
+    },
+    {
+      "href": "OEBPS/images/p004.png",
+      "index": 3,
+      "kind": "image"
+    },
+    {
+      "href": "OEBPS/images/p005.png",
+      "index": 4,
+      "kind": "image"
+    }
+  ],
+  "schema": 1,
+  "spreadForPage": [
+    1,
+    2
+  ],
+  "spreads": [
+    [
+      0
+    ],
+    [
+      1,
+      2
+    ],
+    [
+      3,
+      4
+    ]
+  ]
+}
