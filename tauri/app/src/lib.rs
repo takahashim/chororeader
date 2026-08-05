@@ -93,20 +93,32 @@ fn urlencode(value: &str) -> String {
 
 // MARK: 書籍を開く
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_book(library: tauri::State<'_, Library>, path: String) -> Result<BookInfo, String> {
     let book = library.open(&path)?;
     let book = book.lock().unwrap();
     Ok(describe(&book))
 }
 
+/// 書籍を選ぶダイアログ。
+///
+/// 同期の命令は主スレッドで走る。そこで `blocking_pick_file` を呼ぶと、
+/// ダイアログの応答を待つあいだイベントループが止まり、開いたまま固まる。
+/// 待たない形（結果を受け取る関数を渡す形）を使い、受け取りは別スレッドで待つ。
 #[tauri::command]
-fn pick_book(app: tauri::AppHandle) -> Option<String> {
-    // 命令はワーカースレッドで走るため、ここで待ってよい。
+async fn pick_book(app: tauri::AppHandle) -> Option<String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
     app.dialog()
         .file()
         .add_filter("書籍", &["epub", "pdf"])
-        .blocking_pick_file()
+        .pick_file(move |file| {
+            let _ = sender.send(file);
+        });
+
+    tauri::async_runtime::spawn_blocking(move || receiver.recv().ok().flatten())
+        .await
+        .ok()
+        .flatten()
         .and_then(|file| file.into_path().ok())
         .map(|path| path.to_string_lossy().into_owned())
 }
@@ -119,7 +131,7 @@ struct RecentBook {
     exists: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn recent_books(store: tauri::State<'_, Store>) -> Vec<RecentBook> {
     store
         .recent()
@@ -195,7 +207,7 @@ struct Hit {
     is_code: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn search_book(
     library: tauri::State<'_, Library>,
     id: String,
@@ -238,7 +250,7 @@ fn search_book(
 }
 
 /// リンク先を移動せずに確かめるための抜粋。
-#[tauri::command]
+#[tauri::command(async)]
 fn preview_link(
     library: tauri::State<'_, Library>,
     id: String,
@@ -258,7 +270,7 @@ fn preview_link(
     }))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn chapter_text(
     library: tauri::State<'_, Library>,
     id: String,
@@ -273,7 +285,7 @@ fn chapter_text(
     Ok(html_text::extract(&css_compat::decode_text(&data)).text)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn page_text(library: tauri::State<'_, Library>, id: String, page: i32) -> Result<String, String> {
     let book = library.get(&id).ok_or("書籍が開かれていない")?;
     let book = book.lock().unwrap();
@@ -284,7 +296,7 @@ fn page_text(library: tauri::State<'_, Library>, id: String, page: i32) -> Resul
 }
 
 /// 書籍の診断。probe report と同じ値を返す。
-#[tauri::command]
+#[tauri::command(async)]
 fn diagnose(library: tauri::State<'_, Library>, id: String) -> Result<serde_json::Value, String> {
     let book = library.get(&id).ok_or("書籍が開かれていない")?;
     let book = book.lock().unwrap();
@@ -317,17 +329,17 @@ fn diagnose(library: tauri::State<'_, Library>, id: String) -> Result<serde_json
 
 // MARK: 位置としおり
 
-#[tauri::command]
+#[tauri::command(async)]
 fn book_state(store: tauri::State<'_, Store>, path: String) -> BookState {
     store.state_of(&path)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn remember_position(store: tauri::State<'_, Store>, path: String, position: Position) {
     store.remember(&path, position);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn toggle_bookmark(
     store: tauri::State<'_, Store>,
     path: String,
@@ -336,7 +348,7 @@ fn toggle_bookmark(
     store.toggle_bookmark(&path, bookmark)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
     // 外部の URL は既定のブラウザに渡す。読書中にアプリがネットワークを使うことはない。
     let _ = app;
