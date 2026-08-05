@@ -1,0 +1,8 @@
+[package]
+name = "rust-mupdf-spike"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# MuPDF の Rust バインディング。C のソースからビルドされる想定。
+mupdf = "0.5"
