@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   macos:
@@ -17,6 +18,10 @@ jobs:
           bundler-cache: true
           working-directory: conformance
 
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0"
+
       - name: 検証ツール自身のテスト
         working-directory: conformance
         run: bundle exec ruby test/runner_test.rb
@@ -27,7 +32,7 @@ jobs:
 
       - name: Swift のビルドとテスト
         working-directory: macos
-        # 実書籍を使うテストは手元にファイルが無ければスキップされる
+        # 実書籍を使うテストは local-books.json が無ければスキップされる
         run: |
           swift build
           swift test
@@ -36,31 +41,50 @@ jobs:
         working-directory: macos
         run: ./make-app.sh
 
-      - name: 期待値との照合
+      - name: C# のビルド
+        working-directory: windows
+        run: dotnet build TZReader.Probe/TZReader.Probe.csproj
+
+      # .NET は macOS でも動くため、2 実装の突き合わせはこのジョブ 1 つで完結する。
+      - name: 期待値との照合と、実装間の突き合わせ
         working-directory: conformance
-        run: ./tzconf check swift
+        run: |
+          cat > probes.json <<'JSON'
+          {
+            "swift": ["macos/build/TZReader.app/Contents/MacOS/TZReader"],
+            "csharp": ["dotnet", "windows/TZReader.Probe/bin/Debug/net10.0/tzprobe.dll"]
+          }
+          JSON
+          ./tzconf check swift
+          ./tzconf check csharp
+          ./tzconf diff swift csharp
 
-      # C# 実装が入ったら有効にする。.NET は macOS でも動くため、
-      # 2 実装の突き合わせはこのジョブ 1 つで完結する。
-      # - uses: actions/setup-dotnet@v4
-      #   with:
-      #     dotnet-version: "10.0"
-      # - name: 実装間の突き合わせ
-      #   working-directory: conformance
-      #   run: |
-      #     cp probes.example.json probes.json
-      #     ./tzconf check csharp
-      #     ./tzconf diff swift csharp
+  webview2-spike:
+    name: WebView2 の前提を確かめる
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
 
-  # UI は Windows でしか組めない。コアの検証は macOS ジョブが済ませているので、
-  # ここはビルドが通ることの確認に絞る。
-  # windows:
-  #   name: Windows 実装
-  #   runs-on: windows-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-dotnet@v4
-  #       with:
-  #         dotnet-version: "10.0"
-  #     - working-directory: windows
-  #       run: dotnet build
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0"
+
+      # 書籍側の JavaScript を止めたまま、アプリの注入スクリプトとメッセージが動くかを見る。
+      # macOS では成り立つことを確認済み（spikes/findings.md のスパイク 4）。
+      # ここが崩れると EPUB ナビゲータの作りを見直す必要がある。
+      - name: スパイクを実行する
+        working-directory: windows
+        run: dotnet run --project TZReader.WebViewSpike/TZReader.WebViewSpike.csproj
+
+  windows-build:
+    name: Windows 実装のビルド
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0"
+      - working-directory: windows
+        run: |
+          dotnet build TZReader.Core/TZReader.Core.csproj
+          dotnet build TZReader.Probe/TZReader.Probe.csproj

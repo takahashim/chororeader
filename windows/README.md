@@ -94,8 +94,8 @@ macOS 版が PDFKit を AppKit のビューで使っているのと同じ形に�
 3. ~~`probe parse`~~（済）
 4. ~~`probe detect` と `probe report`~~（済）
 5. ~~`probe search`~~（済。`./tzconf check csharp` が 49 件通る）
-6. **WebView2 のスパイク**：書籍側の JavaScript を止めたまま、注入スクリプトが動くかを確かめる。
-   Windows 機が要る。UI の設計がここに依るので、UI 着手前に最初に行う
+6. **WebView2 のスパイク**：プログラムは用意済み（`TZReader.WebViewSpike/`）。
+   実行だけが残っている。GitHub へ push すれば CI の `webview2-spike` ジョブが答えを出す
 7. UI（TZReader.App）
 
 各段階で `./tzconf diff swift csharp` を回すと、食い違いがその場で出る。
