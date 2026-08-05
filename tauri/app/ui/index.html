@@ -11,6 +11,17 @@
   <button id="toggle-sidebar" title="目次（⌘\）">☰</button>
   <span id="book-title">tzreader</span>
   <span class="spacer"></span>
+  <span id="zoom">
+    <button id="zoom-out" title="縮小（⌘−）">−</button>
+    <span id="zoom-level">100%</span>
+    <button id="zoom-in" title="拡大（⌘+）">＋</button>
+  </span>
+  <select id="fit" title="合わせ方" hidden>
+    <option value="width">横幅に合わせる</option>
+    <option value="page">ページ全体</option>
+    <option value="actual">原寸</option>
+    <option value="custom">倍率を保つ</option>
+  </select>
   <input id="search-input" type="search" placeholder="この書籍を検索" spellcheck="false">
   <button id="bookmark" title="しおり（⌘D）">☆</button>
   <button id="settings-button" title="表示設定">Aa</button>

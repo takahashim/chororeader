@@ -67,6 +67,33 @@ body {
 #bar button:hover { border-color: var(--accent); }
 #bar button.on { color: var(--accent); border-color: var(--accent); }
 
+#zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#zoom button { padding: 1px 7px; }
+
+#zoom-level {
+  width: 5ch;
+  text-align: center;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+#fit {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* 拡大して端がはみ出しているときは、掴んで動かせることを見せる。 */
+#pdf.pannable { cursor: grab; }
+#pdf.panning { cursor: grabbing; }
+
 #search-input {
   width: 22ch;
   padding: 3px 8px;

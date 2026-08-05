@@ -38,6 +38,7 @@ pub fn run() {
             preview_link,
             chapter_text,
             page_text,
+            page_size,
             diagnose,
             open_in_new_window,
             book_state,
@@ -293,6 +294,17 @@ fn page_text(library: tauri::State<'_, Library>, id: String, page: i32) -> Resul
         return Err("PDF ではない".to_string());
     };
     Ok(worker.text_of_page(page))
+}
+
+/// ページの大きさ（ポイント）。合わせ方を計算するために要る。
+#[tauri::command(async)]
+fn page_size(library: tauri::State<'_, Library>, id: String, page: i32) -> Result<(f32, f32), String> {
+    let book = library.get(&id).ok_or("書籍が開かれていない")?;
+    let book = book.lock().unwrap();
+    let Content::Pdf { worker, .. } = &book.content else {
+        return Err("PDF ではない".to_string());
+    };
+    Ok(worker.page_size(page))
 }
 
 /// 書籍の診断。probe report と同じ値を返す。

@@ -9,6 +9,12 @@ const invoke = window.__TAURI__.core.invoke;
 const $ = (id) => document.getElementById(id);
 
 const DEFAULT_SETTINGS = {
+  /// PDF で倍率を手で決めたときの値。
+  zoom: 1,
+  /// PDF の合わせ方。
+  fit: "width",
+  /// 本文（リフロー）の倍率。PDF とは別に覚える。
+  epubZoom: 1,
   fontSizePercent: 100,
   lineHeight: 1.8,
   maxWidthEm: 42,
@@ -23,7 +29,10 @@ const state = {
   book: null,
   index: 0,
   page: 0,
-  zoom: 1.25,
+  /// いまの倍率。EPUB では本文全体に、PDF では描画の倍率に効く。
+  zoom: 1,
+  /// PDF のページの大きさ（ポイント）。合わせ方の計算に要る。
+  pageSize: null,
   settings: { ...DEFAULT_SETTINGS },
   style: { css: "", needsForegroundMarking: false },
   bookmarks: [],
@@ -80,10 +89,19 @@ async function openPath(path, href) {
   if (state.book.format === "pdf") {
     $("page").hidden = true;
     $("pdf").hidden = false;
+    $("fit").hidden = false;
+    // 合わせ方を計算するにはページの大きさが要る。1 ページ目で代表させる。
+    state.pageSize = await invoke("page_size", { id: state.book.id, page: 0 }).catch(() => null);
+    const fitted = zoomForFit(state.settings.fit);
+    setZoom(fitted == null ? state.settings.zoom : fitted, state.settings.fit);
     await showPdf(href ? Number(href) : saved.position.page || 0);
   } else {
     $("pdf").hidden = true;
     $("page").hidden = false;
+    $("fit").hidden = true;
+    state.pageSize = null;
+    state.zoom = state.settings.epubZoom || 1;
+    $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
     const target = href || saved.position.href;
     const index = Math.max(0, state.book.chapters.findIndex((c) => c.href === target));
     state.restoring = href ? null : saved.position.progression;
@@ -167,6 +185,7 @@ async function showChapter(index, fragment) {
   if (document.activeElement !== $("search-input")) {
     frame.focus();
   }
+  applyZoom();
 
   if (fragment) {
     const target = doc.getElementById(fragment);
@@ -189,6 +208,7 @@ function decorate(doc) {
 
   doc.addEventListener("click", onBodyClick, true);
   doc.addEventListener("keydown", onKeyDown);
+  doc.addEventListener("wheel", onWheel, { passive: false });
   doc.addEventListener("scroll", rememberSoon, { passive: true });
   doc.defaultView.addEventListener("scroll", rememberSoon, { passive: true });
 }
@@ -376,10 +396,17 @@ async function showPdf(page) {
     box.dataset.book = state.book.id;
     box.dataset.zoom = String(state.zoom);
     box.textContent = "";
+    // 大きさを先に決めておく。決めないと画像がすべて同じ位置に積まれ、
+    // loading="lazy" が効かず、何百ページぶんも一度に描いてしまう。
+    const [width, height] = state.pageSize || [0, 0];
     for (let i = 0; i < state.book.pageCount; i++) {
       const img = document.createElement("img");
       img.loading = "lazy";
       img.dataset.page = String(i);
+      if (width > 0) {
+        img.style.width = Math.round(width * state.zoom) + "px";
+        img.style.height = Math.round(height * state.zoom) + "px";
+      }
       img.src = `/pdf/${state.book.id}/${i}/${state.zoom}`;
       box.appendChild(img);
     }
@@ -400,6 +427,112 @@ async function showPdf(page) {
   if (target) box.scrollTop = target.offsetTop - 16;
   markCurrentToc();
   rememberSoon();
+}
+
+// ---- 拡大と縮小 ---------------------------------------------------------
+
+const ZOOM_MIN = 0.4;
+const ZOOM_MAX = 6;
+
+/// 合わせ方から倍率を決める。PDF でページの大きさが分かっているときだけ計算できる。
+function zoomForFit(fit) {
+  if (!state.pageSize) return null;
+  const [width, height] = state.pageSize;
+  const box = $("pdf").getBoundingClientRect();
+  switch (fit) {
+    case "width": return (box.width - 32) / width;
+    case "page": return Math.min((box.width - 32) / width, (box.height - 32) / height);
+    case "actual": return 1;
+    default: return null;
+  }
+}
+
+function setZoom(value, fit) {
+  state.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, value));
+  // PDF と本文では合う倍率が違うので、別々に覚える。
+  if (state.book && state.book.format === "pdf") {
+    state.settings.zoom = state.zoom;
+    if (fit) state.settings.fit = fit;
+  } else {
+    state.settings.epubZoom = state.zoom;
+  }
+  invoke("save_settings", { settings: state.settings });
+  $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
+  $("fit").value = state.settings.fit;
+  applyZoom();
+}
+
+function applyZoom() {
+  if (!state.book) return;
+  if (state.book.format === "pdf") {
+    showPdf(state.page);
+    updatePannable();
+    return;
+  }
+  // リフローする本文は、文字も図も一緒に拡大する。
+  const doc = $("page").contentDocument;
+  if (doc && doc.documentElement) doc.documentElement.style.zoom = state.zoom;
+}
+
+function zoomBy(step) {
+  if (!state.book) return;
+  // 倍率を手で変えたら、合わせ方は「保つ」へ移る。
+  setZoom(state.zoom * step, "custom");
+  toast("拡大 " + Math.round(state.zoom * 100) + "%");
+}
+
+function resetZoom() {
+  if (!state.book) return;
+  const fit = state.book.format === "pdf" ? "width" : "custom";
+  const value = state.book.format === "pdf" ? (zoomForFit("width") || 1) : 1;
+  setZoom(value, fit);
+  toast("拡大 " + Math.round(state.zoom * 100) + "%");
+}
+
+$("zoom-in").addEventListener("click", () => zoomBy(1.25));
+$("zoom-out").addEventListener("click", () => zoomBy(1 / 1.25));
+$("fit").addEventListener("change", (event) => {
+  const fit = event.target.value;
+  const value = zoomForFit(fit);
+  setZoom(value == null ? state.zoom : value, fit);
+});
+
+/// トラックパッドのピンチは、Ctrl 付きの wheel として届く。
+/// 横スワイプには移動を割り当てていないので、こちらとは衝突しない。
+function onWheel(event) {
+  if (!event.ctrlKey) return;
+  event.preventDefault();
+  if (!state.book) return;
+  setZoom(state.zoom * Math.exp(-event.deltaY / 180), "custom");
+  $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
+}
+document.addEventListener("wheel", onWheel, { passive: false });
+
+/// 拡大して端がはみ出したら、掴んで動かせるようにする。
+function updatePannable() {
+  const box = $("pdf");
+  box.classList.toggle("pannable", box.scrollWidth > box.clientWidth + 1);
+}
+
+let panning = null;
+$("pdf").addEventListener("pointerdown", (event) => {
+  const box = $("pdf");
+  if (box.scrollWidth <= box.clientWidth + 1) return;
+  panning = { x: event.clientX, y: event.clientY, left: box.scrollLeft, top: box.scrollTop };
+  box.classList.add("panning");
+  box.setPointerCapture(event.pointerId);
+});
+$("pdf").addEventListener("pointermove", (event) => {
+  if (!panning) return;
+  const box = $("pdf");
+  box.scrollLeft = panning.left - (event.clientX - panning.x);
+  box.scrollTop = panning.top - (event.clientY - panning.y);
+});
+for (const kind of ["pointerup", "pointercancel"]) {
+  $("pdf").addEventListener(kind, () => {
+    panning = null;
+    $("pdf").classList.remove("panning");
+  });
 }
 
 // ---- 検索 ---------------------------------------------------------------
@@ -556,8 +689,9 @@ function onKeyDown(event) {
     return;
   }
   if (command && event.altKey && event.key.toLowerCase() === "i") { event.preventDefault(); return diagnose(); }
-  if (command && (event.key === "+" || event.key === "=")) { event.preventDefault(); return zoom(0.25); }
-  if (command && event.key === "-") { event.preventDefault(); return zoom(-0.25); }
+  if (command && (event.key === "+" || event.key === "=")) { event.preventDefault(); return zoomBy(1.25); }
+  if (command && event.key === "-") { event.preventDefault(); return zoomBy(1 / 1.25); }
+  if (command && event.key === "0") { event.preventDefault(); return resetZoom(); }
   if (event.key === "Escape") { hidePopover(); return; }
   if (editing || command || !state.book) return;
 
@@ -573,13 +707,6 @@ function step(delta) {
   const index = state.index + delta;
   if (index < 0 || index >= state.book.chapters.length) return;
   showChapter(index);
-}
-
-function zoom(delta) {
-  if (!state.book || state.book.format !== "pdf") return;
-  state.zoom = Math.max(0.5, Math.min(4, Math.round((state.zoom + delta) * 100) / 100));
-  showPdf(state.page);
-  toast("拡大 " + Math.round(state.zoom * 100) + "%");
 }
 
 async function diagnose() {
@@ -628,6 +755,16 @@ $("settings-button").addEventListener("click", (event) => {
   $("settings").hidden = !$("settings").hidden;
 });
 document.addEventListener("keydown", onKeyDown);
+
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (!state.book || state.book.format !== "pdf") return;
+    const fitted = zoomForFit(state.settings.fit);
+    if (fitted != null) setZoom(fitted, state.settings.fit);
+  }, 200);
+});
 
 // ---- 起動 ---------------------------------------------------------------
 
