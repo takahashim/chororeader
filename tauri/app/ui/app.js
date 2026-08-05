@@ -178,13 +178,7 @@ async function showChapter(index, fragment) {
   decorate(doc);
   markCurrentToc();
 
-  // キー入力の行き先を決めておく。
-  // 親と本文のどちらにも焦点が無いと、矢印キーがどちらの文書にも届かず、
-  // 章が進まないことがある（起動直後に起きやすい）。
-  // 検索欄に入力しているときだけは奪わない。
-  if (document.activeElement !== $("search-input")) {
-    frame.focus();
-  }
+  focusContent();
   applyZoom();
 
   if (fragment) {
@@ -713,6 +707,24 @@ function fillSettings() {
   }
 }
 
+// ---- 焦点 ---------------------------------------------------------------
+
+// キー入力の行き先を決めておく。
+// どこにも焦点が無いと、矢印キーがどの文書にも届かず、章が進まない。
+//
+// 厄介なのは最初の 1 冊で、ファイルダイアログ経由で開くことが多い。
+// ダイアログが閉じてから窓が鍵盤の焦点を取り戻すまでには間があり、
+// その途中で focus() を呼んでも、あとから来る復帰に打ち消される。
+// そのため、窓が焦点を得たときにも当て直す。
+function focusContent() {
+  if (!state.book) return;
+  if (document.activeElement === $("search-input")) return;
+  const target = state.book.format === "pdf" ? $("pdf") : $("page");
+  target.focus();
+}
+
+window.addEventListener("focus", focusContent);
+
 // ---- 操作 ---------------------------------------------------------------
 
 // 矢印キーは移動、上下とスペースは読むための送り。軸ごとに意味を 1 つに定める。
@@ -740,6 +752,28 @@ function onKeyDown(event) {
   const forward = state.book.direction === "rtl" ? "ArrowLeft" : "ArrowRight";
   if (event.key === back) { event.preventDefault(); return step(-1); }
   if (event.key === forward) { event.preventDefault(); return step(1); }
+
+  // 縦の送り。焦点が本文にあるときは WebKit が勝手にやってくれるが、
+  // 親にあるときは何も起きない。どちらでも同じ動きになるよう、こちらでも送る。
+  if (event.target && event.target.ownerDocument !== document) return;
+  const step_ = { ArrowDown: 60, ArrowUp: -60, PageDown: 0.9, PageUp: -0.9 }[event.key];
+  const space = event.key === " " ? (event.shiftKey ? -0.9 : 0.9) : null;
+  if (step_ == null && space == null) return;
+  event.preventDefault();
+  scrollContent(space != null ? space : step_, space != null || Math.abs(step_) < 1);
+}
+
+/// 本文を送る。割合で渡されたときは 1 画面ぶんとして扱う。
+function scrollContent(amount, byScreen) {
+  if (state.book.format === "pdf") {
+    const box = $("pdf");
+    box.scrollTop += byScreen ? amount * box.clientHeight : amount;
+    return;
+  }
+  const doc = $("page").contentDocument;
+  const el = doc && (doc.scrollingElement || doc.documentElement);
+  if (!el) return;
+  el.scrollTop += byScreen ? amount * doc.defaultView.innerHeight : amount;
 }
 
 function step(delta) {

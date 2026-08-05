@@ -43,8 +43,8 @@
   <main id="stage">
     <!-- 本文。allow-scripts を与えないので書籍の script は動かない。
          allow-same-origin だけ与えて、親からこの中の DOM を触れるようにする。 -->
-    <iframe id="page" sandbox="allow-same-origin" title="本文"></iframe>
-    <div id="pdf" hidden></div>
+    <iframe id="page" sandbox="allow-same-origin" title="本文" tabindex="-1"></iframe>
+    <div id="pdf" tabindex="-1" hidden></div>
     <div id="welcome">
       <h1>tzreader</h1>
       <p>EPUB か PDF を開いてください。</p>
