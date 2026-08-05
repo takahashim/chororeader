@@ -1,6 +1,17 @@
 # Windows 実装（C#）
 
-まだ着手していない。この文書は、始めるときの取り決めを先に固めておくためのもの。
+Core と Probe を実装済み。UI は未着手。
+スパイクの結果は [../spikes/findings-windows.md](../spikes/findings-windows.md)。
+
+```sh
+cd windows
+dotnet build TZReader.Probe/TZReader.Probe.csproj
+
+cd ../conformance
+cp probes.example.json probes.json   # パスを自分の環境に合わせる
+./tzconf check csharp                # 期待値との照合
+./tzconf diff swift csharp           # 2 実装の突き合わせ
+```
 
 仕様は [../spec.md](../spec.md)、実装間の契約は [../conformance/CONTRACT.md](../conformance/CONTRACT.md)。
 
@@ -36,18 +47,59 @@ cp probes.example.json probes.json
 ```
 
 Core が Windows 専用 API（WinUI、Win32）に触れると、この検証が Windows でしか回らなくなる。
-Core は netstandard か net8.0 のままにしておく。
+Core と Probe の TargetFramework は `net10.0` のままにし、`net10.0-windows` にしない。
+
+## .NET のバージョン
+
+**.NET 10（LTS）を使う。**
+.NET 8 も LTS だが、サポートが 2026 年 11 月に終わる。新しく始める土台としては残りが短い。
+.NET 9 は STS で、すでにサポートが終わっている。
+
+UI（TZReader.App）は Windows App SDK に合わせた TFM（`net10.0-windows10.0.x`）になる。
+その組み合わせは、UI へ着手する時点の Windows App SDK の対応状況を見て決める。
+
+## PDF の扱い
+
+**MuPDF を使う。** .NET からは [MuPDFCore](https://github.com/arklumpus/MuPDFCore) 経由で呼ぶ。
+描画は WPF のネイティブなビューへ行い、WebView2 には載せない。
+macOS 版が PDFKit を AppKit のビューで使っているのと同じ形になる。
+
+選んだ理由。
+
+- 描画とテキストの両方を 1 つのライブラリで賄える。Core（妥当性判定、アウトライン、テキスト、検索）と UI（描画）が同じ土台に乗る
+- 選択に必要な部品が揃っている。`GetHitAddress` が座標から文字を特定し、`GetHighlightQuads` が文字範囲をハイライト用の矩形へまとめる。自作するのはマウス操作の受け取りと矩形の描画だけで済む
+- `MuPDFCore.NativeAssets.Mac-arm64` があるため macOS でもビルドできる。開発機で `tzconf diff` を回す条件が守れる
+- OCR（Tesseract）に対応しているので、仕様 第 3 段階のスキャン PDF の検索が後から安く載る
+
+見送った案。
+
+- **WebView2 内蔵の PDF ビューア**：現在ページを取れず読書位置を保存できない。アウトラインも検索結果一覧もサムネイルも作れない
+- **PDF.js**：テキスト選択が標準で効く利点はあるが、描画性能が落ち、Core 側に別のライブラリが要る（2 スタックになる）
+- **Windows.Data.Pdf**：描画のみでテキストが取れない
+
+承知しておくこと。
+
+- **AGPL**：配布する場合、MuPDF とリンクした Windows 版全体が AGPL になる。リポジトリ全体を AGPL-3.0 にするかは未決（macOS 版は MuPDF を使わないため、理屈の上では分けられる）
+- Windows の利用者に MSVC 再頒布可能パッケージが要る
+- MuPDF のブロック順は描画順であって読み順とは限らない。多段組の PDF では座標で並べ替える
+- アウトライン取得の API は着手時にドキュメントで確認する
+
+この選択は変えうる。描画性能や選択の実装が問題になれば、PDF.js への差し替えを検討する。
+その影響は UI に閉じるよう、Core は MuPDF の型を外へ漏らさない設計にしておく。
 
 ## 実装の順序
 
-1. **Probe の骨組み**：`probe version` だけ返す。`./tzconf probes` に載ることを確認する
-2. **`probe resolve` と `probe css`**：ファイルを読まない部分から始める。期待値と突き合わせて、正規化の規約（NFC、パス区切り、改行）を体で確認する
-3. **`probe parse`**：ZIP は `System.IO.Compression.ZipFile`、OPF と目次は `System.Xml.Linq` で読む
-4. **`probe detect` と `probe report`**：エラー分類を CONTRACT.md の表に合わせる
-5. **`probe search`**：全角半角を区別しない部分一致。`CompareOptions.IgnoreWidth` を使う
-6. ここまでで `./tzconf check csharp` が 49 件通る。以後は UI
+1. ~~Probe の骨組み~~（済）
+2. ~~`probe resolve` と `probe css`~~（済）
+3. ~~`probe parse`~~（済）
+4. ~~`probe detect` と `probe report`~~（済）
+5. ~~`probe search`~~（済。`./tzconf check csharp` が 49 件通る）
+6. **WebView2 のスパイク**：書籍側の JavaScript を止めたまま、注入スクリプトが動くかを確かめる。
+   Windows 機が要る。UI の設計がここに依るので、UI 着手前に最初に行う
+7. UI（TZReader.App）
 
 各段階で `./tzconf diff swift csharp` を回すと、食い違いがその場で出る。
+実際、この突き合わせは macOS 版の目次の不具合を 1 件見つけた（findings-windows.md）。
 
 ## 踏みやすいところ
 

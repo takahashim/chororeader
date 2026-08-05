@@ -4,9 +4,6 @@
   ],
   "csharp": [
     "dotnet",
-    "run",
-    "--project",
-    "windows/TZReader.Probe",
-    "--"
+    "windows/TZReader.Probe/bin/Debug/net10.0/tzprobe.dll"
   ]
 }

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- LTS を選ぶ。.NET 8 の LTS は 2026 年 11 月に終わるため、新規に始める土台には短い。 -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- UI に依存させない。macOS でもビルドできる状態を保ち、
+         実装間の突き合わせを開発機だけで回せるようにするため。
+         Windows 専用 TFM（net10.0-windows）にしないこと。 -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Shift_JIS などの符号化は .NET では既定で使えない。 -->
+    <PackageReference Include="MuPDFCore" Version="2.0.1" />
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>

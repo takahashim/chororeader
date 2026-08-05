@@ -85,7 +85,7 @@ enum EPUBParser {
         var toc: [TOCEntry] = []
         if let navLink = manifest.values.first(where: { $0.properties.contains("nav") }),
            let navData = try? archive.read(navLink.href) {
-            toc = parseNavDocument(navData, base: (navLink.href as NSString).deletingLastPathComponent)
+            toc = TOCParser.parseNavDocument(navData, base: (navLink.href as NSString).deletingLastPathComponent)
         }
         if toc.isEmpty {
             let ncxID = elements(opf, "//*[local-name()='spine']")
@@ -93,7 +93,7 @@ enum EPUBParser {
             let ncxLink = ncxID.flatMap { manifest[$0] }
                 ?? manifest.values.first { $0.mediaType == "application/x-dtbncx+xml" }
             if let ncxLink, let ncxData = try? archive.read(ncxLink.href) {
-                toc = parseNCX(ncxData, base: (ncxLink.href as NSString).deletingLastPathComponent)
+                toc = TOCParser.parseNCX(ncxData, base: (ncxLink.href as NSString).deletingLastPathComponent)
             }
         }
         if toc.isEmpty {
@@ -115,71 +115,6 @@ enum EPUBParser {
         )
     }
 
-    // MARK: - 目次
-
-    private static func parseNavDocument(_ data: Data, base: String) -> [TOCEntry] {
-        guard let doc = try? document(from: data) else { return [] }
-        // epub:type="toc" の nav を優先。無ければ最初の nav。
-        let navs = elements(doc, "//*[local-name()='nav']")
-        let tocNav = navs.first { el in
-            let type = el.attribute(forName: "epub:type")?.stringValue
-                ?? el.attribute(forName: "type")?.stringValue
-            return type?.contains("toc") == true
-        } ?? navs.first
-        guard let root = tocNav, let list = elements(root, ".//*[local-name()='ol']").first else { return [] }
-        return parseNavList(list, base: base)
-    }
-
-    private static func parseNavList(_ list: XMLElement, base: String) -> [TOCEntry] {
-        var out: [TOCEntry] = []
-        for node in list.children ?? [] {
-            guard let li = node as? XMLElement, li.name?.hasSuffix("li") == true else { continue }
-            let anchor = elements(li, "./*[local-name()='a']|./*[local-name()='span']").first
-            let title = (anchor?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            var href: String?
-            var fragment: String?
-            if let raw = anchor?.attribute(forName: "href")?.stringValue {
-                let parts = stripFragment(raw)
-                if !parts.path.isEmpty { href = resolve(base: base, href: parts.path) }
-                fragment = parts.fragment
-            }
-            let sublist = elements(li, "./*[local-name()='ol']").first
-            let children = sublist.map { parseNavList($0, base: base) } ?? []
-            if !title.isEmpty || href != nil || !children.isEmpty {
-                out.append(TOCEntry(title: title.isEmpty ? "(無題)" : title,
-                                    href: href, fragment: fragment, children: children))
-            }
-        }
-        return out
-    }
-
-    private static func parseNCX(_ data: Data, base: String) -> [TOCEntry] {
-        guard let doc = try? document(from: data),
-              let navMap = elements(doc, "//*[local-name()='navMap']").first
-        else { return [] }
-        return parseNavPoints(in: navMap, base: base)
-    }
-
-    private static func parseNavPoints(in parent: XMLElement, base: String) -> [TOCEntry] {
-        var out: [TOCEntry] = []
-        for np in elements(parent, "./*[local-name()='navPoint']") {
-            let title = (nodes(np, "./*[local-name()='navLabel']/*[local-name()='text']").first?.stringValue ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            var href: String?
-            var fragment: String?
-            if let src = elements(np, "./*[local-name()='content']").first?
-                .attribute(forName: "src")?.stringValue {
-                let parts = stripFragment(src)
-                if !parts.path.isEmpty { href = resolve(base: base, href: parts.path) }
-                fragment = parts.fragment
-            }
-            let children = parseNavPoints(in: np, base: base)
-            out.append(TOCEntry(title: title.isEmpty ? "(無題)" : title,
-                                href: href, fragment: fragment, children: children))
-        }
-        return out
-    }
-
     // MARK: - 補助
 
     private static func nodes(_ node: XMLNode, _ xpath: String) -> [XMLNode] {
@@ -197,10 +132,18 @@ enum EPUBParser {
         return value?.removingPercentEncoding ?? value
     }
 
+    /// 空白だけのテキストノードを保つ。
+    /// 目次に `<strong>見出し</strong> <span>副題</span>` のような並びがあると、
+    /// 捨ててしまった場合に語が繋がってしまうため。
+    private static let parseOptions: XMLNode.Options = [
+        .nodeLoadExternalEntitiesNever,
+        .nodePreserveWhitespace,
+    ]
+
     private static func document(from data: Data) throws -> XMLDocument {
-        if let doc = try? XMLDocument(data: data, options: [.nodeLoadExternalEntitiesNever]) { return doc }
+        if let doc = try? XMLDocument(data: data, options: parseOptions) { return doc }
         // 崩れた XHTML を含む書籍があるため、整形して再試行する。
-        return try XMLDocument(data: data, options: [.documentTidyXML, .nodeLoadExternalEntitiesNever])
+        return try XMLDocument(data: data, options: parseOptions.union([.documentTidyXML]))
     }
 
     static func stripFragment(_ href: String) -> (path: String, fragment: String?) {
