@@ -113,9 +113,9 @@ impl ReaderStyle {
         let color_rules = if self.theme == Theme::Dark {
             format!(
                 "body {{ color: {foreground} !important; }}\n\
-                 /* 背景色を持たない要素だけに当てる。印は tzrApplyForeground が付ける。 */\n\
-                 .tzr-fg {{ color: {foreground} !important; }}\n\
-                 a.tzr-fg, .tzr-fg a:not([class]) {{ color: {} !important; }}",
+                 /* 背景色を持たない要素だけに当てる。印は choroApplyForeground が付ける。 */\n\
+                 .choro-fg {{ color: {foreground} !important; }}\n\
+                 a.choro-fg, .choro-fg a:not([class]) {{ color: {} !important; }}",
                 self.theme.link()
             )
         } else {
@@ -189,6 +189,6 @@ mod tests {
             ..Default::default()
         };
         assert!(style.needs_foreground_marking());
-        assert!(style.css().contains(".tzr-fg { color: #d6d6d6 !important; }"));
+        assert!(style.css().contains(".choro-fg { color: #d6d6d6 !important; }"));
     }
 }

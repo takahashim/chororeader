@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>tzreader Tauri スパイク</title>
+<title>chororeader Tauri スパイク</title>
 <style>
   body { font: 13px/1.7 -apple-system, sans-serif; margin: 12px; }
   iframe { width: 300px; height: 90px; border: 1px solid #ccc; }
@@ -124,10 +124,10 @@ async function main() {
   if (sameOrigin) {
     const doc = sandboxed.contentDocument;
     const marker = doc.createElement('span');
-    marker.id = 'tzr-marker';
+    marker.id = 'choro-marker';
     doc.body.appendChild(marker);
     doc.getElementById('p').textContent = 'TOUCHED-BY-APP';
-    injected = doc.getElementById('tzr-marker') !== null
+    injected = doc.getElementById('choro-marker') !== null
       && doc.getElementById('p').textContent === 'TOUCHED-BY-APP';
     // 位置の読み取りも要る。スクロール量が取れるかを見る。
     result.scrollReadable = typeof doc.documentElement.scrollHeight === 'number'

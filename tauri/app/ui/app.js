@@ -7,7 +7,7 @@
 
 const invoke = window.__TAURI__.core.invoke;
 
-// 不具合を追うときだけ記録する。TZR_DEBUG=1 を付けて起動すると有効になり、
+// 不具合を追うときだけ記録する。CHORO_DEBUG=1 を付けて起動すると有効になり、
 // キーがどこへ届いたかが標準エラーに出る。常時は何もしない。
 const PARAMS = new URLSearchParams(location.search);
 const DEBUG = PARAMS.get("debug") === "1";
@@ -387,8 +387,8 @@ function decorate(doc) {
 /// 図版は本文の幅に縮めてあるので、細かい図は読めない。押したら大きく出す。
 function bindFigures(doc) {
   for (const img of doc.querySelectorAll("img")) {
-    if (img.dataset.tzrZoom) continue;
-    img.dataset.tzrZoom = "1";
+    if (img.dataset.choroZoom) continue;
+    img.dataset.choroZoom = "1";
     img.style.cursor = "zoom-in";
     img.addEventListener("click", (event) => {
       event.preventDefault();
@@ -409,24 +409,24 @@ function hideLightbox() {
 }
 
 function applyStyle(doc) {
-  let tag = doc.getElementById("tzr-style");
+  let tag = doc.getElementById("choro-style");
   if (!tag) {
     tag = doc.createElement("style");
-    tag.id = "tzr-style";
+    tag.id = "choro-style";
     (doc.head || doc.documentElement).appendChild(tag);
   }
   tag.textContent = state.style.css;
 
   // 暗いテーマでだけ、背景色を持たない要素に文字色を当てる。
   // 一律に上書きすると、見出しの黒帯のように背景色を持つ要素から文字色を奪う。
-  for (const el of doc.querySelectorAll(".tzr-fg")) el.classList.remove("tzr-fg");
+  for (const el of doc.querySelectorAll(".choro-fg")) el.classList.remove("choro-fg");
   if (!state.style.needsForegroundMarking) return;
   const view = doc.defaultView;
   const walk = (el) => {
     const background = view.getComputedStyle(el).backgroundColor;
     const painted = background && background !== "transparent" && !background.startsWith("rgba(0, 0, 0, 0)");
     if (painted) return; // ここから内側は出版社の配色に任せる
-    el.classList.add("tzr-fg");
+    el.classList.add("choro-fg");
     for (const child of el.children) walk(child);
   };
   if (doc.body) walk(doc.body);
@@ -434,8 +434,8 @@ function applyStyle(doc) {
 
 function addCodeCopyButtons(doc) {
   for (const pre of doc.querySelectorAll("pre")) {
-    if (pre.dataset.tzrCopy) continue;
-    pre.dataset.tzrCopy = "1";
+    if (pre.dataset.choroCopy) continue;
+    pre.dataset.choroCopy = "1";
     pre.style.position = "relative";
     const button = doc.createElement("button");
     button.textContent = "コピー";
@@ -460,11 +460,11 @@ function addCodeCopyButtons(doc) {
 
 // 縦は読む軸、横は移動する軸。スクロールでは章を跨がないため、章末に導線を置く。
 function addChapterFooter(doc) {
-  if (doc.getElementById("tzr-footer") || !doc.body) return;
+  if (doc.getElementById("choro-footer") || !doc.body) return;
   const next = state.book.chapters[state.index + 1];
   if (!next) return;
   const footer = doc.createElement("div");
-  footer.id = "tzr-footer";
+  footer.id = "choro-footer";
   footer.setAttribute("style", "margin:3em 0 1em;text-align:center");
   const button = doc.createElement("button");
   // 目次に無い章は題が付かず、代わりにファイル名が入る。それを見せても意味がない。
@@ -1551,7 +1551,7 @@ async function main() {
 
 // 献立からの呼び出しと、動作確認の治具に渡す入口。
 // 画面の中身をそのまま外へ出さず、必要なものだけを名前を付けて渡す。
-window.tzr = {
+window.choro = {
   state,
   step,
   goBack,
@@ -1585,7 +1585,7 @@ function listenToMenu() {
 
 function onMenu(event) {
   // 治具が「献立の道が通っているか」を見るための印。
-  window.tzrLastMenu = event.payload;
+  window.choroLastMenu = event.payload;
   const actions = {
     open: pick,
     "new-window": openHere,
@@ -1604,7 +1604,7 @@ function onMenu(event) {
     "sample-reflowable": () => invoke("open_sample", { kind: "reflowable" }),
     "sample-fixed": () => invoke("open_sample", { kind: "fixed" }),
     "sample-pdf": () => invoke("open_sample", { kind: "pdf" }),
-    selftest: () => window.tzrSelfTest && window.tzrSelfTest(),
+    selftest: () => window.choroSelfTest && window.choroSelfTest(),
   };
   const action = actions[event.payload];
   if (action) action();

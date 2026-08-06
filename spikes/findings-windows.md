@@ -8,25 +8,25 @@ UI に依存しない部分は macOS 上で検証できるため、Windows 機�
 
 ## 結論
 
-- **実装間の契約は機能する。** C# の Core と Probe を書き、`tzconf check csharp` が 49 件すべて一致した。
-  `tzconf diff swift csharp` も、合成フィクスチャと手元の実書籍 2 冊で完全に一致する。
+- **実装間の契約は機能する。** C# の Core と Probe を書き、`choroconf check csharp` が 49 件すべて一致した。
+  `choroconf diff swift csharp` も、合成フィクスチャと手元の実書籍 2 冊で完全に一致する。
 - **突き合わせは実バグを見つけた。** macOS 版の目次に、語が繋がる不具合があった（後述）。
 - **MuPDF は Windows 版の PDF に足りている。** 描画、テキスト抽出、目次、検索のいずれも実用的な速さで動く。
 - **WebView2 でも macOS と同じ前提が成り立つ。** CI の Windows ランナーで確かめた。ただし独自スキームは登録できず、ホスト名の横取りで代える。
 
 ## スパイク 1：C# 実装と契約の突き合わせ（windows/）
 
-`TZReader.Core`（UI 非依存のクラスライブラリ）と `TZReader.Probe`（コンソールアプリ）を作り、
+`ChoroReader.Core`（UI 非依存のクラスライブラリ）と `ChoroReader.Probe`（コンソールアプリ）を作り、
 契約（conformance/CONTRACT.md）の 7 コマンドを実装した。
 
 実装した範囲は、ZIP の読み出し（`System.IO.Compression`）、OPF と目次の解析（`System.Xml.Linq`）、
 CSS 互換レイヤー、本文とコードの抽出、検索、書籍の診断レポート、形式判定である。
 
 ```
-$ ./tzconf check csharp
+$ ./choroconf check csharp
 csharp: 49 件すべて一致しました
 
-$ ./tzconf diff swift csharp
+$ ./choroconf diff swift csharp
 swift ↔ csharp: 49 件すべて一致しました
 ```
 
@@ -68,7 +68,7 @@ tableOfContents[193].title:
 | XMLDocument の xmlString | 解析時点で既に空白が無い |
 | XMLParser（SAX） | `Column　糖衣 ──実は`（正しい） |
 
-macOS 版の目次解析を SAX（`XMLParser`）へ置き換えて解決した（`macos/Sources/TZReader/Document/TOCParser.swift`）。
+macOS 版の目次解析を SAX（`XMLParser`）へ置き換えて解決した（`macos/Sources/ChoroReader/Document/TOCParser.swift`）。
 
 **これは実装間の突き合わせでしか見つからない種類の不具合である。**
 片方だけを見ていても「そういうものだ」と流れてしまう。
@@ -131,10 +131,10 @@ GitHub Actions の windows-latest 上で実行した（WebView2 150.0.4078.105�
 
 `CoreWebView2EnvironmentOptions.CustomSchemeRegistrations` が **null を返した**。
 このプロパティは読み取り専用なので、一覧を差し替えることもできない。
-macOS 版が `tzreader://` を `WKURLSchemeHandler` で捌いているのと同じ形は取れない。
+macOS 版が `chororeader://` を `WKURLSchemeHandler` で捌いているのと同じ形は取れない。
 
 **代わりに、解決されないホスト名への要求を横取りする。**
-`https://tzr.invalid/` へ navigate し、`AddWebResourceRequestedFilter` と
+`https://choro.invalid/` へ navigate し、`AddWebResourceRequestedFilter` と
 `WebResourceRequested` でメモリ上の内容を返す。これは実際に動いた。
 
 この形には副次的な利点もある。
@@ -175,7 +175,7 @@ Windows 版は Tauri（Rust）へ移り、C# の Core と Probe は削除した�
 
 - .NET は macOS でも動くので、Windows マシン無しで突き合わせが回せる（この考え方は Rust 版にそのまま引き継いだ）
 - MuPDF が実書籍で使える（Rust バインディングでも同じ結論になった）
-- WebView2 では独自スキームを登録できず、`https://tzr.invalid/` を横取りする必要がある
+- WebView2 では独自スキームを登録できず、`https://choro.invalid/` を横取りする必要がある
 - WebView2 の初期化はメッセージポンプが回っていないと完了しない
 
 突き合わせが macOS の不具合を見つけた件（XMLDocument が要素間の空白を捨てる）も、

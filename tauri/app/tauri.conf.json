@@ -1,7 +1,7 @@
 {
-  "productName": "tzreader",
+  "productName": "chororeader",
   "version": "0.1.0",
-  "identifier": "dev.tzreader.app",
+  "identifier": "dev.chororeader.app",
   "build": {
     "frontendDist": "../app/ui"
   },

@@ -93,7 +93,7 @@ final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler {
         let file = root.appendingPathComponent(String(relPath.dropFirst())).standardizedFileURL
         guard file.path.hasPrefix(root.standardizedFileURL.path),
               let data = try? Data(contentsOf: file) else {
-            task.didFailWithError(NSError(domain: "tzr", code: 404))
+            task.didFailWithError(NSError(domain: "choro", code: 404))
             print("  404: \(relPath)")
             return
         }
@@ -137,7 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let config = WKWebViewConfiguration()
-        config.setURLSchemeHandler(handler, forURLScheme: "tzr")
+        config.setURLSchemeHandler(handler, forURLScheme: "choro")
         config.defaultWebpagePreferences.allowsContentJavaScript = false  // EPUB 内 JS 無効の方針を再現
 
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 900), configuration: config)
@@ -155,7 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
     func load(chapter index: Int) {
         loadStart = Date()
-        let url = URL(string: "tzr://book/\(spineHrefs[index].addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)!)")!
+        let url = URL(string: "choro://book/\(spineHrefs[index].addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)!)")!
         webView.load(URLRequest(url: url))
     }
 

@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
-use tzreader_core::archive::EpubArchive;
-use tzreader_core::epub_parser;
-use tzreader_core::paths;
-use tzreader_core::pdf::PdfWorker;
-use tzreader_core::preview::fixed_layout;
-use tzreader_core::publication::{detect_format, DocumentFormat, Publication, TocEntry};
+use chororeader_core::archive::EpubArchive;
+use chororeader_core::epub_parser;
+use chororeader_core::paths;
+use chororeader_core::pdf::PdfWorker;
+use chororeader_core::preview::fixed_layout;
+use chororeader_core::publication::{detect_format, DocumentFormat, Publication, TocEntry};
 
 pub enum Content {
     Epub {

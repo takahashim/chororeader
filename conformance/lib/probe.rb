@@ -24,7 +24,7 @@ class Probe
   end
 
   # パスはリポジトリの根から解いた形にする。
-  # tzconf をどこから起動しても同じ場所を指すようにするため。
+  # choroconf をどこから起動しても同じ場所を指すようにするため。
   # 区切りを含まない要素は PATH から探すものとみなして触らない。
   def self.resolve_paths(argv, root)
     argv.map do |arg|
@@ -38,9 +38,9 @@ class Probe
   # macOS 実装は macos/ の下に置く。実装ごとにディレクトリを分けているため。
   def self.default_swift(root)
     candidates = [
-      File.join(root, "macos", "build", "TZReader.app", "Contents", "MacOS", "TZReader"),
-      File.join(root, "macos", ".build", "release", "TZReader"),
-      File.join(root, "macos", ".build", "debug", "TZReader"),
+      File.join(root, "macos", "build", "ChoroReader.app", "Contents", "MacOS", "ChoroReader"),
+      File.join(root, "macos", ".build", "release", "ChoroReader"),
+      File.join(root, "macos", ".build", "debug", "ChoroReader"),
     ]
     exe = candidates.find { |path| File.exist?(path) }
     exe ? new("swift", [exe]) : nil

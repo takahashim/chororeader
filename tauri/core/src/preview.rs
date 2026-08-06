@@ -14,7 +14,7 @@ use crate::xml::{self, Document};
 /// 抜粋に入れる本文の目安。脚注はこれよりずっと短く収まる。
 const BUDGET: usize = 1200;
 
-pub const SYNTHETIC_NAME: &str = "__tzr_preview__.xhtml";
+pub const SYNTHETIC_NAME: &str = "__choro_preview__.xhtml";
 
 #[derive(Debug, Clone)]
 pub struct Preview {

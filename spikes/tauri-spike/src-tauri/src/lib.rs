@@ -1,4 +1,4 @@
-//! Tauri が、tzreader の Windows 版の土台として使えるかを確かめる。
+//! Tauri が、chororeader の Windows 版の土台として使えるかを確かめる。
 //!
 //! 答えを出したい問いは 4 つある。
 //!
@@ -23,7 +23,7 @@ use std::time::Instant;
 use tauri::http::{Request, Response};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
-const SCHEME: &str = "tzr";
+const SCHEME: &str = "choro";
 
 /// 判定が終わらないまま画面を占有しないための上限。
 const DEADLINE_SECS: u64 = 120;
@@ -57,8 +57,8 @@ struct Spike {
 }
 
 pub fn run() {
-    let epub_path = std::env::var("TZR_EPUB").ok();
-    let pdf_path = std::env::var("TZR_PDF").ok();
+    let epub_path = std::env::var("CHORO_EPUB").ok();
+    let pdf_path = std::env::var("CHORO_PDF").ok();
 
     let (epub, epub_chapter) = match epub_path.as_deref() {
         Some(path) => open_epub(path),
@@ -92,7 +92,7 @@ pub fn run() {
             let url = format!("{base}/app/index.html");
 
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url.parse()?))
-                .title("tzreader spike")
+                .title("chororeader spike")
                 .inner_size(900.0, 700.0)
                 .build()?;
 

@@ -16,13 +16,13 @@ Ruby は mise で固定する。macOS の `/usr/bin/ruby` は古く、Apple が�
 ## 使い方
 
 ```sh
-./tzconf generate     # 合成 EPUB フィクスチャを作る
-./tzconf record       # Swift 版の出力を期待値として記録する
-./tzconf check        # 期待値と照合する（CI で回すのはこれ）
-./tzconf probes       # 登録されている実装を一覧する
+./choroconf generate     # 合成 EPUB フィクスチャを作る
+./choroconf record       # Swift 版の出力を期待値として記録する
+./choroconf check        # 期待値と照合する（CI で回すのはこれ）
+./choroconf probes       # 登録されている実装を一覧する
 
-./tzconf diff swift rust                 # フィクスチャ全件で 2 実装を突き合わせる
-./tzconf diff swift rust 手元の本.epub   # 期待値を持たない実書籍で突き合わせる
+./choroconf diff swift rust                 # フィクスチャ全件で 2 実装を突き合わせる
+./choroconf diff swift rust 手元の本.epub   # 期待値を持たない実書籍で突き合わせる
 ```
 
 ツール自身のテスト:

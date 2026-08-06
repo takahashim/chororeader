@@ -1,4 +1,4 @@
-/* アプリの外枠だけを整える。本文の見た目は tzreader-core が作る CSS に任せる。 */
+/* アプリの外枠だけを整える。本文の見た目は chororeader-core が作る CSS に任せる。 */
 
 :root {
   --bar: #f2f2f4;

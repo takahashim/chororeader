@@ -378,6 +378,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "choroprobe"
+version = "0.1.0"
+dependencies = [
+ "chororeader-core",
+ "serde_json",
+]
+
+[[package]]
+name = "chororeader"
+version = "0.1.0"
+dependencies = [
+ "chororeader-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+]
+
+[[package]]
+name = "chororeader-core"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "mupdf",
+ "quick-xml 0.37.5",
+ "regex",
+ "serde_json",
+ "unicode-normalization",
+ "zip",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4020,39 +4053,6 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
-
-[[package]]
-name = "tzprobe"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "tzreader-core",
-]
-
-[[package]]
-name = "tzreader"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tzreader-core",
-]
-
-[[package]]
-name = "tzreader-core"
-version = "0.1.0"
-dependencies = [
- "encoding_rs",
- "mupdf",
- "quick-xml 0.37.5",
- "regex",
- "serde_json",
- "unicode-normalization",
- "zip",
-]
 
 [[package]]
 name = "unic-char-property"

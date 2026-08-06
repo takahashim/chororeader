@@ -6,24 +6,24 @@ use std::io::Read;
 
 use serde_json::{json, Map, Value};
 
-use tzreader_core::archive::{EpubArchive, ResourceProvider};
-use tzreader_core::preview::fixed_layout;
-use tzreader_core::publication::{detect_format, DocumentError, DocumentFormat, TocEntry};
-use tzreader_core::style::{ReaderStyle, Theme};
-use tzreader_core::{css_compat, epub_parser, html_text, paths, pdf, preview, report, search};
+use chororeader_core::archive::{EpubArchive, ResourceProvider};
+use chororeader_core::preview::fixed_layout;
+use chororeader_core::publication::{detect_format, DocumentError, DocumentFormat, TocEntry};
+use chororeader_core::style::{ReaderStyle, Theme};
+use chororeader_core::{css_compat, epub_parser, html_text, paths, pdf, preview, report, search};
 
 const SCHEMA_VERSION: i64 = 1;
 
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    // macOS 版は「TZReader probe <command>」で起動する。こちらも同じ形を受け付ける。
+    // macOS 版は「ChoroReader probe <command>」で起動する。こちらも同じ形を受け付ける。
     let arguments: &[String] = match raw.first().map(String::as_str) {
         Some("probe") => &raw[1..],
         _ => &raw,
     };
 
     let Some(command) = arguments.first() else {
-        fail("usage: tzprobe probe <version|parse|report|style|text|preview|fixed|resolve|css|search|detect> ...");
+        fail("usage: choroprobe probe <version|parse|report|style|text|preview|fixed|resolve|css|search|detect> ...");
     };
     let rest = &arguments[1..];
 

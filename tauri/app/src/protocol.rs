@@ -7,12 +7,12 @@
 use tauri::http::{Request, Response};
 use tauri::Manager;
 
-use tzreader_core::archive::ResourceProvider;
-use tzreader_core::css_compat;
+use chororeader_core::archive::ResourceProvider;
+use chororeader_core::css_compat;
 
 use crate::library::{Content, Library};
 
-pub const SCHEME: &str = "tzr";
+pub const SCHEME: &str = "choro";
 
 /// 画面を開くための入り口。Windows では独自スキームが `http://<名前>.localhost` になる。
 pub fn app_url(query: &str) -> String {
@@ -155,7 +155,7 @@ fn mime_of(extension: &str) -> &'static str {
 
 /// 要求の経路に含まれる符号を解く。日本語のファイル名がそのまま来ることもある。
 fn percent_decode(value: &str) -> String {
-    tzreader_core::paths::percent_decode(value)
+    chororeader_core::paths::percent_decode(value)
 }
 
 fn html(body: Vec<u8>) -> Response<Vec<u8>> {

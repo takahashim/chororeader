@@ -1,20 +1,20 @@
 #!/bin/bash
-# TZReader.app を組み立てる。SwiftPM の実行ファイルだけではメニューや書類種別が効かないため。
+# ChoroReader.app を組み立てる。SwiftPM の実行ファイルだけではメニューや書類種別が効かないため。
 set -euo pipefail
 
 cd "$(dirname "$0")"
 CONFIG="${1:-debug}"
 
 swift build -c "$CONFIG"
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/TZReader"
+BIN="$(swift build -c "$CONFIG" --show-bin-path)/ChoroReader"
 
-APP="build/TZReader.app"
+APP="build/ChoroReader.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/TZReader"
+cp "$BIN" "$APP/Contents/MacOS/ChoroReader"
 
 # SwiftPM は資源を .bundle にまとめる。app の中へ持っていかないと実行時に見つからない。
-BUNDLE="$(swift build -c "$CONFIG" --show-bin-path)/TZReader_TZReader.bundle"
+BUNDLE="$(swift build -c "$CONFIG" --show-bin-path)/ChoroReader_ChoroReader.bundle"
 [ -d "$BUNDLE" ] && cp -R "$BUNDLE" "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -22,10 +22,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>TZReader</string>
-    <key>CFBundleDisplayName</key><string>TZReader</string>
-    <key>CFBundleIdentifier</key><string>net.tzreader.TZReader</string>
-    <key>CFBundleExecutable</key><string>TZReader</string>
+    <key>CFBundleName</key><string>ChoroReader</string>
+    <key>CFBundleDisplayName</key><string>ChoroReader</string>
+    <key>CFBundleIdentifier</key><string>dev.chororeader.ChoroReader</string>
+    <key>CFBundleExecutable</key><string>ChoroReader</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>1</string>

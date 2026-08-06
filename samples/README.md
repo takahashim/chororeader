@@ -21,7 +21,7 @@ ruby samples/build.rb
 出来上がりは git に入れてある。作り直したときは macOS 版の資源にも写す。
 
 ```sh
-cp samples/sample*.{epub,pdf} macos/Sources/TZReader/Resources/
+cp samples/sample*.{epub,pdf} macos/Sources/ChoroReader/Resources/
 ```
 
 PDF は標準の字体しか使っていない。日本語を出すには字体を埋め込む必要があり、

@@ -36,15 +36,15 @@ final class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKS
 
     func applicationDidFinishLaunching(_ n: Notification) {
         let cfg = WKWebViewConfiguration()
-        cfg.setURLSchemeHandler(Handler(), forURLScheme: "tzr")
+        cfg.setURLSchemeHandler(Handler(), forURLScheme: "choro")
         cfg.defaultWebpagePreferences.allowsContentJavaScript = false
 
         let ucc = WKUserContentController()
-        ucc.add(self, name: "tzr")
+        ucc.add(self, name: "choro")
         ucc.addUserScript(WKUserScript(source: """
-            window.webkit.messageHandlers.tzr.postMessage({kind: 'userScript', title: document.title});
+            window.webkit.messageHandlers.choro.postMessage({kind: 'userScript', title: document.title});
             window.addEventListener('scroll', function() {
-              window.webkit.messageHandlers.tzr.postMessage({kind: 'scroll', y: window.scrollY});
+              window.webkit.messageHandlers.choro.postMessage({kind: 'scroll', y: window.scrollY});
             });
             """, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         cfg.userContentController = ucc
@@ -55,7 +55,7 @@ final class Delegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKS
                           styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = web
         window.makeKeyAndOrderFront(nil)
-        web.load(URLRequest(url: URL(string: "tzr://book/probe.xhtml")!))
+        web.load(URLRequest(url: URL(string: "choro://book/probe.xhtml")!))
     }
 
     func userContentController(_ c: WKUserContentController, didReceive msg: WKScriptMessage) {

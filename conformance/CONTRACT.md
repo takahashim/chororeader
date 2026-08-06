@@ -61,8 +61,8 @@ Swift と Rust は独立して書かれており、XML の解析も ZIP の読�
 各実装の実体は次のとおり。起動方法は `conformance/probes.json` に書く。
 
 ```
-macos/build/TZReader.app/Contents/MacOS/TZReader probe parse foo.epub
-tauri/target/release/tzprobe probe parse foo.epub
+macos/build/ChoroReader.app/Contents/MacOS/ChoroReader probe parse foo.epub
+tauri/target/release/choroprobe probe parse foo.epub
 ```
 
 ## 正規化の規約

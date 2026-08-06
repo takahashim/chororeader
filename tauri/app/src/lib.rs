@@ -1,6 +1,6 @@
-//! tzreader の Tauri 版。
+//! chororeader の Tauri 版。
 //!
-//! 画面は Web だが、書籍を解釈するのは tzreader-core であり、
+//! 画面は Web だが、書籍を解釈するのは chororeader-core であり、
 //! その振る舞いは macOS 版・C# 版と conformance で突き合わせてある。
 //! ここに書くのは、画面と core をつなぐ部分だけにする。
 
@@ -13,10 +13,10 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
-use tzreader_core::archive::ResourceProvider;
-use tzreader_core::publication::detect_format;
-use tzreader_core::style::{ReaderStyle, Theme};
-use tzreader_core::{css_compat, html_text, paths, preview, report, search};
+use chororeader_core::archive::ResourceProvider;
+use chororeader_core::publication::detect_format;
+use chororeader_core::style::{ReaderStyle, Theme};
+use chororeader_core::{css_compat, html_text, paths, preview, report, search};
 
 use library::{describe, BookInfo, Content, Library};
 use store::{Bookmark, BookState, Position, Store};
@@ -112,7 +112,7 @@ pub fn run() {
         .setup(move |app| {
             app.manage(Store::load(app.handle()));
 
-            if std::env::var("TZR_SELFTEST").is_ok() {
+            if std::env::var("CHORO_SELFTEST").is_ok() {
                 // 判定が終わらないまま居座らないための見張り。
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
@@ -167,7 +167,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
 
     // macOS では先頭の一組がアプリの献立として扱われる。
     // これを置かないと「ファイル」がそこへ吸われて消える。Windows では並びに影響しない。
-    let application = SubmenuBuilder::new(app, "tzreader")
+    let application = SubmenuBuilder::new(app, "chororeader")
         .about(None)
         .separator()
         .hide()
@@ -225,7 +225,7 @@ fn open_window(
     label: &str,
     query: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    build_window(app, label, query, "tzreader", 1000.0, 760.0)
+    build_window(app, label, query, "chororeader", 1000.0, 760.0)
 }
 
 /// 書棚の窓。1 つしか持たない。すでにあるなら前へ出す。
@@ -269,16 +269,16 @@ fn build_window(
 
 /// 画面へ渡す旗。
 ///
-/// TZR_DEBUG は様子を標準エラーへ出す。
-/// TZR_SELFTEST は開いた直後に動作確認を走らせて結果を出して終わる。
+/// CHORO_DEBUG は様子を標準エラーへ出す。
+/// CHORO_SELFTEST は開いた直後に動作確認を走らせて結果を出して終わる。
 /// 動作確認は最初の窓だけで走らせる。治具が開いた窓でも走ると、際限がなくなる。
 fn window_flags() -> String {
     let mut flags = String::new();
-    if std::env::var("TZR_DEBUG").is_ok() {
+    if std::env::var("CHORO_DEBUG").is_ok() {
         flags.push_str("&debug=1");
     }
     static SELFTEST_LEFT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-    if std::env::var("TZR_SELFTEST").is_ok()
+    if std::env::var("CHORO_SELFTEST").is_ok()
         && SELFTEST_LEFT.swap(false, std::sync::atomic::Ordering::Relaxed)
     {
         flags.push_str("&selftest=1");
@@ -500,7 +500,7 @@ fn selftest_report(app: tauri::AppHandle, results: serde_json::Value) {
     // Windows の release は端末を持たないため、標準出力はどこにも届かない。
     // 落ちたときにどの検査で落ちたのかが分からないのでは治具の意味がない。
     // 行き先を渡されていればそこへ書く。
-    match std::env::var("TZR_SELFTEST_OUT") {
+    match std::env::var("CHORO_SELFTEST_OUT") {
         Ok(path) => {
             if let Err(error) = std::fs::write(&path, &report) {
                 eprintln!("結果を書けなかった: {error}");

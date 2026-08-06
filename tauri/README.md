@@ -36,7 +36,7 @@ swift ↔ rust: 68 件すべて一致しました
 cd tauri && cargo fetch && ruby trim-mupdf.rb
 ```
 
-tzreader は OCR を使わないが、Windows では毎回コンパイルされる。
+chororeader は OCR を使わないが、Windows では毎回コンパイルされる。
 `mupdf-sys` の機能指定は Make のときだけ効き、MSBuild では何もしないためである
 （`build.rs` の `Build::make_bool`）。`libmupdf.vcxproj` が無条件に参照している。
 
@@ -53,8 +53,8 @@ cargo test --release
 
 # 契約との照合（conformance/probes.json に rust を登録してある）
 cd ../conformance
-bundle exec ./tzconf check rust
-bundle exec ./tzconf diff swift rust
+bundle exec ./choroconf check rust
+bundle exec ./choroconf diff swift rust
 ```
 
 ## 移してみて分かったこと
@@ -71,12 +71,12 @@ bundle exec ./tzconf diff swift rust
 ## 画面（app/）
 
 ```sh
-cargo run --release -p tzreader -- <EPUB か PDF のパス>
+cargo run --release -p chororeader -- <EPUB か PDF のパス>
 ```
 
 作りは spikes/findings-tauri.md で確かめた形をそのまま使っている。
 
-- **画面も本文も `tzr://localhost` から配る**。frontendDist のままだと生成元が割れ、
+- **画面も本文も `choro://localhost` から配る**。frontendDist のままだと生成元が割れ、
   親から iframe の `contentDocument` に届かない。
 - **本文は `sandbox="allow-same-origin"` の iframe に入れる**。`allow-scripts` を与えないので
   書籍の script は動かない。アプリ側のコードは注入ではなく、親から DOM を直接触る。

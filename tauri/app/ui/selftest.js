@@ -30,7 +30,7 @@
   const automatic = [
     {
       name: "書籍が開いている",
-      run: () => ({ ok: !!window.tzr.state.book, detail: window.tzr.state.book?.title || "開いていない" }),
+      run: () => ({ ok: !!window.choro.state.book, detail: window.choro.state.book?.title || "開いていない" }),
     },
     {
       name: "本文が入っている",
@@ -55,7 +55,7 @@
       name: "アプリの CSS が本文に入っている",
       run: () => {
         const doc = $("page").contentDocument;
-        const style = doc && doc.getElementById("tzr-style");
+        const style = doc && doc.getElementById("choro-style");
         return { ok: !!style && style.textContent.length > 0, detail: style ? "入っている" : "無い" };
       },
       only: "reflowable",
@@ -71,10 +71,10 @@
       name: "→ で次へ進む",
       run: async () => {
         const before = place();
-        window.tzr.step(1);
+        window.choro.step(1);
         const moved = await until(() => place() !== before);
         const after = place();
-        if (moved) window.tzr.step(-1);
+        if (moved) window.choro.step(-1);
         return { ok: moved, detail: `${before} → ${after}` };
       },
     },
@@ -93,7 +93,7 @@
       name: "戻るで元の場所に帰る",
       run: async () => {
         const before = place();
-        window.tzr.goBack();
+        window.choro.goBack();
         const moved = await until(() => place() !== before);
         return { ok: moved, detail: `${before} → ${place()}` };
       },
@@ -101,14 +101,14 @@
     {
       name: "検索が当たる",
       run: async () => {
-        const hits = await invoke("search_book", { id: window.tzr.state.book.id, query: searchWord() });
+        const hits = await invoke("search_book", { id: window.choro.state.book.id, query: searchWord() });
         return { ok: hits.length > 0, detail: `「${searchWord()}」で ${hits.length} 件` };
       },
     },
     {
       name: "表示設定の CSS が作れる",
       run: async () => {
-        const style = await invoke("reader_css", { settings: window.tzr.state.settings });
+        const style = await invoke("reader_css", { settings: window.choro.state.settings });
         return { ok: (style.css || "").includes("font-size"), detail: `${(style.css || "").length} 文字` };
       },
     },
@@ -134,9 +134,9 @@
       name: "献立の道が通っている",
       run: async () => {
         // 窓の権限が足りないと、ここだけが黙って効かなくなる。
-        window.tzrLastMenu = null;
+        window.choroLastMenu = null;
         await invoke("ping_menu");
-        const arrived = await until(() => window.tzrLastMenu === "selftest-ping", 3000);
+        const arrived = await until(() => window.choroLastMenu === "selftest-ping", 3000);
         return { ok: arrived, detail: arrived ? "受け取れた" : "受け取れない（窓の権限を疑う）" };
       },
     },
@@ -172,7 +172,7 @@
       name: "目次の右クリックで献立が出る",
       ask: "左の目次のどれかを右クリックしてください。",
       wait: () => !$("menu").hidden,
-      after: () => { window.tzr.hideMenu(); },
+      after: () => { window.choro.hideMenu(); },
     },
     {
       name: "目次の ⌘/Ctrl クリックで新しいウィンドウが開く",
@@ -199,19 +199,19 @@
   const headless = () => new URLSearchParams(location.search).get("selftest") === "1";
 
   function place() {
-    const state = window.tzr.state;
+    const state = window.choro.state;
     if (!state.book) return "";
     return state.book.format === "reflowableEPUB" ? String(state.index) : String(state.page);
   }
 
   function searchWord() {
     // 日本語の書籍なら助詞が必ず出る。英語の書籍でも当たるものを混ぜる。
-    return window.tzr.state.book.format === "pdf" ? "の" : "の";
+    return window.choro.state.book.format === "pdf" ? "の" : "の";
   }
 
   function applies(check) {
     if (!check.only) return true;
-    const format = window.tzr.state.book?.format;
+    const format = window.choro.state.book?.format;
     return check.only === "reflowable" ? format === "reflowableEPUB" : format !== "reflowableEPUB";
   }
 
@@ -226,7 +226,7 @@
     // 書棚の窓には本文が無い。確かめられることが違うので、別の並びを使う。
     // 書籍を 1 冊も持たないマシンで最初に開くのがこの窓であり、
     // ここが黙って死ぬと「窓は出るが何も操作できない」という形になる。
-    if (!window.tzr.state.book) {
+    if (!window.choro.state.book) {
       for (const check of shelfChecks) {
         let outcome;
         try {
@@ -378,7 +378,7 @@
     const _ = panel;
   }
 
-  window.tzrSelfTest = run;
+  window.choroSelfTest = run;
   // 引数から走らせたときは、開いた直後に自分で始める。
   if (headless()) setTimeout(run, 1500);
 })();

@@ -11,5 +11,5 @@ edition = "2021"
 # 0.8 はフォントを生成済みの .c として持つので、この段階が要らない。
 #
 # 既定の機能は使わない。OCR(tesseract)、XPS、SVG、CBZ、EPUB の版面エンジンは
-# tzreader では使わないうえ、ビルド時間の大半を占めるため。
+# chororeader では使わないうえ、ビルド時間の大半を占めるため。
 mupdf = { version = "0.8", default-features = false, features = ["system-fonts"] }

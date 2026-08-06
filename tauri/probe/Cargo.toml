@@ -1,12 +1,12 @@
 [package]
-name = "tzprobe"
+name = "choroprobe"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "tzprobe"
+name = "choroprobe"
 path = "src/main.rs"
 
 [dependencies]
-tzreader-core = { path = "../core" }
+chororeader-core = { path = "../core" }
 serde_json.workspace = true

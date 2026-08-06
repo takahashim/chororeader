@@ -107,7 +107,7 @@ def reflowable(path)
   chapters = {
     "OEBPS/text/ch01.xhtml" => chapter("第 1 章　読む", <<~BODY),
       <h1 id="top">第 1 章　読む</h1>
-      <p>これは tzreader の動作を確かめるためのサンプルです。上下に送ると本文が動き、
+      <p>これは chororeader の動作を確かめるためのサンプルです。上下に送ると本文が動き、
       左右に送ると章が変わります。縦は読む軸、横は移動する軸という決まりです。</p>
       <h2 id="code">コードの塊</h2>
       <p>次の塊にカーソルを重ねると、右上にコピーの押しボタンが出ます。</p>
@@ -279,9 +279,9 @@ def package(title, id, items, spine, fixed: false)
     <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
       <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
         <dc:title>#{title}</dc:title>
-        <dc:creator>tzreader</dc:creator>
+        <dc:creator>chororeader</dc:creator>
         <dc:language>ja</dc:language>
-        <dc:identifier id="pub-id">urn:uuid:tzreader-sample-#{id}</dc:identifier>
+        <dc:identifier id="pub-id">urn:uuid:chororeader-sample-#{id}</dc:identifier>
         #{layout}
       </metadata>
       <manifest>
@@ -300,7 +300,7 @@ end
 
 def pdf(path)
   pages = [
-    ["Sample PDF - Page 1", "This is a sample document for tzreader.",
+    ["Sample PDF - Page 1", "This is a sample document for chororeader.",
      "Use the arrow keys to turn pages."],
     ["Sample PDF - Page 2", "Search for the word sample to see hits.",
      "The outline on the left jumps between pages."],

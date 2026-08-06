@@ -1,0 +1,54 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative "lib/runner"
+
+USAGE = <<~TEXT
+  使い方: choroconf <コマンド> [引数]
+
+    generate                      合成 EPUB フィクスチャを作り直す
+    record [実装名]               その実装の出力を期待値として記録する（既定: swift）
+    check [実装名]                期待値と照合する（既定: swift）
+    diff <実装A> <実装B> [書籍]   2 つの実装の出力を突き合わせる
+                                  書籍を渡すと、期待値を持たない実書籍で比較する
+    probes                        登録されている実装を一覧する
+
+  実装の起動方法は conformance/probes.json に書く。
+  例: {"swift": ["build/ChoroReader.app/Contents/MacOS/ChoroReader"], "csharp": ["dotnet", "..."]}
+TEXT
+
+def probes
+  registry = Probe.load_all(File.join(Runner::ROOT, "conformance", "probes.json"), root: Runner::ROOT)
+  registry["swift"] ||= Probe.default_swift(Runner::ROOT)
+  registry.compact
+end
+
+def fetch_probe(name)
+  found = probes[name]
+  abort "実装 '#{name}' が見つかりません。probes.json に登録してください。" unless found
+  unless found.available?
+    abort "実装 '#{name}' の実行ファイルがありません: #{found.command.first}\n先に ./make-app.sh を実行してください。"
+  end
+  found
+end
+
+command = ARGV.shift
+
+case command
+when "generate"
+  Runner.new.generate_fixtures
+when "record"
+  Runner.new.record(fetch_probe(ARGV[0] || "swift"))
+when "check"
+  exit(Runner.new.conformance(fetch_probe(ARGV[0] || "swift")) ? 0 : 1)
+when "diff"
+  abort USAGE if ARGV.size < 2
+  a = fetch_probe(ARGV[0])
+  b = fetch_probe(ARGV[1])
+  exit(Runner.new.diff(a, b, book: ARGV[2]) ? 0 : 1)
+when "probes"
+  probes.each { |name, probe| puts "#{name}\t#{probe.command.join(' ')}\t#{probe.available? ? 'ok' : '見つかりません'}" }
+else
+  puts USAGE
+  exit(command.nil? ? 0 : 2)
+end

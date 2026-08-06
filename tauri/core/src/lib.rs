@@ -1,4 +1,4 @@
-//! tzreader の UI に依らない中身。
+//! chororeader の UI に依らない中身。
 //!
 //! 画面に触れないことを保っておくと、突き合わせ用の probe から同じ経路を呼べる。
 //! 出力の形と値は conformance/CONTRACT.md で定義し、macOS 版・C# 版と揃える。

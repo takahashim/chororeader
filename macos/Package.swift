@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "TZReader",
+    name: "ChoroReader",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "TZReader",
-            path: "Sources/TZReader",
+            name: "ChoroReader",
+            path: "Sources/ChoroReader",
             // 書籍を 1 冊も持たないマシンでも読み方を確かめられるよう、サンプルを同梱する。
             // 実体は samples/ にあり、ruby samples/build.rb で作り直せる。
             resources: [.copy("Resources/sample-reflowable.epub"),
@@ -16,9 +16,9 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
-            name: "TZReaderTests",
-            dependencies: ["TZReader"],
-            path: "Tests/TZReaderTests",
+            name: "ChoroReaderTests",
+            dependencies: ["ChoroReader"],
+            path: "Tests/ChoroReaderTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

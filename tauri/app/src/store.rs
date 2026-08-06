@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
-use tzreader_core::paths;
+use chororeader_core::paths;
 
 /// 書籍のパスを鍵にするときの形。
 ///
@@ -96,6 +96,18 @@ impl Store {
             .path()
             .app_config_dir()
             .unwrap_or_else(|_| PathBuf::from("."));
+
+        // 名前を変える前の置き場所から引き継ぐ。
+        // しおりと読書位置と書棚が消えるのは、名前を変えただけの代償として大きすぎる。
+        if !directory.exists() {
+            if let Some(parent) = directory.parent() {
+                let previous = parent.join("dev.tzreader.app");
+                if previous.exists() {
+                    let _ = std::fs::rename(&previous, &directory);
+                }
+            }
+        }
+
         let _ = std::fs::create_dir_all(&directory);
         let covers = directory.join("covers");
         let _ = std::fs::create_dir_all(&covers);

@@ -3,7 +3,7 @@
 
 # Windows のビルドから OCR（tesseract と leptonica）を外す。
 #
-# tzreader は OCR を使わない。にもかかわらず Windows では毎回コンパイルされる。
+# chororeader は OCR を使わない。にもかかわらず Windows では毎回コンパイルされる。
 # mupdf-sys の機能指定は Make のときだけ効き、MSBuild では何もしないためである
 # （build.rs の Build::make_bool を見よ）。
 # libmupdf.vcxproj が無条件に両者を参照しているので、そこを外す。

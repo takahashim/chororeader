@@ -37,7 +37,7 @@ jobs:
       - name: 合成フィクスチャを作る
         working-directory: conformance
         run: |
-          bundle exec ./tzconf generate
+          bundle exec ./choroconf generate
 
       - name: Swift のビルドとテスト
         working-directory: macos
@@ -55,9 +55,9 @@ jobs:
       - name: Rust のビルドとテスト
         working-directory: tauri
         run: |
-          cargo build --release -p tzprobe
-          cargo test --release -p tzreader-core
-          cargo check -p tzreader
+          cargo build --release -p choroprobe
+          cargo test --release -p chororeader-core
+          cargo check -p chororeader
 
       # Rust は macOS でも動くため、2 実装の突き合わせはこのジョブ 1 つで完結する。
       - name: 期待値との照合と、実装間の突き合わせ
@@ -65,12 +65,12 @@ jobs:
         run: |
           cat > probes.json <<'JSON'
           {
-            "swift": ["macos/build/TZReader.app/Contents/MacOS/TZReader"],
-            "rust": ["tauri/target/release/tzprobe"]
+            "swift": ["macos/build/ChoroReader.app/Contents/MacOS/ChoroReader"],
+            "rust": ["tauri/target/release/choroprobe"]
           }
           JSON
-          bundle exec ./tzconf check swift
-          bundle exec ./tzconf check rust
-          bundle exec ./tzconf diff swift rust
+          bundle exec ./choroconf check swift
+          bundle exec ./choroconf check rust
+          bundle exec ./choroconf diff swift rust
 
 

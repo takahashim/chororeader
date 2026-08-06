@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "tzr-spike",
+  "productName": "choro-spike",
   "version": "0.1.0",
-  "identifier": "dev.tzreader.spike",
+  "identifier": "dev.chororeader.spike",
   "build": {
     "frontendDist": "../ui"
   },

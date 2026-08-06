@@ -1,4 +1,4 @@
-# tzreader
+# chororeader
 
 マルチフォーマット技術書リーダー（EPUB / PDF）。
 macOS 版は `macos/`、Windows 版は `tauri/` にある。
@@ -8,9 +8,9 @@ macOS 版は `macos/`、Windows 版は `tauri/` にある。
 
 ```sh
 cd macos
-./make-app.sh          # build/TZReader.app を作る（debug）
+./make-app.sh          # build/ChoroReader.app を作る（debug）
 ./make-app.sh release  # 最適化ビルド
-open build/TZReader.app
+open build/ChoroReader.app
 ```
 
 テスト（手元の実 EPUB を使う。無い場合はスキップされる）:
@@ -44,7 +44,7 @@ Windows 版は [tauri/README.md](tauri/README.md) を見よ。
 - 複数ウィンドウ、⌘クリックで別ウィンドウ、書籍単位の共有層
 - 書籍由来 JavaScript の無効化（アプリ注入スクリプトのみ動作）
 - 書籍の診断（⌘⌥I）。欠落リソース、目次の参照先、CSS の互換変換、XML として不正な章を一覧する
-- 検証用 CLI（`TZReader probe ...`）。診断と同じ内容を JSON で返す
+- 検証用 CLI（`ChoroReader probe ...`）。診断と同じ内容を JSON で返す
 
 未実装（spec.md の第 2 段階以降）:
 
@@ -55,7 +55,7 @@ Windows 版は [tauri/README.md](tauri/README.md) を見よ。
 ## macOS 版の構成
 
 ```
-macos/Sources/TZReader/
+macos/Sources/ChoroReader/
 ├── App/          アプリ本体、ウィンドウ、メニュー
 ├── Document/     EPUB パーサ、BookDocument（書籍ごとの共有層）
 ├── Library/      蔵書と読書位置の保存

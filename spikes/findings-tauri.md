@@ -47,7 +47,7 @@ PDF.js が既製で持つ「選択できるテキスト層」を自前で組み�
 
 ## スパイク 6：Tauri（spikes/tauri-spike）
 
-Tauri 2.11、`WebviewWindowBuilder` でウィンドウを作り、`register_asynchronous_uri_scheme_protocol` で `tzr` スキームを配る。
+Tauri 2.11、`WebviewWindowBuilder` でウィンドウを作り、`register_asynchronous_uri_scheme_protocol` で `choro` スキームを配る。
 判定は画面側の JavaScript が行い、結果を `invoke` で Rust へ返して JSON を標準出力へ書く。
 
 ### 前提 1・4：書籍の JavaScript を止められるか
@@ -70,8 +70,8 @@ Tauri 2.11、`WebviewWindowBuilder` でウィンドウを作り、`register_asyn
 macOS 版は本文の文書へスクリプトを注入していたが、Tauri ではその必要がない。
 
 これが成り立つのは、**画面と本文を同じ生成元から配ったとき**に限る。
-アプリの画面を `frontendDist` から（`tauri://localhost`）、本文を `tzr://localhost` から配ると生成元が分かれ、親から `contentDocument` に届かない。
-そこで画面自体も `tzr://localhost/app/index.html` として独自スキームから配った。実測した生成元は `tzr://localhost`。
+アプリの画面を `frontendDist` から（`tauri://localhost`）、本文を `choro://localhost` から配ると生成元が分かれ、親から `contentDocument` に届かない。
+そこで画面自体も `choro://localhost/app/index.html` として独自スキームから配った。実測した生成元は `choro://localhost`。
 
 ### 前提 2：EPUB を展開せずに配れるか
 
@@ -114,7 +114,7 @@ windows-latest の CI で同じスパイクを走らせ、4 つの前提がす�
 
 ```json
 { "assumptionHolds": true,
-  "origin": "http://tzr.localhost",
+  "origin": "http://choro.localhost",
   "bookScriptRanInSandbox": false,
   "bookScriptRanWithoutSandbox": true,
   "parentCanReachSandboxedFrame": true,
@@ -155,7 +155,7 @@ mupdf = { version = "0.8", default-features = false, features = ["system-fonts"]
 ```
 
 既定には OCR（tesseract と leptonica）、XPS、SVG、CBZ、EPUB の版面エンジンが含まれる。
-tzreader はどれも使わない。CI のログではビルド時間の大半をこれらが占めていた。
+chororeader はどれも使わない。CI のログではビルド時間の大半をこれらが占めていた。
 素のビルドは 69 秒から **30 秒**に減り、実書籍に対する結果（目次 18 項目、抽出 31 ms、検索 36 ms、描画 52 ms、
 PNG 69153 バイト）は 0.5 と 1 バイトも変わらなかった。
 
@@ -179,7 +179,7 @@ cargo run --release -- <PDF のパス> 型
 
 cd spikes/tauri-spike/src-tauri
 cargo build --release
-TZR_EPUB=<EPUB のパス> TZR_PDF=<PDF のパス> ./target/release/app
+CHORO_EPUB=<EPUB のパス> CHORO_PDF=<PDF のパス> ./target/release/app
 ```
 
 環境変数を省くと、その部分の判定を飛ばす。書籍が無くても前提 1・4 は測れる。
