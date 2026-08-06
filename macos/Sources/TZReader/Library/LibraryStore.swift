@@ -10,6 +10,8 @@ struct LibraryEntry: Codable, Identifiable, Hashable {
     var lastOpenedAt: Date
     var lastLocator: Locator?
     var bookmarks: [Bookmark] = []
+    /// 書棚に並べる表紙の置き場所。取れなかった書籍では nil。
+    var coverName: String?
 
     var displayAuthors: String { authors.joined(separator: "、") }
     var fileExists: Bool { FileManager.default.fileExists(atPath: path) }
@@ -78,6 +80,8 @@ final class LibraryStore: ObservableObject {
         entry.authors = doc.authors
         entry.format = doc.format
         entry.lastOpenedAt = Date()
+        // 表紙は開いたときに 1 度だけ取り出す。書棚を開くたびに書籍を触らずに済む。
+        if entry.coverName == nil { entry.coverName = CoverCache.store(from: doc) }
         if entry.bookmarkData == nil {
             entry.bookmarkData = try? doc.url.bookmarkData(options: [.withSecurityScope],
                                                            includingResourceValuesForKeys: nil,
@@ -99,6 +103,7 @@ final class LibraryStore: ObservableObject {
     }
 
     func remove(_ id: BookID) {
+        if let name = entry(for: id)?.coverName { CoverCache.discard(name) }
         entries.removeAll { $0.id == id }
         scheduleSave()
     }

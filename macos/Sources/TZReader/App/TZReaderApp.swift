@@ -47,7 +47,7 @@ struct TZReaderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        Window("ライブラリ", id: "library") {
+        Window("書棚", id: "library") {
             LibraryView()
         }
         .defaultSize(width: 560, height: 420)
