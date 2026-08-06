@@ -47,11 +47,14 @@ jobs:
         working-directory: macos
         run: ./make-app.sh
 
+      # 突き合わせに要るのは probe だけ。画面まで組み立てると webkit 一式が付いてくる。
+      # 画面は cargo check で通ることだけ見る。Windows 側では毎回まるごと組み立てている。
       - name: Rust のビルドとテスト
         working-directory: tauri
         run: |
-          cargo build --release
-          cargo test --release
+          cargo build --release -p tzprobe
+          cargo test --release -p tzreader-core
+          cargo check -p tzreader
 
       # Rust は macOS でも動くため、2 実装の突き合わせはこのジョブ 1 つで完結する。
       - name: 期待値との照合と、実装間の突き合わせ

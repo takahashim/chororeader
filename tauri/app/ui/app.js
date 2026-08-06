@@ -1580,6 +1580,8 @@ function listenToMenu() {
 }
 
 function onMenu(event) {
+  // 治具が「献立の道が通っているか」を見るための印。
+  window.tzrLastMenu = event.payload;
   const actions = {
     open: pick,
     "new-window": openHere,

@@ -1,8 +1,10 @@
 name: Windows 版
 
-# 手元に Windows が無いので、ここが配布物を作る唯一の出口になる。
-# 組み立てたその場で動作確認も走らせる。
-# 別のジョブに分けると MuPDF を 2 度ビルドすることになり、その時間が惜しい。
+# 手元に Windows が無いので、ここが唯一の確かめ場所であり、配布物を作る唯一の出口でもある。
+#
+# 普段の push では組み立てと動作確認だけを行う。
+# インストーラを作るのは手で起こしたときと公開したときに限る。
+# WiX と NSIS の取得と包装で数分かかり、毎回払う理由が無いためである。
 on:
   push:
     paths:
@@ -33,39 +35,48 @@ jobs:
           shared-key: tauri-app-windows
           cache-on-failure: true
 
-      # 素のバイナリを取ってくるだけなので、cargo install より桁違いに速い。
-      - name: Tauri の道具を入れる
-        run: npm install -g @tauri-apps/cli@^2
-
-      # WiX と NSIS は Tauri が要るときに取りに行く。ここでは何も置かない。
       - name: 組み立てる
-        working-directory: tauri/app
-        run: tauri build
+        working-directory: tauri
+        run: cargo build --release -p tzreader
 
-      # 空の成果物が黙って上がるのを防ぐ。
-      - name: 出来たものを確かめる
-        shell: pwsh
-        working-directory: tauri/target/release
-        run: |
-          $found = @()
-          if (Test-Path bundle) {
-            $found += Get-ChildItem -Recurse -Path bundle -Include *.msi, *.exe |
-              Where-Object { $_.Length -gt 0 }
-          }
-          if (Test-Path tzreader.exe) { $found += Get-Item tzreader.exe }
-          if (-not $found) { throw "配布物が 1 つも出来ていない" }
-          $found | ForEach-Object { "{0,12:N0} バイト  {1}" -f $_.Length, $_.Name }
-
-      # 同梱のサンプルで、画面まで含めた振る舞いを確かめる。
-      # 人の操作が要る分（右クリック、修飾キー、落とし込み）はここでは飛ばす。
-      # それらはアプリのヘルプ献立から「動作確認…」を選べば手元で順に確かめられる。
-      - name: 動作確認を走らせる
+      # 書籍を開いた窓。本文、目次、章送り、履歴、検索がつながっているかを見る。
+      - name: 動作確認（書籍を開いた窓）
         working-directory: tauri
         env:
           TZR_SELFTEST: "1"
         run: ./target/release/tzreader.exe ../samples/sample-reflowable.epub
 
+      # 引数なしの窓。書籍を 1 冊も持たないマシンでは、まずこれが開く。
+      # ここが黙って死ぬと「窓は出るが何も操作できない」という形になる。
+      - name: 動作確認（書棚の窓）
+        working-directory: tauri
+        env:
+          TZR_SELFTEST: "1"
+        run: ./target/release/tzreader.exe
+
+      # ここから下は配布物を作るとき（手で起こす、または公開）だけ。
+      - name: Tauri の道具を入れる
+        if: github.event_name != 'push'
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: 入れ物を作る
+        if: github.event_name != 'push'
+        working-directory: tauri/app
+        run: tauri build
+
+      # 空の成果物が黙って上がるのを防ぐ。
+      - name: 出来たものを確かめる
+        if: github.event_name != 'push'
+        shell: pwsh
+        working-directory: tauri/target/release
+        run: |
+          $found = Get-ChildItem -Recurse -Path bundle -Include *.msi, *.exe |
+            Where-Object { $_.Length -gt 0 }
+          if (-not $found) { throw "配布物が 1 つも出来ていない" }
+          $found | ForEach-Object { "{0,12:N0} バイト  {1}" -f $_.Length, $_.Name }
+
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'push'
         with:
           name: tzreader-windows
           if-no-files-found: error

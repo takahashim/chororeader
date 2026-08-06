@@ -76,6 +76,7 @@ pub fn run() {
             open_shelf,
             open_sample,
             window_count,
+            ping_menu,
             selftest_report,
             book_state,
             remember_position,
@@ -111,14 +112,7 @@ pub fn run() {
         .setup(move |app| {
             app.manage(Store::load(app.handle()));
 
-            // 画面へ渡す旗。TZR_DEBUG は様子を標準エラーへ、
-            // TZR_SELFTEST は開いた直後に動作確認を走らせて結果を出して終わる。
-            let mut flags = String::new();
-            if std::env::var("TZR_DEBUG").is_ok() {
-                flags.push_str("&debug=1");
-            }
             if std::env::var("TZR_SELFTEST").is_ok() {
-                flags.push_str("&selftest=1");
                 // 判定が終わらないまま居座らないための見張り。
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
@@ -138,8 +132,7 @@ pub fn run() {
                     } else {
                         format!("book-{}", NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
                     };
-                    let query = format!("?path={}{flags}", urlencode(path));
-                    open_window(app.handle(), &label, &query)?;
+                    open_window(app.handle(), &label, &format!("?path={}", urlencode(path)))?;
                 }
             }
             Ok(())
@@ -257,18 +250,40 @@ fn build_window(
     width: f64,
     height: f64,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // 旗はここで付ける。窓ごとに書き分けると、書棚のように渡し忘れる場所が出る。
+    let query = format!("{query}{}", window_flags());
+
     // 同じ大きさで真上に重ねると、増えたことに気付けない。少しずらす。
     let offset = (app.webview_windows().len() as f64) * 26.0 % 160.0;
     WebviewWindowBuilder::new(
         app,
         label,
-        WebviewUrl::External(protocol::app_url(query).parse()?),
+        WebviewUrl::External(protocol::app_url(&query).parse()?),
     )
     .title(title)
     .inner_size(width, height)
     .position(60.0 + offset, 60.0 + offset)
     .build()?;
     Ok(())
+}
+
+/// 画面へ渡す旗。
+///
+/// TZR_DEBUG は様子を標準エラーへ出す。
+/// TZR_SELFTEST は開いた直後に動作確認を走らせて結果を出して終わる。
+/// 動作確認は最初の窓だけで走らせる。治具が開いた窓でも走ると、際限がなくなる。
+fn window_flags() -> String {
+    let mut flags = String::new();
+    if std::env::var("TZR_DEBUG").is_ok() {
+        flags.push_str("&debug=1");
+    }
+    static SELFTEST_LEFT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+    if std::env::var("TZR_SELFTEST").is_ok()
+        && SELFTEST_LEFT.swap(false, std::sync::atomic::Ordering::Relaxed)
+    {
+        flags.push_str("&selftest=1");
+    }
+    flags
 }
 
 fn urlencode(value: &str) -> String {
@@ -454,6 +469,15 @@ fn library(store: tauri::State<'_, Store>) -> Vec<Shelved> {
 #[tauri::command]
 fn window_count(app: tauri::AppHandle) -> usize {
     app.webview_windows().len()
+}
+
+/// 献立の道が通っているかを、治具から確かめるための試し撃ち。
+///
+/// 献立が効かなくなる壊れ方は、窓の権限が足りないときに起きた。
+/// 押してみるまで分からない、という状態を残さないための命令である。
+#[tauri::command]
+fn ping_menu(app: tauri::AppHandle) -> Result<(), String> {
+    app.emit("menu", "selftest-ping").map_err(|e| e.to_string())
 }
 
 /// 治具の結果を受け取る。届いた時点で判定は終わりなので、そのまま終了する。

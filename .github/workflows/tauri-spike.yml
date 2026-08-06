@@ -7,12 +7,9 @@ name: Tauri スパイク
 # MuPDF を C のソースからビルドするため、キャッシュが冷えていると十数分かかる。
 # 他のジョブが 1〜2 分で終わるのに毎回それを払うのは割に合わない。
 # Rust 側を触ったときと、手で起動したときだけ走らせる。
+# 前提はすでに確かめ終えている（spikes/findings-tauri.md）。
+# 本体の動作確認は windows-build.yml が毎回行うので、こちらは手で起こしたときだけでよい。
 on:
-  push:
-    paths:
-      - "spikes/tauri-spike/**"
-      - "spikes/rust-mupdf/**"
-      - ".github/workflows/tauri-spike.yml"
   workflow_dispatch:
 
 env:

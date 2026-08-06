@@ -18,7 +18,7 @@
   async function until(check, timeout = 4000) {
     const started = performance.now();
     for (;;) {
-      try { if (check()) return true; } catch (_) { /* まだ整っていない */ }
+      try { if (await check()) return true; } catch (_) { /* まだ整っていない */ }
       if (performance.now() - started > timeout) return false;
       await sleep(50);
     }
@@ -121,6 +121,51 @@
     },
   ];
 
+  /// 書棚の窓で確かめるもの。本文が無いぶん、土台とつながっているかを重点的に見る。
+  const shelfChecks = [
+    {
+      name: "土台に届く",
+      run: async () => {
+        const settings = await invoke("settings");
+        return { ok: settings !== undefined, detail: "命令が通った" };
+      },
+    },
+    {
+      name: "献立の道が通っている",
+      run: async () => {
+        // 窓の権限が足りないと、ここだけが黙って効かなくなる。
+        window.tzrLastMenu = null;
+        await invoke("ping_menu");
+        const arrived = await until(() => window.tzrLastMenu === "selftest-ping", 3000);
+        return { ok: arrived, detail: arrived ? "受け取れた" : "受け取れない（窓の権限を疑う）" };
+      },
+    },
+    {
+      name: "書棚が描けている",
+      run: () => {
+        const rows = $("shelf-grid").children.length;
+        const empty = !$("shelf-empty").hidden;
+        return { ok: rows > 0 || empty, detail: rows > 0 ? `${rows} 冊` : "空の知らせが出ている" };
+      },
+    },
+    {
+      name: "サンプルを開ける",
+      run: async () => {
+        const before = await invoke("window_count");
+        await invoke("open_sample", { kind: "reflowable" });
+        const opened = await until(async () => (await invoke("window_count")) > before, 8000);
+        return { ok: opened, detail: opened ? "窓が増えた" : "窓が増えない" };
+      },
+    },
+    {
+      name: "画面で例外が起きていない",
+      run: () => {
+        const box = document.getElementById("boot-failure");
+        return { ok: !box, detail: box ? box.textContent.slice(0, 120) : "無し" };
+      },
+    },
+  ];
+
   /// 操作をお願いするもの。OS の入力が本当に届いているかは、これでしか分からない。
   const manual = [
     {
@@ -178,13 +223,20 @@
     const panel = open();
     const list = $("selftest-list");
 
-    // 書棚の窓には本文が無い。ここで走らせても不合格が並ぶだけで意味を持たない。
+    // 書棚の窓には本文が無い。確かめられることが違うので、別の並びを使う。
+    // 書籍を 1 冊も持たないマシンで最初に開くのがこの窓であり、
+    // ここが黙って死ぬと「窓は出るが何も操作できない」という形になる。
     if (!window.tzr.state.book) {
-      record(list, {
-        name: "書籍が開いていない",
-        ok: null,
-        detail: "書籍を開いた窓で走らせてください（ファイル献立のサンプルでも構いません）",
-      });
+      for (const check of shelfChecks) {
+        let outcome;
+        try {
+          outcome = await check.run();
+        } catch (error) {
+          outcome = { ok: false, detail: String(error && error.message || error) };
+        }
+        record(list, { name: check.name, ...outcome });
+        await sleep(120);
+      }
       finish(panel);
       return;
     }
