@@ -10,6 +10,7 @@ final class ResourceSchemeHandler: NSObject, WKURLSchemeHandler {
     private let lock = NSLock()
     private var contentCache: [String: (data: Data, mime: String)] = [:]
     private var changeLog: [String] = []
+    private var markRequest: (query: String, nth: Int)?
 
     init(resources: ResourceProvider) {
         self.resources = resources
@@ -18,6 +19,15 @@ final class ResourceSchemeHandler: NSObject, WKURLSchemeHandler {
     var cssChangeLog: [String] {
         lock.lock(); defer { lock.unlock() }
         return changeLog
+    }
+
+    /// 本文へ入れる当たりの印。検索から飛ぶ前にナビゲータが置く。
+    ///
+    /// 印は配信の瞬間に入れる。WebView の中で入れると、文字節を切って包む手術を
+    /// JavaScript で書くことになり、抽出と数え方がずれる余地が残る。
+    var mark: (query: String, nth: Int)? {
+        get { lock.lock(); defer { lock.unlock() }; return markRequest }
+        set { lock.lock(); defer { lock.unlock() }; markRequest = newValue }
     }
 
     static func url(forHref href: String, fragment: String? = nil) -> URL? {
@@ -46,7 +56,11 @@ final class ResourceSchemeHandler: NSObject, WKURLSchemeHandler {
         // 相対参照の正規化。アーカイブ外を指す参照は取り出せないので、ここで弾かれる。
         let href = EPUBParser.resolve(base: "", href: rawHref)
 
-        if let cached = cached(href) {
+        // 印の付き外れは配信時に決まるので、覚えておく鍵にも入れる。
+        let wanted = mark
+        let key = cacheKey(href, mark: wanted)
+
+        if let cached = cached(key) {
             respond(task, url: url, data: cached.data, mime: cached.mime)
             return
         }
@@ -68,7 +82,11 @@ final class ResourceSchemeHandler: NSObject, WKURLSchemeHandler {
         case "xhtml", "html", "htm":
             let text = CSSCompat.decodeText(raw)
             let result = CSSCompat.rewriteXHTML(text)
-            data = Data(result.css.utf8)
+            var body = result.css
+            if let wanted {
+                body = SearchMarkInserter.insert(into: body, query: wanted.query, nth: wanted.nth) ?? body
+            }
+            data = Data(body.utf8)
             record(result.changes, path: href)
             // XHTML として渡すのは、そう名乗っている文書だけにする。
             // HTML5 でも XML として妥当なことはあり、その場合に XHTML として解釈させると
@@ -81,7 +99,7 @@ final class ResourceSchemeHandler: NSObject, WKURLSchemeHandler {
             break
         }
 
-        store(href, data: data, mime: mime)
+        store(key, data: data, mime: mime)
         respond(task, url: url, data: data, mime: mime)
     }
 
@@ -105,6 +123,12 @@ final class ResourceSchemeHandler: NSObject, WKURLSchemeHandler {
         lock.lock(); defer { lock.unlock() }
         // 書籍から切り出した断片は名前空間が欠けていることがある。寛容な HTML パーサへ渡す。
         contentCache[path] = (Data(html.utf8), "text/html")
+    }
+
+    /// 覚えておく鍵。同じ章でも、印の有無で中身が変わる。
+    private func cacheKey(_ href: String, mark: (query: String, nth: Int)?) -> String {
+        guard let mark else { return href }
+        return "\(href)\u{0}\(mark.query)\u{0}\(mark.nth)"
     }
 
     private func cached(_ href: String) -> (data: Data, mime: String)? {

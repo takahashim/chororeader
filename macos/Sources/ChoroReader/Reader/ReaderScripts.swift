@@ -297,114 +297,27 @@ enum ReaderScripts {
         return (window.getSelection() || '').toString();
       };
 
-      // 検索結果から飛んだ先で、当たった語を囲む。
+      // 配られた本文に入っている当たりの印まで送る。押した直後の 1 回だけ呼ぶ。
       //
-      // 一覧に前後の文脈が出ていても、着いた章のどこに当たったのかは分からない。
-      // 章の中で nth 番目のものを選ぶ。同じ語が何度も出る章があるためである。
-      //
-      // 畳み方は DocumentSearch.options と同じ規則にしてある
-      // （全角と半角、大文字と小文字、濁点の合成を区別しない）。
-      var COMBINING = [[0x0300, 0x036f], [0x1ab0, 0x1aff], [0x1dc0, 0x1dff],
-                       [0x20d0, 0x20ff], [0xfe20, 0xfe2f], [0x3099, 0x309a]];
+      // 印を入れるのは配信側（SearchMarkInserter）。ここで入れると、文字節を切って
+      // 包む手術を書くことになり、抽出（HTMLText）と数え方がずれる余地が残る。
+      window.choroApproachMark = function () {
+        var found = document.querySelector('mark.choro-found');
+        if (!found) return false;
+        var rect = found.getBoundingClientRect();
+        window.scrollBy(0, rect.top - window.innerHeight * 0.3);
+        return true;
+      };
 
-      function foldChar(c) {
-        var code = c.codePointAt(0);
-        for (var i = 0; i < COMBINING.length; i++) {
-          if (code >= COMBINING[i][0] && code <= COMBINING[i][1]) return '';
-        }
-        var folded = c;
-        if (code >= 0xff01 && code <= 0xff5e) folded = String.fromCodePoint(code - 0xfee0);
-        else if (code === 0x3000) folded = ' ';
-        // 小文字にすると 2 文字に増える字がある。1 文字が 1 文字に写る畳み方だけを使う。
-        return Array.from(folded.toLowerCase())[0] || c;
-      }
-
-      function foldText(s) {
-        var out = '';
-        var chars = Array.from(s || '');
-        for (var i = 0; i < chars.length; i++) { out += foldChar(chars[i]); }
-        return out;
-      }
-
-      // 本文でないものを外す。書籍の script と style に加えて、
-      // こちらが足したもの（コードのコピーボタン、章末の行き先）も数えない。
-      // 抽出（HTMLText）に入らないものを数えると、当たりの順番がずれる。
-      function isFurniture(node) {
-        for (var el = node; el && el.nodeType === 1; el = el.parentNode) {
-          var name = (el.nodeName || '').toLowerCase();
-          if (name === 'script' || name === 'style') return true;
-          if (el.id && String(el.id).indexOf('choro') === 0) return true;
-          var cls = el.getAttribute ? el.getAttribute('class') : null;
-          if (cls && (' ' + cls + ' ').indexOf(' choro') >= 0) return true;
-        }
-        return false;
-      }
-
-      // 畳んだ本文と、畳んだ 1 単位ごとの居場所（節、節の中の位置、元の文字の長さ）。
-      // 添字は畳んだ文字列のものに合わせる。基本多言語面の外の字で 2 単位になるため。
-      function foldBody() {
-        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
-        var folded = '';
-        var places = [];
-        var node;
-        while ((node = walker.nextNode())) {
-          if (isFurniture(node.parentNode)) continue;
-          var chars = Array.from(node.nodeValue || '');
-          var at = 0;
-          for (var i = 0; i < chars.length; i++) {
-            var one = foldChar(chars[i]);
-            for (var u = 0; u < one.length; u++) { places.push([node, at, chars[i].length]); }
-            folded += one;
-            at += chars[i].length;
-          }
-        }
-        return { folded: folded, places: places };
-      }
-
+      // 印を外すだけなら、タグを剥がせば済む。配り直すと画面がちらつく。
       window.choroClearMarks = function () {
         var marks = document.querySelectorAll('mark.choro-found');
         for (var i = 0; i < marks.length; i++) {
           var parent = marks[i].parentNode;
           while (marks[i].firstChild) { parent.insertBefore(marks[i].firstChild, marks[i]); }
           parent.removeChild(marks[i]);
-          // 切った文字節を繋ぎ直す。残すと、次に畳んだときの居場所がずれる。
           parent.normalize();
         }
-      };
-
-      window.choroMark = function (query, nth, scroll) {
-        window.choroClearMarks();
-        var needle = foldText(query);
-        if (!needle || !document.body) return false;
-
-        var body = foldBody();
-        var at = -1;
-        for (var n = 0; n <= nth; n++) {
-          at = body.folded.indexOf(needle, at + 1);
-          if (at < 0) return false;
-        }
-
-        var from = body.places[at];
-        var to = body.places[at + needle.length - 1];
-        if (!from || !to) return false;
-
-        // 節をまたぐ当たりは、始まりの節までを囲む。
-        var node = from[0];
-        var start = from[1];
-        var end = node === to[0] ? to[1] + to[2] : (node.nodeValue || '').length;
-        var tail = node.splitText(start);
-        if (end - start < (tail.nodeValue || '').length) { tail.splitText(end - start); }
-
-        var mark = window.choroMake('mark');
-        mark.setAttribute('class', 'choro-found');
-        tail.parentNode.replaceChild(mark, tail);
-        mark.appendChild(tail);
-
-        if (scroll) {
-          var rect = mark.getBoundingClientRect();
-          window.scrollBy(0, rect.top - window.innerHeight * 0.3);
-        }
-        return true;
       };
 
       decorateCode();

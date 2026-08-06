@@ -28,10 +28,14 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
     var mark: SearchMark? {
         didSet {
             // 押した直後の 1 回だけ、囲んだところまで送る。
-            // あとで通りかかったときは囲むだけにする。
+            // あとで通りかかったときは、配られた印がそのまま残る。
             markApproach = mark != nil && mark != oldValue
-            // 当てるのは章が入ってから。消すのはその場でよい。
-            if mark == nil { applyMark() }
+            // 印は配信の瞬間に入る。次に章を配ってもらうときのために、先に置いておく。
+            schemeHandler.mark = mark.map { ($0.query, $0.nth) }
+            // 外すだけなら配り直さなくてよい。配り直すと画面がちらつく。
+            if mark == nil {
+                webView.evaluateJavaScript("window.choroClearMarks && window.choroClearMarks()")
+            }
         }
     }
     private var markApproach = false
@@ -93,15 +97,18 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
     }
 
     func reveal(_ target: Locator) {
+        // 当たりへ飛ぶときは読み直す。印は配信の瞬間に入るので、そのままでは付かない。
+        if markApproach, mark?.target.href == target.href {
+            load(locator: target)
+            return
+        }
         // 同じ章の中なら読み直さずに動く。
         if target.href == locator.href, !isLoading {
             onNavigated?(locator)
             locator.progression = target.progression
             locator.fragment = target.fragment
             locator.text = target.text
-            // 当たりへ飛んだときは、囲んだところへ送るのが位置の復元より正確なので、そちらに譲る。
-            if !(markApproach && marksHere) { restore(target) }
-            applyMark()
+            restore(target)
         } else {
             load(locator: target)
         }
@@ -247,10 +254,10 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         showChapterEndAffordance()
         if let target = pendingRestore {
             pendingRestore = nil
-            // 当たりへ飛んだときは、囲んだところへ送るのが位置の復元より正確なので、そちらに譲る。
+            // 当たりへ飛んだときは、囲まれたところへ送るのが位置の復元より正確なので、そちらに譲る。
             if !(markApproach && marksHere) { restore(target) }
         }
-        applyMark()
+        approachMark()
     }
 
     // MARK: - 当たりの強調
@@ -261,15 +268,11 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         return mark.target.href == locator.href
     }
 
-    private func applyMark() {
-        guard let mark, marksHere, !mark.query.isEmpty else {
-            webView.evaluateJavaScript("window.choroClearMarks && window.choroClearMarks()")
-            return
-        }
-        let scroll = markApproach
+    /// 配られた本文に入っている印まで送る。押した直後の 1 回だけ。
+    private func approachMark() {
+        guard markApproach, marksHere else { return }
         markApproach = false
-        webView.evaluateJavaScript(
-            "window.choroMark && window.choroMark(\(ReaderScripts.quote(mark.query)), \(mark.nth), \(scroll))")
+        webView.evaluateJavaScript("window.choroApproachMark && window.choroApproachMark()")
     }
 
     /// 章末に次の章への行き先を出す。最後の章では何も出さない。
