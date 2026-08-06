@@ -55,24 +55,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          bundler-cache: true
-          working-directory: conformance
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: tauri
           shared-key: tauri-app-windows
           cache-on-failure: true
 
-      # 実書籍は置けないので、合成フィクスチャで確かめる。
-      - name: フィクスチャを作る
-        working-directory: conformance
-        run: bundle exec ./tzconf generate
-
+      # 同梱のサンプルで確かめる。実書籍を置けないマシンでも、これだけで足りる。
       - name: 動作確認を走らせる
         working-directory: tauri
         env:
           TZR_SELFTEST: "1"
-        run: cargo run --release -p tzreader -- ../conformance/fixtures/epub3-basic.epub
+        run: cargo run --release -p tzreader -- ../samples/sample-reflowable.epub

@@ -148,6 +148,14 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: .command)
 
+            // 書籍を 1 冊も持たないマシンでも、読み方と機能を確かめられるようにする。
+            // 表示の経路が形式ごとに別なので、3 形式そろえてある。
+            Menu("サンプルを開く") {
+                Button("リフロー型 EPUB") { Samples.open("sample-reflowable", "epub") }
+                Button("固定レイアウト EPUB") { Samples.open("sample-fixed", "epub") }
+                Button("PDF") { Samples.open("sample", "pdf") }
+            }
+
             // 離れた 2 か所を並べて読むための最短経路。
             // 目次や検索から開くのではなく、いま見ている場所をそのまま複製する。
             Button("この場所を新しいウィンドウで開く") {

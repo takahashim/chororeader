@@ -34,7 +34,22 @@ pub fn run() {
         .menu(build_menu)
         .on_menu_event(|app, event| {
             let id = event.id().0.clone();
-            // 実際の処理は画面側が持っている。名前だけ渡す。
+
+            // 画面を通さずに済むものは、ここで片付ける。
+            // 書籍を 1 冊も持たない状態では書棚しか開いておらず、
+            // 画面側の受け手が居るかどうかに頼りたくない。
+            if let Some(kind) = id.strip_prefix("sample-") {
+                if let Err(error) = open_sample_window(app, kind) {
+                    eprintln!("サンプルを開けなかった: {error}");
+                }
+                return;
+            }
+            if id == "shelf" {
+                let _ = open_shelf_window(app);
+                return;
+            }
+
+            // 残りは画面側が処理を持っている。名前だけ渡す。
             for (_, window) in app.webview_windows() {
                 if window.is_focused().unwrap_or(false) {
                     let _ = window.emit("menu", id.clone());
@@ -59,6 +74,7 @@ pub fn run() {
             diagnose,
             open_in_new_window,
             open_shelf,
+            open_sample,
             window_count,
             selftest_report,
             book_state,
@@ -153,8 +169,15 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .quit()
         .build()?;
 
+    let samples = SubmenuBuilder::new(app, "サンプルを開く")
+        .item(&item("sample-reflowable", "リフロー型 EPUB", None)?)
+        .item(&item("sample-fixed", "固定レイアウト EPUB", None)?)
+        .item(&item("sample-pdf", "PDF", None)?)
+        .build()?;
+
     let file = SubmenuBuilder::new(app, "ファイル")
         .item(&item("open", "開く…", Some("CmdOrCtrl+O"))?)
+        .item(&samples)
         .item(&item("new-window", "この場所を新しいウィンドウで開く", Some("CmdOrCtrl+N"))?)
         .separator()
         .item(&item("shelf", "書棚", Some("CmdOrCtrl+L"))?)
@@ -224,9 +247,6 @@ fn build_window(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 同じ大きさで真上に重ねると、増えたことに気付けない。少しずらす。
     let offset = (app.webview_windows().len() as f64) * 26.0 % 160.0;
-    if std::env::var("TZR_SELFTEST").is_ok() {
-        eprintln!("[窓] {label} {}", protocol::app_url(query));
-    }
     WebviewWindowBuilder::new(
         app,
         label,
@@ -249,6 +269,59 @@ fn urlencode(value: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
+}
+
+// MARK: サンプル書籍
+//
+// 書籍を 1 冊も持たないマシンでも、アプリだけで読み方と機能を確かめられるようにする。
+// 表示の経路が形式ごとに別なので、3 形式そろえてある。
+
+const SAMPLES: &[(&str, &str, &[u8])] = &[
+    (
+        "reflowable",
+        "sample-reflowable.epub",
+        include_bytes!("../../../samples/sample-reflowable.epub"),
+    ),
+    (
+        "fixed",
+        "sample-fixed.epub",
+        include_bytes!("../../../samples/sample-fixed.epub"),
+    ),
+    ("pdf", "sample.pdf", include_bytes!("../../../samples/sample.pdf")),
+];
+
+/// サンプルを取り出して開く。書き出す先は設定と同じところの下に置く。
+#[tauri::command(async)]
+fn open_sample(app: tauri::AppHandle, kind: String) -> Result<(), String> {
+    open_sample_window(&app, &kind)
+}
+
+fn open_sample_window(app: &tauri::AppHandle, kind: &str) -> Result<(), String> {
+    let path = write_sample(app, kind)?;
+    let n = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let query = format!("?path={}", urlencode(&path));
+    open_window(app, &format!("book-{n}"), &query).map_err(|e| e.to_string())
+}
+
+fn write_sample(app: &tauri::AppHandle, kind: &str) -> Result<String, String> {
+    let (_, name, data) = SAMPLES
+        .iter()
+        .find(|(id, _, _)| *id == kind)
+        .ok_or("そのサンプルは無い")?;
+
+    let directory = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("Samples");
+    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let path = directory.join(name);
+    // 版が変わったら書き直す。大きさが同じなら中身も同じとみなす。
+    let stale = std::fs::metadata(&path).map(|m| m.len() as usize != data.len()).unwrap_or(true);
+    if stale {
+        std::fs::write(&path, data).map_err(|e| e.to_string())?;
+    }
+    Ok(path.to_string_lossy().into_owned())
 }
 
 // MARK: 書籍を開く

@@ -19,6 +19,9 @@ open build/TZReader.app
 cd macos && swift test
 ```
 
+書籍を持っていなくても、ファイル献立の「サンプルを開く」から
+リフロー型 EPUB・固定レイアウト EPUB・PDF の 3 形式を試せる（[samples/](samples/)）。
+
 Windows 版は [tauri/README.md](tauri/README.md) を見よ。
 
 ## macOS 版の現状

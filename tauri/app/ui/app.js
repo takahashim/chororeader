@@ -1571,6 +1571,9 @@ window.__TAURI__.event.listen("menu", (event) => {
     "zoom-out": () => zoomBy(1 / 1.25),
     "zoom-reset": resetZoom,
     diagnose,
+    "sample-reflowable": () => invoke("open_sample", { kind: "reflowable" }),
+    "sample-fixed": () => invoke("open_sample", { kind: "fixed" }),
+    "sample-pdf": () => invoke("open_sample", { kind: "pdf" }),
     selftest: () => window.tzrSelfTest && window.tzrSelfTest(),
   };
   const action = actions[event.payload];
