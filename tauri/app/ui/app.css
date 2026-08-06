@@ -46,6 +46,12 @@ body {
 
 #bar .spacer { flex: 1; }
 
+#history { display: inline-flex; gap: 0; }
+#history button { padding: 2px 9px; font-size: 15px; line-height: 1.1; }
+#history button:first-child { border-radius: 5px 0 0 5px; }
+#history button:last-child { border-radius: 0 5px 5px 0; border-left: 0; }
+#history button:disabled { color: var(--dim); opacity: 0.5; cursor: default; border-color: var(--line); }
+
 #book-title {
   font-weight: 600;
   max-width: 40ch;

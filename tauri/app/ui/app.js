@@ -46,6 +46,9 @@ const state = {
   settings: { ...DEFAULT_SETTINGS },
   shelfBooks: [],
   shelfSelected: -1,
+  // 移動の履歴。読んだ順ではなく、飛んだ順を覚える。
+  back: [],
+  forward: [],
   style: { css: "", needsForegroundMarking: false },
   bookmarks: [],
   restoring: null,
@@ -115,7 +118,7 @@ async function openPath(path, href, fragment) {
     $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
     const target = href || saved.position.href;
     const index = Math.max(0, state.book.chapters.findIndex((c) => c.href === target));
-    state.restoring = href ? null : saved.position.progression;
+    state.restoring = href ? null : saved.position;
     await showChapter(index, fragment || null);
   }
 
@@ -180,9 +183,9 @@ function openTarget(a, newWindow) {
   if (newWindow) {
     return invoke("open_in_new_window", { path: state.book.path, href, fragment });
   }
-  if (state.book.format === "pdf") return showPdf(Number(href));
+  if (state.book.format === "pdf") return jump(() => showPdf(Number(href)));
   const index = state.book.chapters.findIndex((c) => c.href === href);
-  if (index >= 0) showChapter(index, fragment || null);
+  if (index >= 0) jump(() => showChapter(index, fragment || null));
 }
 
 // ---- 右クリックの献立 ---------------------------------------------------
@@ -254,8 +257,10 @@ async function showChapter(index, fragment) {
     const target = doc.getElementById(fragment);
     if (target) target.scrollIntoView();
   } else if (state.restoring != null) {
-    const el = doc.scrollingElement || doc.documentElement;
-    el.scrollTop = state.restoring * el.scrollHeight;
+    // 数字だけ渡されたときは割合として扱う（検索やしおりからの移動）。
+    restorePosition(doc, typeof state.restoring === "number"
+      ? { progression: state.restoring }
+      : state.restoring);
     state.restoring = null;
   } else {
     (doc.scrollingElement || doc.documentElement).scrollTop = 0;
@@ -381,7 +386,7 @@ function addChapterFooter(doc) {
   button.setAttribute("style",
     "font:inherit;padding:8px 18px;border-radius:6px;cursor:pointer;" +
     "border:1px solid rgba(127,127,127,.5);background:transparent;color:inherit");
-  button.addEventListener("click", () => showChapter(state.index + 1));
+  button.addEventListener("click", () => jump(() => showChapter(state.index + 1)));
   footer.appendChild(button);
   doc.body.appendChild(footer);
 }
@@ -452,7 +457,7 @@ async function showPopover(anchor, href, fragment) {
   go.addEventListener("click", () => {
     hidePopover();
     const index = state.book.chapters.findIndex((c) => c.href === href);
-    if (index >= 0) showChapter(index, fragment);
+    if (index >= 0) jump(() => showChapter(index, fragment));
   });
   newWindow.addEventListener("click", () => {
     hidePopover();
@@ -720,11 +725,13 @@ async function runSearch() {
           fragment: "",
         });
       }
-      if (state.book.format === "pdf") return showPdf(hit.page);
+      if (state.book.format === "pdf") return jump(() => showPdf(hit.page));
       const index = state.book.chapters.findIndex((c) => c.href === hit.href);
       if (index >= 0) {
-        state.restoring = hit.progression;
-        showChapter(index);
+        jump(() => {
+          state.restoring = hit.progression;
+          showChapter(index);
+        });
       }
     };
     a.addEventListener("contextmenu", (event) => {
@@ -762,12 +769,57 @@ function rememberSoon() {
 
 function currentPosition() {
   if (state.book.format === "pdf") {
-    return { href: "", progression: 0, page: state.page };
+    return { href: "", progression: 0, page: state.page, fragment: "", text: "" };
   }
   const doc = $("page").contentDocument;
   const el = doc && (doc.scrollingElement || doc.documentElement);
   const progression = el && el.scrollHeight > 0 ? el.scrollTop / el.scrollHeight : 0;
-  return { href: (state.book.chapters[state.index] || {}).href || "", progression, page: 0 };
+  return {
+    href: (state.book.chapters[state.index] || {}).href || "",
+    progression,
+    page: 0,
+    fragment: "",
+    // 割合だけだと、文字サイズや本文幅を変えたときに見失う。
+    // いま画面の上端に来ている文字を覚えておき、次はそれを手掛かりに戻す。
+    text: doc ? topText(doc) : "",
+  };
+}
+
+/// 画面の上端にある段落の書き出し。長すぎると当たらなくなるので短く取る。
+function topText(doc) {
+  try {
+    const view = doc.defaultView;
+    const element = doc.elementFromPoint(Math.floor(view.innerWidth / 2), 8);
+    if (!element) return "";
+    return (element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40);
+  } catch (_) {
+    return "";
+  }
+}
+
+/// 覚えておいた場所へ戻す。飛び先、書き出し、割合の順に試す。
+function restorePosition(doc, position) {
+  if (position.fragment) {
+    const target = doc.getElementById(position.fragment);
+    if (target) { target.scrollIntoView(); return; }
+  }
+  if (position.text && scrollToText(doc, position.text)) return;
+  const el = doc.scrollingElement || doc.documentElement;
+  el.scrollTop = (position.progression || 0) * el.scrollHeight;
+}
+
+function scrollToText(doc, text) {
+  const needle = text.trim().slice(0, 20);
+  if (needle.length < 4) return false;
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    if (!walker.currentNode.nodeValue.includes(needle)) continue;
+    const element = walker.currentNode.parentElement;
+    if (!element) continue;
+    element.scrollIntoView({ block: "start" });
+    return true;
+  }
+  return false;
 }
 
 async function toggleBookmark() {
@@ -791,11 +843,13 @@ function renderBookmarks() {
     const a = document.createElement("a");
     a.textContent = bookmark.label || bookmark.href;
     a.addEventListener("click", () => {
-      if (state.book.format === "pdf") return showPdf(bookmark.page);
+      if (state.book.format === "pdf") return jump(() => showPdf(bookmark.page));
       const index = state.book.chapters.findIndex((c) => c.href === bookmark.href);
       if (index >= 0) {
-        state.restoring = bookmark.progression;
-        showChapter(index);
+        jump(() => {
+          state.restoring = bookmark;
+          showChapter(index);
+        });
       }
     });
     box.appendChild(a);
@@ -1039,6 +1093,10 @@ function onKeyDown(event) {
     event.preventDefault();
     return invoke("open_shelf");
   }
+  if (command && event.key === "[") { event.preventDefault(); return goBack(); }
+  if (command && event.key === "]") { event.preventDefault(); return goForward(); }
+  if (command && event.key === "ArrowUp") { event.preventDefault(); return step(-1); }
+  if (command && event.key === "ArrowDown") { event.preventDefault(); return step(1); }
   if (command && event.key === "\\") { event.preventDefault(); return toggleSidebar(); }
   if (command && event.key.toLowerCase() === "d") { event.preventDefault(); return toggleBookmark(); }
   if (command && event.key.toLowerCase() === "f") {
@@ -1085,6 +1143,53 @@ function scrollContent(amount, byScreen) {
   el.scrollTop += byScreen ? amount * doc.defaultView.innerHeight : amount;
 }
 
+// ---- 履歴 ---------------------------------------------------------------
+//
+// 目次や検索から飛んだあと、元いた場所へ帰れないと読み比べにならない。
+// 覚えるのは飛んだ先ではなく飛ぶ直前の場所で、そこがブラウザの戻ると同じ意味になる。
+
+/// 飛ぶ。いまいた場所を履歴へ積んでから動く。
+function jump(action) {
+  if (state.book) {
+    state.back.push(currentPosition());
+    if (state.back.length > 100) state.back.shift();
+    state.forward.length = 0;
+  }
+  action();
+  updateHistoryButtons();
+}
+
+function goBack() {
+  const target = state.back.pop();
+  if (!target) return;
+  state.forward.push(currentPosition());
+  reveal(target);
+  updateHistoryButtons();
+}
+
+function goForward() {
+  const target = state.forward.pop();
+  if (!target) return;
+  state.back.push(currentPosition());
+  reveal(target);
+  updateHistoryButtons();
+}
+
+/// 覚えておいた場所へ戻す。ここでは履歴を積まない。
+function reveal(position) {
+  if (state.book.format === "pdf") return showPdf(position.page);
+  const index = state.book.chapters.findIndex((c) => c.href === position.href);
+  if (index < 0) return;
+  // 履歴から戻すときも、割合だけでなく書き出しを手掛かりにする。
+  state.restoring = position;
+  showChapter(index);
+}
+
+function updateHistoryButtons() {
+  $("go-back").disabled = state.back.length === 0;
+  $("go-forward").disabled = state.forward.length === 0;
+}
+
 function step(delta) {
   trace(`step(${delta}) loading=${loading} index=${state.index}`);
   if (state.book.format === "pdf") return showPdf(state.page + delta);
@@ -1092,7 +1197,7 @@ function step(delta) {
   if (loading) { pendingStep += delta; return; }
   const index = state.index + delta;
   if (index < 0 || index >= state.book.chapters.length) return;
-  showChapter(index);
+  jump(() => showChapter(index));
 }
 
 async function diagnose() {
@@ -1157,6 +1262,8 @@ $("shelf-modes").addEventListener("click", (event) => {
 $("new-window").addEventListener("click", openHere);
 $("shelf-button").addEventListener("click", () => invoke("open_shelf"));
 $("toggle-sidebar").addEventListener("click", toggleSidebar);
+$("go-back").addEventListener("click", goBack);
+$("go-forward").addEventListener("click", goForward);
 $("bookmark").addEventListener("click", toggleBookmark);
 $("settings-button").addEventListener("click", (event) => {
   event.stopPropagation();

@@ -33,6 +33,12 @@ pub struct Position {
     /// PDF のページ番号。
     #[serde(default)]
     pub page: i32,
+    /// 章の中の飛び先。あればここへ戻る。
+    #[serde(default)]
+    pub fragment: String,
+    /// 前にいた場所の書き出し。文字サイズを変えても同じ段落へ戻れるようにするため。
+    #[serde(default)]
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -42,6 +48,9 @@ pub struct Bookmark {
     pub progression: f64,
     pub page: i32,
     pub label: String,
+    /// 付けたときの書き出し。読書位置と同じく、文字サイズを変えても戻れるようにする。
+    #[serde(default)]
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
