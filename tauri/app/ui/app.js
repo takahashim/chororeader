@@ -33,6 +33,8 @@ const DEFAULT_SETTINGS = {
   publisherStyle: false,
   /// 書棚の見せ方。cover は表紙を並べ、table は表で並べる。
   shelfMode: "cover",
+  /// 紙面の並べ方。連続スクロール、単ページ、見開き。
+  pageLayout: "continuousScroll",
 };
 
 const state = {
@@ -84,6 +86,30 @@ function showPage(page) {
   return isFixed() ? showFixed(page) : showPdf(page);
 }
 
+/// 見開きの組み方。表紙は単独で見せ、以降を 2 枚ずつまとめる。
+/// core の fixed_layout::spreads と同じ規則にしてある。
+function spreadOf(page, total) {
+  if (page <= 0) return [0];
+  const start = page % 2 === 1 ? page : page - 1;
+  return start + 1 < total ? [start, start + 1] : [start];
+}
+
+/// いまの並べ方で画面に出すページ。
+function visiblePages(total) {
+  switch (state.settings.pageLayout) {
+    case "singlePage": return [state.page];
+    case "spread": return spreadOf(state.page, total);
+    default: return Array.from({ length: total }, (_, i) => i);
+  }
+}
+
+const isContinuous = () => state.settings.pageLayout === "continuousScroll";
+
+/// 器の中から、そのページを担う要素を探す。連続以外では並びと番号がずれる。
+function pageElement(box, page) {
+  return Array.from(box.children).find((el) => Number(el.dataset.page) === page);
+}
+
 /// 固定レイアウトでは目次が章の経路を指す。ページ番号へ読み替える。
 function pageOfHref(href) {
   if (!isFixed()) return Number(href);
@@ -123,6 +149,8 @@ async function openPath(path, href, fragment) {
     $("page").hidden = true;
     $("pdf").hidden = false;
     $("fit").hidden = false;
+    $("layout").hidden = false;
+    $("layout").value = state.settings.pageLayout;
     // 寸法は meta viewport から来る。名乗っていない書籍のために当てを置く。
     state.pageSize = state.book.pageSize || [800, 1130];
     const fitted = zoomForFit(state.settings.fit);
@@ -132,6 +160,8 @@ async function openPath(path, href, fragment) {
     $("page").hidden = true;
     $("pdf").hidden = false;
     $("fit").hidden = false;
+    $("layout").hidden = false;
+    $("layout").value = state.settings.pageLayout;
     // 合わせ方を計算するにはページの大きさが要る。1 ページ目で代表させる。
     state.pageSize = await invoke("page_size", { id: state.book.id, page: 0 }).catch(() => null);
     const fitted = zoomForFit(state.settings.fit);
@@ -141,6 +171,7 @@ async function openPath(path, href, fragment) {
     $("pdf").hidden = true;
     $("page").hidden = false;
     $("fit").hidden = true;
+    $("layout").hidden = true;
     state.pageSize = null;
     state.zoom = state.settings.epubZoom || 1;
     $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
@@ -543,16 +574,24 @@ function onPdfScroll() {
 /// ページの枠を並べる。中身は後から入る。
 function buildPdf() {
   const box = $("pdf");
-  if (box.dataset.book === state.book.id) return;
+  const pages = visiblePages(state.book.pageCount);
+  // 連続以外では見せるページが変わるたびに組み直す。何を出しているかを鍵にする。
+  const key = `${state.book.id}/${state.settings.pageLayout}/${pages.join("-")}`;
+  if (box.dataset.key === key) return;
+  const fresh = box.dataset.book !== state.book.id;
+  box.dataset.key = key;
   box.dataset.book = state.book.id;
   box.textContent = "";
-  for (let i = 0; i < state.book.pageCount; i++) {
+  for (const i of pages) {
     const img = document.createElement("img");
     img.loading = "lazy";
     img.dataset.page = String(i);
     box.appendChild(img);
   }
-  box.addEventListener("scroll", onPdfScroll, { passive: true });
+  box.classList.toggle("spread", state.settings.pageLayout === "spread" && pages.length > 1);
+  // 右開きでは見開きの左右が入れ替わる。
+  box.classList.toggle("rtl", state.book.direction === "rtl");
+  if (fresh) box.addEventListener("scroll", onPdfScroll, { passive: true });
   layoutPdf();
   renderPdf();
 }
@@ -564,11 +603,16 @@ function buildPdf() {
 /// どちらかを見分けるのは core の仕事で、ここは並べるだけにする。
 function buildFixed() {
   const box = $("pdf");
-  if (box.dataset.book === state.book.id) return;
+  const indices = visiblePages(state.book.pages.length);
+  const key = `${state.book.id}/${state.settings.pageLayout}/${indices.join("-")}`;
+  if (box.dataset.key === key) return;
+  const fresh = box.dataset.book !== state.book.id;
+  box.dataset.key = key;
   box.dataset.book = state.book.id;
   box.textContent = "";
 
-  state.book.pages.forEach((page, index) => {
+  indices.map((i) => state.book.pages[i]).forEach((page, position) => {
+    const index = indices[position];
     const url = `/book/${state.book.id}/${encodePath(page.href)}`;
     let element;
     if (page.kind === "image") {
@@ -586,7 +630,9 @@ function buildFixed() {
     box.appendChild(element);
   });
 
-  box.addEventListener("scroll", onPdfScroll, { passive: true });
+  box.classList.toggle("spread", state.settings.pageLayout === "spread" && indices.length > 1);
+  box.classList.toggle("rtl", state.book.direction === "rtl");
+  if (fresh) box.addEventListener("scroll", onPdfScroll, { passive: true });
   layoutPdf();
 }
 
@@ -594,8 +640,8 @@ async function showFixed(page) {
   state.page = Math.max(0, Math.min(state.book.pages.length - 1, page));
   buildFixed();
   const box = $("pdf");
-  const target = box.children[state.page];
-  if (target) box.scrollTop = target.offsetTop - 16;
+  const target = pageElement(box, state.page);
+  if (target) box.scrollTop = isContinuous() ? target.offsetTop - 16 : 0;
   markCurrentToc();
   rememberSoon();
 }
@@ -636,8 +682,8 @@ async function showPdf(page) {
   state.page = Math.max(0, Math.min(state.book.pageCount - 1, page));
   buildPdf();
   const box = $("pdf");
-  const target = box.children[state.page];
-  if (target) box.scrollTop = target.offsetTop - 16;
+  const target = pageElement(box, state.page);
+  if (target) box.scrollTop = isContinuous() ? target.offsetTop - 16 : 0;
   markCurrentToc();
   rememberSoon();
 }
@@ -1265,7 +1311,17 @@ function updateHistoryButtons() {
 function step(delta) {
   trace(`step(${delta}) loading=${loading} index=${state.index}`);
   // 紙面の送りも履歴に載せる。目次から飛んだあと元のページへ帰れるようにするため。
-  if (isPaged()) return jump(() => showPage(state.page + delta));
+  //
+  // 見開きでは 2 枚ずつ動く。並べ方が変わっても「次の単位へ」という意味は変えない。
+  if (isPaged()) {
+    const total = isFixed() ? state.book.pages.length : state.book.pageCount;
+    if (state.settings.pageLayout === "spread") {
+      const current = spreadOf(state.page, total);
+      const next = delta > 0 ? current[current.length - 1] + 1 : current[0] - 1;
+      return jump(() => showPage(next < 0 ? 0 : next));
+    }
+    return jump(() => showPage(state.page + delta));
+  }
   // 読み込み中の分は取っておき、終わってからまとめて動かす。
   if (loading) { pendingStep += delta; return; }
   const index = state.index + delta;
@@ -1335,6 +1391,13 @@ $("shelf-modes").addEventListener("click", (event) => {
 $("new-window").addEventListener("click", openHere);
 $("shelf-button").addEventListener("click", () => invoke("open_shelf"));
 $("toggle-sidebar").addEventListener("click", toggleSidebar);
+$("layout").addEventListener("change", (event) => {
+  state.settings.pageLayout = event.target.value;
+  saveSettingsSoon();
+  // 組み直してからいまのページへ戻す。並べ方を変えても居場所は変わらない。
+  $("pdf").dataset.key = "";
+  showPage(state.page);
+});
 $("go-back").addEventListener("click", goBack);
 $("go-forward").addEventListener("click", goForward);
 $("bookmark").addEventListener("click", toggleBookmark);

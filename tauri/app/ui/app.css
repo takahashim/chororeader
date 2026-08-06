@@ -197,6 +197,20 @@ body {
   padding: 16px 0;
 }
 
+/* 見開きは 2 枚を横に並べる。綴じ方向は書籍が決める。 */
+#pdf.spread {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+#pdf.spread.rtl { flex-direction: row-reverse; }
+
+#pdf.spread img,
+#pdf.spread iframe { margin: 0; }
+
 #pdf iframe {
   display: block;
   margin: 0 auto 16px;
