@@ -1,41 +1,21 @@
-// 画面側。本文そのものは sandbox 付きの iframe に入れ、この文書から DOM を触る。
+// 読書の窓。本文そのものは sandbox 付きの iframe に入れ、この文書から DOM を触る。
 //
 // Tauri では WebView 全体でスクリプトを止めるわけにいかない（この画面が JavaScript なので）。
 // 代わりに本文の iframe へ allow-scripts を与えないことで書籍の script を止め、
 // 親から contentDocument を辿って手を入れる。成立条件は両者が同じ生成元であること。
 // 詳しくは spikes/findings-tauri.md を見よ。
+//
+// 書棚は別の窓（shelf.html）で、こちらには入っていない。
 
-const invoke = window.__TAURI__.core.invoke;
-
-// 不具合を追うときだけ記録する。CHORO_DEBUG=1 を付けて起動すると有効になり、
-// キーがどこへ届いたかが標準エラーに出る。常時は何もしない。
-const PARAMS = new URLSearchParams(location.search);
-const DEBUG = PARAMS.get("debug") === "1";
-// この窓が書棚かどうか。書棚は本を配る側で、読書はしない。
-const SHELF = PARAMS.get("shelf") === "1";
-const trace = (message) => { if (DEBUG) invoke("ui_log", { message }).catch(() => {}); };
-const $ = (id) => document.getElementById(id);
-
-const DEFAULT_SETTINGS = {
-  /// PDF で倍率を手で決めたときの値。
-  zoom: 1,
-  /// PDF の合わせ方。
-  fit: "width",
-  /// 本文（リフロー）の倍率。PDF とは別に覚える。
-  epubZoom: 1,
-  fontSizePercent: 100,
-  lineHeight: 1.8,
-  maxWidthEm: 42,
-  theme: "light",
-  bodyFont: "",
-  codeFont: "SF Mono",
-  codeWrap: false,
-  publisherStyle: false,
-  /// 書棚の見せ方。cover は表紙を並べ、table は表で並べる。
-  shelfMode: "cover",
-  /// 紙面の並べ方。連続スクロール、単ページ、見開き。
-  pageLayout: "continuousScroll",
-};
+import {
+  $, DEFAULT_SETTINGS, PARAMS, applyTheme, ensureBackend, hideMenu, invoke,
+  listenToMenu, loadSettings, saveSettings, saveSettingsSoon, showFailure,
+  showMenu, toast, trace, watchForFailures,
+} from "./chrome.js";
+import {
+  isFixedBook, isPagedBook, pageAfterStep, pageCountOf,
+  pageOfHref as pageOfHrefIn, pagesToShow,
+} from "./lib/layout.js";
 
 const state = {
   book: null,
@@ -46,14 +26,13 @@ const state = {
   /// PDF のページの大きさ（ポイント）。合わせ方の計算に要る。
   pageSize: null,
   settings: { ...DEFAULT_SETTINGS },
-  shelfBooks: [],
-  shelfSelected: -1,
   // 移動の履歴。読んだ順ではなく、飛んだ順を覚える。
   back: [],
   forward: [],
   style: { css: "", needsForegroundMarking: false },
   bookmarks: [],
-  restoring: null,
+  /// いま強調している当たり。検索から飛ぶたびに置き換わり、検索をやめると消える。
+  mark: null,
 };
 
 // ---- 小道具 -------------------------------------------------------------
@@ -76,60 +55,34 @@ function waitUntil(check, what, timeout = 10000) {
 
 const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 
-/// 紙面として扱う書籍かどうか。PDF と固定レイアウト EPUB はページで数える。
-/// 綴じ方向も拡大も送り方も、この 2 つでは同じに振る舞う。
-const isPaged = () => !!state.book && (state.book.format === "pdf" || state.book.format === "fixedEPUB");
-const isFixed = () => !!state.book && state.book.format === "fixedEPUB";
+// 形式で決まることは lib/layout.js に置き、ここではいまの書籍を当てて呼ぶ。
+const isPaged = () => isPagedBook(state.book);
+const isFixed = () => isFixedBook(state.book);
+const pageOfHref = (href) => pageOfHrefIn(state.book, href);
+const visiblePages = (total) =>
+  pagesToShow(state.settings.pageLayout, state.page, total, state.book.spreads);
+const isContinuous = () => state.settings.pageLayout === "continuousScroll";
 
 /// 紙面のページ番号へ移す。中身の作り方だけが形式で違う。
 function showPage(page) {
   return isFixed() ? showFixed(page) : showPdf(page);
 }
 
-/// 見開きの組み方。表紙は単独で見せ、以降を 2 枚ずつまとめる。
-/// core の fixed_layout::spreads と同じ規則にしてある。
-function spreadOf(page, total) {
-  if (page <= 0) return [0];
-  const start = page % 2 === 1 ? page : page - 1;
-  return start + 1 < total ? [start, start + 1] : [start];
+/// 紙面を担う要素だけ。当たりの枠も同じ器に入るので、番号を持つものに絞る。
+function pageParts(box) {
+  return Array.from(box.children).filter((el) => el.dataset.page !== undefined);
 }
-
-/// いまの並べ方で画面に出すページ。
-function visiblePages(total) {
-  switch (state.settings.pageLayout) {
-    case "singlePage": return [state.page];
-    case "spread": return spreadOf(state.page, total);
-    default: return Array.from({ length: total }, (_, i) => i);
-  }
-}
-
-const isContinuous = () => state.settings.pageLayout === "continuousScroll";
 
 /// 器の中から、そのページを担う要素を探す。連続以外では並びと番号がずれる。
 function pageElement(box, page) {
-  return Array.from(box.children).find((el) => Number(el.dataset.page) === page);
-}
-
-/// 固定レイアウトでは目次が章の経路を指す。ページ番号へ読み替える。
-function pageOfHref(href) {
-  if (!isFixed()) return Number(href);
-  const index = state.book.pages.findIndex((p) => p.href === href);
-  if (index >= 0) return index;
-  // 絵に置き換えたページは href が絵の側になる。読み順の側でも探す。
-  return Math.max(0, state.book.chapters.findIndex((c) => c.href === href));
-}
-
-function toast(message) {
-  const box = $("toast");
-  box.textContent = message;
-  box.hidden = false;
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { box.hidden = true; }, 1800);
+  return pageParts(box).find((el) => Number(el.dataset.page) === page);
 }
 
 // ---- 書籍を開く ---------------------------------------------------------
 
-async function openPath(path, href, fragment) {
+/// 書籍を開く。`carried` は検索から渡ってきたもので、
+/// 当たった語（query）と、その章での通し番号（nth）、一覧も出すか（list）を持つ。
+async function openPath(path, href, fragment, carried = {}) {
   try {
     state.book = await invoke("open_book", { path });
   } catch (error) {
@@ -147,6 +100,19 @@ async function openPath(path, href, fragment) {
   state.bookmarks = saved.bookmarks || [];
   renderBookmarks();
   renderToc();
+
+  // 検索の当たりから渡ってきたときは、本文を配ってもらう前に目当てを決めておく。
+  // 印は配信時に入るので、開いてから決めたのでは間に合わない。
+  if (carried.query && !carried.list) {
+    state.mark = {
+      query: carried.query,
+      nth: Number(carried.nth) || 0,
+      href: isPaged() ? "" : href || "",
+      page: isPaged() ? Number(href) || 0 : 0,
+      rects: [],
+      approach: true,
+    };
+  }
 
   if (state.book.format === "fixedEPUB") {
     $("page").hidden = true;
@@ -180,8 +146,23 @@ async function openPath(path, href, fragment) {
     $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
     const target = href || saved.position.href;
     const index = Math.max(0, state.book.chapters.findIndex((c) => c.href === target));
-    state.restoring = href ? null : saved.position;
-    await showChapter(index, fragment || null);
+    // 章を名指しで開くときは、覚えていた場所ではなく、指された場所へ着く。
+    await showChapter(index, fragment || null, href ? null : saved.position);
+  }
+
+  if (carried.query) {
+    if (carried.list) {
+      // 全件を見に来た。同じ語句をこの本で引き直す。
+      // 1 冊から拾う上限が上がるので、書棚で打ち切られた続きがここで見える。
+      $("search-input").value = carried.query;
+      await runSearch();
+    } else if (isPaged() && !isFixed()) {
+      // 紙面の枠は絵の上に重ねるので、開いてから土台に尋ね直す。
+      state.mark.rects = await invoke("page_marks", {
+        id: state.book.id, page: state.page, query: carried.query,
+      }).catch(() => []);
+      layoutMarks();
+    }
   }
 
   if (state.book.format === "pdf" && !state.book.hasTextLayer) {
@@ -190,6 +171,7 @@ async function openPath(path, href, fragment) {
     toast("この PDF はテキスト層を持たないため検索できません");
   }
 }
+
 
 // ---- 目次 ---------------------------------------------------------------
 
@@ -250,47 +232,33 @@ function openTarget(a, newWindow) {
   if (index >= 0) jump(() => showChapter(index, fragment || null));
 }
 
-// ---- 右クリックの献立 ---------------------------------------------------
-
-/// 献立を出す。WebView 既定の献立は目次と検索結果では邪魔になるので抑える。
-function showMenu(event, items) {
-  const menu = $("menu");
-  menu.textContent = "";
-  for (const [label, action] of items) {
-    const button = document.createElement("button");
-    button.textContent = label;
-    button.addEventListener("click", () => { hideMenu(); action(); });
-    menu.appendChild(button);
-  }
-  menu.hidden = false;
-  // 画面の外へはみ出さないところへ置く。
-  const left = Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8);
-  const top = Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8);
-  menu.style.left = Math.max(4, left) + "px";
-  menu.style.top = Math.max(4, top) + "px";
-}
-
-function hideMenu() {
-  $("menu").hidden = true;
-}
 
 // ---- 本文（EPUB） -------------------------------------------------------
 
-// 読み込み中の状態。章の送りはここを見て振る舞いを変える。
-let loadToken = 0;
-let loading = false;
-// 読み込み中に押された分を取っておく。取りこぼすと「進まないことがある」になる。
-let pendingStep = 0;
+// いま飛んでいる章の読み込み。着いたときにすることを、一緒に持たせる。
+//
+// 章は iframe に入れるので、入り終わるまで手が付けられない。その間に押された送りは
+// 取っておかないと「進まないことがある」になり、送り先を別の変数に置くと、
+// 決める側と受け取る側が離れて追えなくなる。1 つの値にまとめて、着いたら捨てる。
+//
+//   { token: 追い越しの見分け, goTo: 着いたら送る先, queuedSteps: 待たせた送り }
+//
+// 着いたときにすることは**値で持つ**。関数を持たせると、ここが何にでも使える仕掛けになる。
+let arriving = null;
+let loadTokens = 0;
 
-async function showChapter(index, fragment) {
+const isLoading = () => arriving !== null;
+
+/// 章を出す。`goTo` は着いたときに送る先で、割合の数値か、位置の対象を渡す。
+async function showChapter(index, fragment, goTo = null) {
   const chapter = state.book.chapters[index];
   if (!chapter) return;
-  const token = ++loadToken;
+  const token = ++loadTokens;
   state.index = index;
-  loading = true;
+  arriving = { token, goTo, queuedSteps: 0 };
 
   const frame = $("page");
-  const url = `/book/${state.book.id}/${encodePath(chapter.href)}`;
+  const url = bookUrl(chapter.href);
 
   // 読み込みのあいだも、入れ替わる文書に手を付け続ける。
   // 空きを作ると、その隙に押されたキーがどこにも届かない。
@@ -301,13 +269,14 @@ async function showChapter(index, fragment) {
     doc = await loadInto(frame, url);
   } catch (error) {
     stopWatching();
-    loading = false;
+    arriving = null;
     toast(String(error.message || error));
     return;
   }
   stopWatching();
   // 後から押された分に追い越されていたら、こちらの後始末はしない。
-  if (token !== loadToken) return;
+  // 新しい読み込みが `arriving` を持っているので、こちらは触らずに降りる。
+  if (!arriving || arriving.token !== token) return;
 
   decorate(doc);
   markCurrentToc();
@@ -318,18 +287,22 @@ async function showChapter(index, fragment) {
   if (fragment) {
     const target = doc.getElementById(fragment);
     if (target) target.scrollIntoView();
-  } else if (state.restoring != null) {
+  } else if (arriving.goTo != null) {
     // 数字だけ渡されたときは割合として扱う（検索やしおりからの移動）。
-    restorePosition(doc, typeof state.restoring === "number"
-      ? { progression: state.restoring }
-      : state.restoring);
-    state.restoring = null;
+    restorePosition(doc, typeof arriving.goTo === "number"
+      ? { progression: arriving.goTo }
+      : arriving.goTo);
   } else {
     (doc.scrollingElement || doc.documentElement).scrollTop = 0;
   }
-  loading = false;
+  // 位置を決めたあとで、囲まれている当たりまで送る。順番を逆にできない。
+  approachMark(doc);
+
+  const queued = arriving.queuedSteps;
+  arriving = null;
   rememberSoon();
-  flushPendingStep();
+  // 待たせた送りは、着いてからまとめて動かす。
+  if (queued !== 0) step(queued);
 }
 
 /// 目当ての文書が入り終わるまで待つ。
@@ -338,10 +311,14 @@ async function showChapter(index, fragment) {
 /// ファイル名の部分一致で見分けると、名前が似た章どうしで取り違える。経路全体で照合する。
 function loadInto(frame, url) {
   const expected = decodeURIComponent(new URL(url, location.href).pathname);
+  // 同じ章をもう一度開くことがある（検索結果から、いま読んでいる章の当たりへ飛ぶときなど）。
+  // 差し替わるまで前の文書が残っており、経路だけで見分けると捨てられる側を掴む。
+  // そちらに手を入れても次の描画で消えるので、別の文書になるまで待つ。
+  const previous = frame.contentDocument;
   frame.src = url;
   return waitUntil(() => {
     const doc = frame.contentDocument;
-    if (!doc || doc.readyState !== "complete" || !doc.body) return null;
+    if (!doc || doc === previous || doc.readyState !== "complete" || !doc.body) return null;
     return decodeURIComponent(doc.location.pathname) === expected ? doc : null;
   }, "本文");
 }
@@ -362,12 +339,6 @@ function watchDocument(frame) {
   };
   tick();
   return () => { stopped = true; };
-}
-
-function flushPendingStep() {
-  const delta = pendingStep;
-  pendingStep = 0;
-  if (delta !== 0) step(delta);
 }
 
 /// 本文の文書に手を入れる。注入ではなく、親から直接触る。
@@ -438,6 +409,8 @@ function addCodeCopyButtons(doc) {
     pre.dataset.choroCopy = "1";
     pre.style.position = "relative";
     const button = doc.createElement("button");
+    // こちらが足したものだと分かる印。当たりを数えるときに本文から外す。
+    button.className = "choro-copy";
     button.textContent = "コピー";
     button.setAttribute("style",
       "position:absolute;top:6px;right:6px;font-size:11px;padding:2px 8px;" +
@@ -477,6 +450,7 @@ function addChapterFooter(doc) {
   footer.appendChild(button);
   doc.body.appendChild(footer);
 }
+
 
 // ---- リンク -------------------------------------------------------------
 
@@ -583,13 +557,14 @@ document.addEventListener("click", (event) => {
   }
 });
 
+
 // ---- PDF ----------------------------------------------------------------
 
 function onPdfScroll() {
   // いま画面の上端に来ているページを、位置として覚える。
   const box = $("pdf");
   const top = box.scrollTop;
-  for (const img of box.children) {
+  for (const img of pageParts(box)) {
     if (img.offsetTop + img.offsetHeight > top) {
       state.page = Number(img.dataset.page);
       break;
@@ -641,7 +616,7 @@ function buildFixed() {
 
   indices.map((i) => state.book.pages[i]).forEach((page, position) => {
     const index = indices[position];
-    const url = `/book/${state.book.id}/${encodePath(page.href)}`;
+    const url = bookUrl(page.href, index);
     let element;
     if (page.kind === "image") {
       element = document.createElement("img");
@@ -652,6 +627,8 @@ function buildFixed() {
       element = document.createElement("iframe");
       element.setAttribute("sandbox", "allow-same-origin");
       element.loading = "lazy";
+      // 紙面は遅れて入る。入った時点で、囲まれている当たりまで送る。
+      element.addEventListener("load", (event) => approachMark(event.target.contentDocument));
       element.src = url;
     }
     element.dataset.page = String(index);
@@ -667,9 +644,11 @@ function buildFixed() {
 async function showFixed(page) {
   state.page = Math.max(0, Math.min(state.book.pages.length - 1, page));
   buildFixed();
+  refreshMarkedPage();
   const box = $("pdf");
   const target = pageElement(box, state.page);
   if (target) box.scrollTop = isContinuous() ? target.offsetTop - 16 : 0;
+  layoutMarks();
   markCurrentToc();
   markCurrentThumb();
   rememberSoon();
@@ -681,15 +660,18 @@ async function showFixed(page) {
 function layoutPdf() {
   const box = $("pdf");
   const [width, height] = state.pageSize || [0, 0];
-  if (width <= 0 || box.children.length === 0) return;
+  const parts = pageParts(box);
+  if (width <= 0 || parts.length === 0) return;
   const anchor = box.scrollHeight > 0 ? box.scrollTop / box.scrollHeight : 0;
   const w = Math.round(width * state.zoom) + "px";
   const h = Math.round(height * state.zoom) + "px";
-  for (const img of box.children) {
+  for (const img of parts) {
     img.style.width = w;
     img.style.height = h;
   }
   box.scrollTop = anchor * box.scrollHeight;
+  // 枠は紙面と同じ倍率で置いてあるので、大きさが変わったら置き直す。
+  layoutMarks();
   updatePannable();
 }
 
@@ -700,7 +682,7 @@ function renderPdf() {
   renderTimer = setTimeout(() => {
     if (!state.book || state.book.format !== "pdf") return;
     const box = $("pdf");
-    for (const img of box.children) {
+    for (const img of pageParts(box)) {
       const url = `/pdf/${state.book.id}/${img.dataset.page}/${state.zoom}`;
       if (img.getAttribute("src") !== url) img.src = url;
     }
@@ -713,21 +695,18 @@ async function showPdf(page) {
   const box = $("pdf");
   const target = pageElement(box, state.page);
   if (target) box.scrollTop = isContinuous() ? target.offsetTop - 16 : 0;
+  layoutMarks();
   markCurrentToc();
   markCurrentThumb();
   rememberSoon();
 }
+
 
 // ---- 拡大と縮小 ---------------------------------------------------------
 
 const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 6;
 
-let saveTimer = null;
-function saveSettingsSoon() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => invoke("save_settings", { settings: state.settings }), 400);
-}
 
 /// 合わせ方から倍率を決める。PDF でページの大きさが分かっているときだけ計算できる。
 function zoomForFit(fit) {
@@ -751,7 +730,7 @@ function setZoom(value, fit) {
   } else {
     state.settings.epubZoom = state.zoom;
   }
-  saveSettingsSoon();
+  saveSettingsSoon(state.settings);
   $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
   $("fit").value = state.settings.fit;
   applyZoom();
@@ -831,6 +810,7 @@ for (const kind of ["pointerup", "pointercancel"]) {
   });
 }
 
+
 // ---- ページの一覧 -------------------------------------------------------
 //
 // 紙面の書籍では、目次より縮小した絵のほうが目当てのページを見つけやすい。
@@ -841,7 +821,7 @@ const THUMB_ZOOM = 0.22;
 function renderThumbs() {
   const box = $("thumbs");
   if (!isPaged()) { box.textContent = ""; return; }
-  const total = isFixed() ? state.book.pages.length : state.book.pageCount;
+  const total = pageCountOf(state.book);
   if (box.dataset.book === state.book.id && box.children.length === total) {
     return markCurrentThumb();
   }
@@ -883,6 +863,7 @@ function markCurrentThumb() {
   }
 }
 
+
 // ---- 検索 ---------------------------------------------------------------
 
 let searchTimer = null;
@@ -895,6 +876,8 @@ async function runSearch() {
   const query = $("search-input").value.trim();
   const box = $("results");
   box.textContent = "";
+  // 引き直したら、前の語の強調は用済みになる。空にしたときも消える。
+  forgetMark();
   if (!state.book || query.length === 0) return;
   showPane("results");
 
@@ -918,20 +901,20 @@ async function runSearch() {
     a.append(where, excerpt);
     const openHit = (newWindow) => {
       if (newWindow) {
+        // 紙面はページ番号で、リフローは章の経路で行き先を言う。
         return invoke("open_in_new_window", {
           path: state.book.path,
-          href: isPaged() && !isFixed() ? String(hit.page) : hit.href,
+          href: isPaged() ? String(isFixed() ? pageOfHref(hit.href) : hit.page) : hit.href,
           fragment: "",
+          query,
+          nth: hit.nth,
         });
       }
-      if (isFixed()) return jump(() => showPage(pageOfHref(hit.href)));
-      if (isPaged()) return jump(() => showPage(hit.page));
+      aimAt(query, hit);
+      if (isPaged()) return jump(() => showPage(isFixed() ? pageOfHref(hit.href) : hit.page));
       const index = state.book.chapters.findIndex((c) => c.href === hit.href);
       if (index >= 0) {
-        jump(() => {
-          state.restoring = hit.progression;
-          showChapter(index);
-        });
+        jump(() => showChapter(index, null, hit.progression));
       }
     };
     a.addEventListener("contextmenu", (event) => {
@@ -941,18 +924,112 @@ async function runSearch() {
         ["ここへ移動", () => openHit(false)],
       ]);
     });
-    a.addEventListener("click", (event) => {
-      if (event.metaKey || event.ctrlKey) {
-        return openHit(true);
-      }
-      if (state.book.format === "pdf") return showPdf(hit.page);
-      const index = state.book.chapters.findIndex((c) => c.href === hit.href);
-      if (index >= 0) {
-        state.restoring = hit.progression;
-        showChapter(index);
-      }
-    });
+    a.addEventListener("click", (event) => openHit(event.metaKey || event.ctrlKey));
     box.appendChild(a);
+  }
+}
+
+
+// ---- 当たりの強調 -------------------------------------------------------
+//
+// 一覧に前後の文脈が出ていても、着いた章やページのどこに当たったのかは分からない。
+// 飛んだ先で目当ての語を探し直さずに済ませるための印である（spec.md 10.4）。
+//
+// **本文へ印を入れるのは Rust の仕事**。章を配るときに囲んで返す（core の mark）。
+// こちらは「どの当たりを囲むか」を決めて経路に載せ、着いたらそこまで送るだけにする。
+// 文字節を切って包む手術をここに置くと、抽出（html_text）と数え方がずれる余地が残る。
+//
+// 紙面（PDF）は文字を持たない絵なので、こちらだけは当たりの矩形を上に重ねる。
+
+/// 当たりを強調の目当てにする。移動そのものは呼び出し側が行う。
+function aimAt(query, hit) {
+  state.mark = {
+    query,
+    /// その章の中で何番目の当たりか。同じ語が何度も出る章で、押したものを選び直す。
+    nth: hit.nth || 0,
+    href: isPaged() ? "" : hit.href || "",
+    page: isFixed() ? pageOfHref(hit.href) : hit.page || 0,
+    rects: hit.rects || [],
+    /// 押した直後の 1 回だけ、その場所まで送る。あとで通りかかったときは囲むだけにする。
+    approach: true,
+  };
+}
+
+function forgetMark() {
+  state.mark = null;
+  layoutMarks();
+  // 本文に入っている印は配られたものだが、外すだけならこちらでできる。
+  // 配り直すと画面がちらつくので、その場で包みを解く。
+  for (const doc of shownDocuments()) clearMarksIn(doc);
+}
+
+/// 本文を配ってもらう経路。当たりを囲んでほしい章（ページ）には、語と通し番号を載せる。
+function bookUrl(href, page = null) {
+  const url = `/book/${state.book.id}/${encodePath(href)}`;
+  const mark = state.mark;
+  if (!mark || !mark.query) return url;
+  const wanted = isFixed() ? page === mark.page : mark.href === href;
+  if (!wanted) return url;
+  return `${url}?q=${encodeURIComponent(mark.query)}&nth=${mark.nth}`;
+}
+
+/// 目当てのページを配り直す。印の付き外れは配信時に決まるので、
+/// すでに入っている紙面は、経路を変えて取り直さないと印が付かない。
+function refreshMarkedPage() {
+  if (!isFixed() || !state.mark || !state.book.pages[state.mark.page]) return;
+  const part = pageElement($("pdf"), state.mark.page);
+  if (!part || part.tagName !== "IFRAME") return;
+  const url = bookUrl(state.book.pages[state.mark.page].href, state.mark.page);
+  if (part.getAttribute("src") !== url) part.src = url;
+}
+
+/// 配られた本文に入っている印まで送る。押した直後の 1 回だけ。
+function approachMark(doc) {
+  if (!doc || !state.mark || !state.mark.approach) return;
+  const found = doc.querySelector("mark.choro-found");
+  if (!found) return;
+  found.scrollIntoView({ block: "center" });
+  state.mark.approach = false;
+}
+
+/// いま画面に出ている本文の文書。固定レイアウトでは紙面ごとに分かれる。
+function shownDocuments() {
+  const docs = [];
+  const frame = $("page");
+  if (!frame.hidden && frame.contentDocument) docs.push(frame.contentDocument);
+  for (const part of pageParts($("pdf"))) {
+    if (part.tagName === "IFRAME" && part.contentDocument) docs.push(part.contentDocument);
+  }
+  return docs;
+}
+
+/// 印の包みを解く。入れる側は Rust だが、外すだけならタグを剥がせば済む。
+function clearMarksIn(doc) {
+  if (!doc || !doc.body) return;
+  for (const mark of doc.querySelectorAll("mark.choro-found")) {
+    const parent = mark.parentNode;
+    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+    parent.removeChild(mark);
+    parent.normalize();
+  }
+}
+
+/// 紙面の当たりを枠で囲む。絵の上に重ねるだけなので、描き直しとは関わらない。
+function layoutMarks() {
+  const box = $("pdf");
+  for (const old of box.querySelectorAll(".found-frame")) old.remove();
+  const mark = state.mark;
+  if (!mark || mark.rects.length === 0) return;
+  const target = pageElement(box, mark.page);
+  if (!target) return;
+  for (const [x0, y0, x1, y1] of mark.rects) {
+    const frame = document.createElement("div");
+    frame.className = "found-frame";
+    frame.style.left = `${target.offsetLeft + x0 * state.zoom}px`;
+    frame.style.top = `${target.offsetTop + y0 * state.zoom}px`;
+    frame.style.width = `${Math.max(2, (x1 - x0) * state.zoom)}px`;
+    frame.style.height = `${Math.max(2, (y1 - y0) * state.zoom)}px`;
+    box.appendChild(frame);
   }
 }
 
@@ -1046,15 +1123,13 @@ function renderBookmarks() {
       if (isPaged()) return jump(() => showPage(bookmark.page));
       const index = state.book.chapters.findIndex((c) => c.href === bookmark.href);
       if (index >= 0) {
-        jump(() => {
-          state.restoring = bookmark;
-          showChapter(index);
-        });
+        jump(() => showChapter(index, null, bookmark));
       }
     });
     box.appendChild(a);
   }
 }
+
 
 // ---- 表示設定 -----------------------------------------------------------
 
@@ -1102,149 +1177,6 @@ function fillSettings() {
   }
 }
 
-// ---- 書棚 ---------------------------------------------------------------
-//
-// 読んでいる途中でも戻れるようにする。読み比べる道具なので、
-// 「次はどれを開くか」を選ぶ場面は読書の最中にも来る。
-
-async function showShelf() {
-  const books = await invoke("library");
-  $("shelf-empty").hidden = books.length > 0;
-  renderShelf(books);
-  applyShelfMode();
-}
-
-/// 表紙で並べる形と、表で並べる形の両方を作っておく。切り替えは見せ方だけ。
-function renderShelf(books) {
-  const grid = $("shelf-grid");
-  const rows = $("shelf-table").tBodies[0];
-  grid.textContent = "";
-  rows.textContent = "";
-
-  state.shelfBooks = books;
-  state.shelfSelected = -1;
-  books.forEach((book, index) => {
-    grid.appendChild(coverCard(book));
-    rows.appendChild(tableRow(book, index));
-  });
-}
-
-function coverCard(book) {
-  const card = document.createElement("div");
-  card.className = "book" + (book.exists ? "" : " missing");
-  card.title = book.path;
-
-  const art = document.createElement("div");
-  art.className = "art";
-  art.appendChild(coverImage(book, () => art.replaceChildren(blankArt(book))) || blankArt(book));
-
-  const name = document.createElement("div");
-  name.className = "name";
-  name.textContent = book.title;
-
-  card.append(art, name);
-  if (book.authors.length > 0) {
-    const by = document.createElement("div");
-    by.className = "by";
-    by.textContent = book.authors.join("、");
-    card.appendChild(by);
-  }
-  const kind = document.createElement("div");
-  kind.className = "kind";
-  kind.textContent = book.format === "pdf" ? "PDF" : "EPUB";
-  card.appendChild(kind);
-
-  // 表紙は的が大きく、押しボタンとして扱える。ここは押せば開く。
-  if (book.exists) card.addEventListener("click", () => openBook(book));
-  return card;
-}
-
-function tableRow(book, index) {
-  const row = document.createElement("tr");
-  row.dataset.index = String(index);
-  if (!book.exists) row.className = "missing";
-  row.title = book.path;
-
-  const thumb = document.createElement("td");
-  thumb.className = "thumb";
-  const small = coverImage(book, () => thumb.textContent = "");
-  if (small) thumb.appendChild(small);
-
-  const cells = [book.title, book.authors.join("、"),
-                 book.format === "pdf" ? "PDF" : "EPUB", book.progress];
-  row.appendChild(thumb);
-  for (const value of cells) {
-    const cell = document.createElement("td");
-    cell.textContent = value;
-    row.appendChild(cell);
-  }
-
-  // 一覧は探すための画面なので、押しただけでは開かない。
-  // 見比べているあいだに窓が増えるのは邪魔になる。Finder と Explorer の作法にも合う。
-  if (book.exists) {
-    row.addEventListener("click", () => selectRow(index));
-    row.addEventListener("dblclick", () => openBook(book));
-  }
-  return row;
-}
-
-function coverImage(book, onError) {
-  if (!book.cover) return null;
-  const img = document.createElement("img");
-  img.src = "/cover/" + encodeURIComponent(book.cover);
-  img.alt = "";
-  img.loading = "lazy";
-  // 表紙が消えていたら、代わりの枠を出す。
-  img.addEventListener("error", onError);
-  return img;
-}
-
-/// 選んだ本は読書の窓に開く。書棚は残る。
-/// どの窓に開くのかを決めておかないと、書棚を窓として分けた意味がなくなる。
-function openBook(book) {
-  if (!book.exists) return;
-  invoke("open_in_new_window", { path: book.path, href: "", fragment: "" });
-}
-
-/// 一覧の行を選ぶ。冊数が増えると鍵盤で辿れることが効いてくる。
-function selectRow(index) {
-  const rows = $("shelf-table").tBodies[0].rows;
-  if (rows.length === 0) return;
-  state.shelfSelected = Math.max(0, Math.min(rows.length - 1, index));
-  for (const row of rows) {
-    row.classList.toggle("selected", Number(row.dataset.index) === state.shelfSelected);
-  }
-  rows[state.shelfSelected].scrollIntoView({ block: "nearest" });
-}
-
-/// 書棚の窓の鍵盤。読書の窓とは操作が別なので、入口で分ける。
-function shelfKeys(event) {
-  if (state.settings.shelfMode !== "table") return;
-  if (event.key === "ArrowDown") { event.preventDefault(); return selectRow(state.shelfSelected + 1); }
-  if (event.key === "ArrowUp") { event.preventDefault(); return selectRow(state.shelfSelected - 1); }
-  if (event.key !== "Enter") return;
-  event.preventDefault();
-  const book = state.shelfBooks[state.shelfSelected];
-  if (book) openBook(book);
-}
-
-function applyShelfMode() {
-  const mode = state.settings.shelfMode === "table" ? "table" : "cover";
-  $("shelf-grid").hidden = mode !== "cover";
-  $("shelf-table").hidden = mode !== "table";
-  for (const button of $("shelf-modes").children) {
-    button.classList.toggle("on", button.dataset.mode === mode);
-  }
-}
-
-function blankArt(book) {
-  const blank = document.createElement("div");
-  blank.className = "blank";
-  blank.textContent = book.exists ? "表紙なし" : "見つかりません";
-  return blank;
-}
-
-
 
 // ---- 焦点 ---------------------------------------------------------------
 
@@ -1274,12 +1206,13 @@ function focusContent() {
 
 window.addEventListener("focus", focusContent);
 
+
 // ---- 操作 ---------------------------------------------------------------
 
 // 矢印キーは移動、上下とスペースは読むための送り。軸ごとに意味を 1 つに定める。
 function onKeyDown(event) {
   const editing = event.target && /input|textarea/i.test(event.target.tagName || "");
-  trace(`key=${event.key} loading=${loading} pending=${pendingStep} index=${state.index} `
+  trace(`key=${event.key} loading=${isLoading()} index=${state.index} `
       + `target=${event.target && event.target.nodeName} `
       + `sameDoc=${event.target && event.target.ownerDocument === document}`);
   const command = event.metaKey || event.ctrlKey;
@@ -1301,7 +1234,7 @@ function onKeyDown(event) {
   if (command && event.key.toLowerCase() === "d") { event.preventDefault(); return toggleBookmark(); }
   if (command && event.key.toLowerCase() === "f") {
     event.preventDefault();
-    $("search-input").focus();
+    focusSearch();
     return;
   }
   if (command && event.altKey && event.key.toLowerCase() === "i") { event.preventDefault(); return diagnose(); }
@@ -1331,6 +1264,11 @@ function onKeyDown(event) {
   scrollContent(space != null ? space : step_, space != null || Math.abs(step_) < 1);
 }
 
+/// 引くための欄へ焦点を移す。
+function focusSearch() {
+  $("search-input").focus();
+}
+
 /// 本文を送る。割合で渡されたときは 1 画面ぶんとして扱う。
 function scrollContent(amount, byScreen) {
   if (isPaged()) {
@@ -1343,6 +1281,7 @@ function scrollContent(amount, byScreen) {
   if (!el) return;
   el.scrollTop += byScreen ? amount * doc.defaultView.innerHeight : amount;
 }
+
 
 // ---- 履歴 ---------------------------------------------------------------
 //
@@ -1382,8 +1321,7 @@ function reveal(position) {
   const index = state.book.chapters.findIndex((c) => c.href === position.href);
   if (index < 0) return;
   // 履歴から戻すときも、割合だけでなく書き出しを手掛かりにする。
-  state.restoring = position;
-  showChapter(index);
+  showChapter(index, null, position);
 }
 
 function updateHistoryButtons() {
@@ -1392,21 +1330,15 @@ function updateHistoryButtons() {
 }
 
 function step(delta) {
-  trace(`step(${delta}) loading=${loading} index=${state.index}`);
+  trace(`step(${delta}) loading=${isLoading()} index=${state.index}`);
   // 紙面の送りも履歴に載せる。目次から飛んだあと元のページへ帰れるようにするため。
   //
   // 見開きでは 2 枚ずつ動く。並べ方が変わっても「次の単位へ」という意味は変えない。
   if (isPaged()) {
-    const total = isFixed() ? state.book.pages.length : state.book.pageCount;
-    if (state.settings.pageLayout === "spread") {
-      const current = spreadOf(state.page, total);
-      const next = delta > 0 ? current[current.length - 1] + 1 : current[0] - 1;
-      return jump(() => showPage(next < 0 ? 0 : next));
-    }
-    return jump(() => showPage(state.page + delta));
+    return jump(() => showPage(pageAfterStep(state.settings.pageLayout, state.page, delta, state.book.spreads)));
   }
   // 読み込み中の分は取っておき、終わってからまとめて動かす。
-  if (loading) { pendingStep += delta; return; }
+  if (arriving) { arriving.queuedSteps += delta; return; }
   const index = state.index + delta;
   if (index < 0 || index >= state.book.chapters.length) return;
   jump(() => showChapter(index));
@@ -1475,24 +1407,12 @@ async function pick() {
 }
 
 $("open-button").addEventListener("click", pick);
-$("shelf-open").addEventListener("click", pick);
-$("shelf-samples").addEventListener("click", (event) => {
-  const kind = event.target.dataset.kind;
-  if (kind) invoke("open_sample", { kind });
-});
-$("shelf-modes").addEventListener("click", (event) => {
-  const mode = event.target.dataset.mode;
-  if (!mode) return;
-  state.settings.shelfMode = mode;
-  invoke("save_settings", { settings: state.settings });
-  applyShelfMode();
-});
 $("new-window").addEventListener("click", openHere);
 $("shelf-button").addEventListener("click", () => invoke("open_shelf"));
 $("toggle-sidebar").addEventListener("click", toggleSidebar);
 $("layout").addEventListener("change", (event) => {
   state.settings.pageLayout = event.target.value;
-  saveSettingsSoon();
+  saveSettingsSoon(state.settings);
   // 組み直してからいまのページへ戻す。並べ方を変えても居場所は変わらない。
   $("pdf").dataset.key = "";
   showPage(state.page);
@@ -1517,33 +1437,25 @@ window.addEventListener("resize", () => {
   }, 200);
 });
 
+
 // ---- 起動 ---------------------------------------------------------------
 
 async function main() {
-  // 土台と話せることを最初に確かめる。ここで落ちれば、あとは何を押しても動かない。
-  try {
-    await invoke("settings");
-  } catch (error) {
-    showFailure("土台に届きません（命令が拒まれました）", error);
-    throw error;
-  }
-
-  const saved = await invoke("settings");
-  state.settings = { ...DEFAULT_SETTINGS, ...(saved && typeof saved === "object" ? saved : {}) };
+  await ensureBackend();
+  state.settings = await loadSettings();
+  applyTheme(state.settings);
   fillSettings();
   bindSettings();
   await refreshStyle();
 
-  // 書棚の窓は本を配るだけで、読書はしない。道具帯も本文も出さない。
-  if (SHELF) {
-    document.body.classList.add("shelf-window");
-    document.title = "書棚";
-    return showShelf();
-  }
-
-  $("shelf").hidden = true;
   const path = PARAMS.get("path");
-  if (path) return openPath(path, PARAMS.get("href"), PARAMS.get("frag"));
+  if (path) {
+    return openPath(path, PARAMS.get("href"), PARAMS.get("frag"), {
+      query: PARAMS.get("q"),
+      nth: PARAMS.get("nth"),
+      list: PARAMS.get("list") === "1",
+    });
+  }
 
   // 書籍を持たない読書の窓は作らない。ここへ来たら書棚へ回す。
   invoke("open_shelf");
@@ -1552,6 +1464,7 @@ async function main() {
 // 献立からの呼び出しと、動作確認の治具に渡す入口。
 // 画面の中身をそのまま外へ出さず、必要なものだけを名前を付けて渡す。
 window.choro = {
+  kind: "reader",
   state,
   step,
   goBack,
@@ -1565,28 +1478,15 @@ window.choro = {
   openHere,
   zoomBy,
   resetZoom,
+  runSearch,
 };
+
+watchForFailures();
 
 // 受け取りの登録で転んでも、残りの組み立てを道連れにしない。
 // ここが例外を投げると、この後ろの main() が動かず窓が黙って死ぬ。
 try {
-  listenToMenu();
-} catch (error) {
-  showFailure("献立を受け取れません", error);
-}
-
-function listenToMenu() {
-  const events = window.__TAURI__ && window.__TAURI__.event;
-  if (!events || typeof events.listen !== "function") {
-    throw new Error("window.__TAURI__.event が無い");
-  }
-  events.listen("menu", onMenu).catch((error) => showFailure("献立を受け取れません", error));
-}
-
-function onMenu(event) {
-  // 治具が「献立の道が通っているか」を見るための印。
-  window.choroLastMenu = event.payload;
-  const actions = {
+  listenToMenu({
     open: pick,
     "new-window": openHere,
     shelf: () => invoke("open_shelf"),
@@ -1594,7 +1494,7 @@ function onMenu(event) {
     forward: goForward,
     prev: () => step(-1),
     next: () => step(1),
-    find: () => $("search-input").focus(),
+    find: focusSearch,
     bookmark: toggleBookmark,
     sidebar: toggleSidebar,
     "zoom-in": () => zoomBy(1.25),
@@ -1605,31 +1505,10 @@ function onMenu(event) {
     "sample-fixed": () => invoke("open_sample", { kind: "fixed" }),
     "sample-pdf": () => invoke("open_sample", { kind: "pdf" }),
     selftest: () => window.choroSelfTest && window.choroSelfTest(),
-  };
-  const action = actions[event.payload];
-  if (action) action();
+  });
+} catch (error) {
+  showFailure("献立を受け取れません", error);
 }
-
-// 画面が黙って死ぬのを防ぐ。
-//
-// 何かの拍子に土台へ届かなくなると、窓は出るのに何を押しても反応しない状態になる。
-// 手元と違う OS では原因が見えないので、起きたことをその場に書き出す。
-function showFailure(what, error) {
-  const detail = String((error && (error.stack || error.message)) || error || "");
-  let box = document.getElementById("boot-failure");
-  if (!box) {
-    box = document.createElement("div");
-    box.id = "boot-failure";
-    box.setAttribute("style",
-      "position:fixed;left:0;right:0;top:0;z-index:99;padding:10px 14px;" +
-      "background:#7a1c1c;color:#fff;font:12px/1.6 ui-monospace,Menlo,monospace;" +
-      "white-space:pre-wrap;max-height:50vh;overflow:auto");
-    document.body.appendChild(box);
-  }
-  box.textContent += `${what}\n${detail}\n\n`;
-}
-
-window.addEventListener("error", (event) => showFailure("画面で例外が起きました", event.error || event.message));
-window.addEventListener("unhandledrejection", (event) => showFailure("応答が返りませんでした", event.reason));
 
 main().catch((error) => showFailure("起動に失敗しました", error));
+

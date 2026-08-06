@@ -221,6 +221,17 @@ body {
   text-align: center;
   background: #55555a;
   padding: 16px 0;
+  /* 当たりの枠を紙面の上に重ねる。位置の基準はこの器にする。 */
+  position: relative;
+}
+
+/* 検索結果から飛んだ先で、当たりを囲む枠。紙面は絵なので上から重ねるしかない。 */
+.found-frame {
+  position: absolute;
+  background: rgba(255, 196, 0, 0.35);
+  outline: 1.5px solid rgba(224, 150, 0, 0.9);
+  border-radius: 2px;
+  pointer-events: none;
 }
 
 /* 見開きは 2 枚を横に並べる。綴じ方向は書籍が決める。 */
@@ -255,10 +266,10 @@ body {
   background: #fff;
 }
 
+/* 書棚は独立した窓（shelf.html）の中身。読書の窓には入っていない。 */
 #shelf {
-  position: absolute;
-  inset: 0;
-  z-index: 15;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -289,6 +300,72 @@ body {
 }
 
 #shelf-bar button:hover { border-color: var(--accent); }
+
+#shelf-search {
+  flex: 0 1 26ch;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bar);
+  color: var(--text);
+  font: inherit;
+}
+
+#shelf-progress { color: var(--dim); font-size: 11px; white-space: nowrap; }
+
+/* 横断検索の当たり。1 冊ぶんを 1 つのまとまりにし、1 件は 1 行に収める。 */
+#shelf-results { padding: 6px 20px 28px; }
+
+.found { margin-bottom: 16px; }
+
+.found-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 4px 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 3px;
+}
+
+.found-head .title { font-size: 13px; }
+.found-head .count { color: var(--dim); font-size: 11px; }
+
+.found .hit {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.found .hit:hover { background: rgba(127, 127, 127, 0.14); }
+
+.found .hit .where {
+  flex: 0 0 15ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.found .hit .excerpt { flex: 1; min-width: 0; }
+
+.found-all {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+
+#shelf-results .nothing {
+  padding: 60px 0;
+  text-align: center;
+  color: var(--dim);
+}
 
 #shelf-grid {
   display: grid;
@@ -422,13 +499,6 @@ body {
 
 #popover iframe { width: 100%; height: 100%; border: 0; }
 #popover-body { height: 46vh; }
-
-/* 書棚を出しているあいだは、書籍に紐づく操作を隠して横幅いっぱい使う。 */
-/* 書棚の窓では、読書のための道具帯も本文も出さない。 */
-body.shelf-window #bar,
-body.shelf-window #layout { display: none !important; }
-
-body.shelf-window #shelf { position: static; flex: 1; min-height: 0; }
 
 #shelf-empty {
   padding: 40px 20px;

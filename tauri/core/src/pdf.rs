@@ -12,6 +12,20 @@ pub struct PdfDocument {
     inner: mupdf::Document,
 }
 
+/// 紙面の当たり。
+///
+/// `rects` は描いた絵の左上を原点とする点の座標（x0, y0, x1, y1）で、
+/// 倍率を掛ければそのまま画素の位置になる。飛んだ先で当たりを囲むために使う。
+#[derive(Debug, Clone)]
+pub struct PageHit {
+    pub page: i32,
+    pub excerpt: String,
+    pub rects: Vec<[f32; 4]>,
+}
+
+/// 1 ページから拾う矩形の上限。当たりが多いページでも囲みきれる数にする。
+const QUADS_PER_PAGE: u32 = 32;
+
 impl PdfDocument {
     pub fn open(path: &str) -> Option<Self> {
         let inner = mupdf::Document::open(path).ok()?;
@@ -79,28 +93,58 @@ impl PdfDocument {
         Some(png)
     }
 
-    pub fn search(&self, needle: &str, limit: usize) -> Vec<(i32, String)> {
+    pub fn search(&self, needle: &str, limit: usize) -> Vec<PageHit> {
+        self.search_within(needle, limit, None)
+    }
+
+    /// `only` に挙がったページだけを見る。`None` なら全部。
+    ///
+    /// 索引で絞った候補を渡すための入り口。索引は候補を減らすだけで当たりは決めないので、
+    /// ここから先の判定は絞っても絞らなくても同じ結果になる。
+    pub fn search_within(&self, needle: &str, limit: usize, only: Option<&[u32]>) -> Vec<PageHit> {
         let mut hits = Vec::new();
         for index in 0..self.page_count() {
             if hits.len() >= limit {
                 break;
             }
+            if only.is_some_and(|only| !only.contains(&(index as u32))) {
+                continue;
+            }
             let Ok(page) = self.inner.load_page(index) else {
                 continue;
             };
-            let Ok(quads) = page.search(needle, 4) else {
+            let Ok(quads) = page.search(needle, QUADS_PER_PAGE) else {
                 continue;
             };
             if quads.is_empty() {
                 continue;
             }
-            // 前後の文脈は本文から切り出す。座標は画面側で使わないので運ばない。
+            // 紙面には行がそのまま出ているので、前後の文脈は本文から切り出す。
             let text = page.text(Default::default()).unwrap_or_default();
-            let excerpt = excerpt_around(&text, needle);
-            hits.push((index, excerpt));
+            // 座標は絵の左上を原点に直しておく。ページの枠は原点から始まるとは限らない。
+            let origin = page.bounds().unwrap_or_default();
+            hits.push(PageHit {
+                page: index,
+                excerpt: excerpt_around(&text, needle),
+                rects: quads.iter().map(|quad| rect_of(quad, origin.x0, origin.y0)).collect(),
+            });
         }
         hits
     }
+}
+
+/// 四隅の点を、囲む長方形に均す。傾いた行でも、覆うだけなら長方形で足りる。
+fn rect_of(quad: &mupdf::Quad, left: f32, top: f32) -> [f32; 4] {
+    let xs = [quad.ul.x, quad.ur.x, quad.ll.x, quad.lr.x];
+    let ys = [quad.ul.y, quad.ur.y, quad.ll.y, quad.lr.y];
+    let least = |values: [f32; 4]| values.iter().copied().fold(f32::INFINITY, f32::min);
+    let most = |values: [f32; 4]| values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    [
+        least(xs) - left,
+        least(ys) - top,
+        most(xs) - left,
+        most(ys) - top,
+    ]
 }
 
 fn excerpt_around(text: &str, needle: &str) -> String {
@@ -143,7 +187,8 @@ enum Job {
     Search {
         needle: String,
         limit: usize,
-        reply: Sender<Vec<(i32, String)>>,
+        only: Option<Vec<u32>>,
+        reply: Sender<Vec<PageHit>>,
     },
 }
 
@@ -187,9 +232,10 @@ impl PdfWorker {
                     Job::Search {
                         needle,
                         limit,
+                        only,
                         reply,
                     } => {
-                        let _ = reply.send(document.search(&needle, limit));
+                        let _ = reply.send(document.search_within(&needle, limit, only.as_deref()));
                     }
                 }
             }
@@ -223,12 +269,22 @@ impl PdfWorker {
             .unwrap_or((0.0, 0.0))
     }
 
-    pub fn search(&self, needle: &str, limit: usize) -> Vec<(i32, String)> {
+    pub fn search(&self, needle: &str, limit: usize) -> Vec<PageHit> {
+        self.search_within(needle, limit, None)
+    }
+
+    pub fn search_within(&self, needle: &str, limit: usize, only: Option<Vec<u32>>) -> Vec<PageHit> {
         self.ask(|reply| Job::Search {
             needle: needle.to_string(),
             limit,
+            only,
             reply,
         })
         .unwrap_or_default()
+    }
+
+    /// 索引に載せる本文。1 ページを 1 単位とする。
+    pub fn page_texts(&self) -> Vec<String> {
+        (0..self.page_count).map(|page| self.text_of_page(page)).collect()
     }
 }

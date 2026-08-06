@@ -70,12 +70,14 @@
     {
       name: "→ で次へ進む",
       run: async () => {
+        // 終端で閉じた本は、そこから先へは進めない。逆向きに送って確かめる。
+        const forward = !atEnd();
         const before = place();
-        window.choro.step(1);
+        window.choro.step(forward ? 1 : -1);
         const moved = await until(() => place() !== before);
         const after = place();
-        if (moved) window.choro.step(-1);
-        return { ok: moved, detail: `${before} → ${after}` };
+        if (moved) window.choro.step(forward ? -1 : 1);
+        return { ok: moved, detail: `${before} → ${after}${forward ? "" : "（終端なので逆へ）"}` };
       },
     },
     {
@@ -84,7 +86,8 @@
         const entries = Array.from($("toc").children).filter((a) => a.dataset.href);
         if (entries.length < 2) return { ok: false, detail: "目次の項目が足りない" };
         const before = place();
-        entries[entries.length - 1].click();
+        // いまいる場所を指す項目を押しても動かない。遠い方の端を選ぶ。
+        (atEnd() ? entries[0] : entries[entries.length - 1]).click();
         const moved = await until(() => place() !== before);
         return { ok: moved, detail: `${before} → ${place()}` };
       },
@@ -101,8 +104,39 @@
     {
       name: "検索が当たる",
       run: async () => {
-        const hits = await invoke("search_book", { id: window.choro.state.book.id, query: searchWord() });
-        return { ok: hits.length > 0, detail: `「${searchWord()}」で ${hits.length} 件` };
+        const word = await searchWord();
+        const hits = await invoke("search_book", { id: window.choro.state.book.id, query: word });
+        return { ok: hits.length > 0, detail: `「${word}」で ${hits.length} 件` };
+      },
+    },
+    {
+      name: "検索結果から飛ぶと当たりが強調される",
+      run: async () => {
+        $("search-input").value = await searchWord();
+        await window.choro.runSearch();
+        const row = $("results").querySelector(".hit");
+        if (!row) return { ok: false, detail: "当たりが無い" };
+        row.click();
+
+        // PDF は絵の上に枠を重ね、本文が HTML のものは語そのものを囲む。
+        const framed = () => document.querySelectorAll("#pdf .found-frame").length;
+        const wrapped = () => Array.from(document.querySelectorAll("iframe"))
+          .filter((frame) => frame.contentDocument
+            && frame.contentDocument.querySelector("mark.choro-found")).length;
+        const marked = await until(() => framed() || wrapped(), 8000);
+        // 元いた場所へ帰しておく。ここで動いたままだと、読書位置として覚えられ、
+        // 次に走らせたときの出発点が変わってしまう。
+        window.choro.goBack();
+
+        // 囲めなかったときは目当てと居場所を出す。どちらがずれたのかが分からないため。
+        return {
+          ok: marked,
+          detail: marked
+            ? `枠 ${framed()} ／ 語 ${wrapped()}`
+            : `囲めない（目当て ${JSON.stringify(window.choro.state.mark)}`
+              + ` 居場所 ${(window.choro.state.book.chapters[window.choro.state.index] || {}).href}`
+              + ` / ${window.choro.state.page}）`,
+        };
       },
     },
     {
@@ -146,6 +180,23 @@
         const rows = $("shelf-grid").children.length;
         const empty = !$("shelf-empty").hidden;
         return { ok: rows > 0 || empty, detail: rows > 0 ? `${rows} 冊` : "空の知らせが出ている" };
+      },
+    },
+    {
+      name: "蔵書を横断して引ける",
+      run: async () => {
+        const books = await invoke("library");
+        if (books.length === 0) return { ok: null, detail: "蔵書が無いので確かめない" };
+
+        // 索引がまだ無い本はその場で作る。1 冊目は書籍を丸ごと読むので待ちが長い。
+        // 日本語の書籍なら助詞が必ず出る。書棚には本文が無いので、語は決め打ちにする。
+        $("shelf-search").value = "の";
+        window.choro.runLibrarySearch();
+        // 引き終わると、進み具合の出方が「n / m 冊」から「n 冊 / m 件」に変わる。
+        const done = await until(() => / 件$/.test($("shelf-progress").textContent), 60000);
+        const found = $("shelf-results").querySelectorAll(".found").length;
+        window.choro.clearLibrarySearch();
+        return { ok: done, detail: done ? `${found} 冊で当たった` : "引き終わらない" };
       },
     },
     {
@@ -204,9 +255,30 @@
     return state.book.format === "reflowableEPUB" ? String(state.index) : String(state.page);
   }
 
-  function searchWord() {
-    // 日本語の書籍なら助詞が必ず出る。英語の書籍でも当たるものを混ぜる。
-    return window.choro.state.book.format === "pdf" ? "の" : "の";
+  /// いま終端にいるか。
+  ///
+  /// この治具の結果は、その本を前回どこで閉じたかに左右される。
+  /// 最後まで読んだ本を開くと、そこから先へは進めず、検査が「動かない」と言う。
+  /// 動かないのは正しい振る舞いなので、終端では向きを変えて確かめる。
+  function atEnd() {
+    const state = window.choro.state;
+    if (!state.book) return false;
+    if (state.book.format === "reflowableEPUB") {
+      return state.index >= (state.book.chapters || []).length - 1;
+    }
+    const total = state.book.format === "pdf"
+      ? state.book.pageCount
+      : (state.book.pages || []).length;
+    return state.page >= total - 1;
+  }
+
+  /// この書籍で必ず当たる語。日本語の書籍なら助詞が必ず出る。
+  /// 同梱のサンプル PDF は英語なので、紙面では 1 ページ目から語を 1 つ借りる。
+  async function searchWord() {
+    const state = window.choro.state;
+    if (state.book.format !== "pdf") return "の";
+    const text = await invoke("page_text", { id: state.book.id, page: 0 }).catch(() => "");
+    return (String(text).match(/[A-Za-z]{4,}/) || ["の"])[0];
   }
 
   function applies(check) {
@@ -224,9 +296,10 @@
     const list = $("selftest-list");
 
     // 書棚の窓には本文が無い。確かめられることが違うので、別の並びを使う。
+    // 窓ごとに文書が分かれているので、どちらに居るかは画面側が名乗る。
     // 書籍を 1 冊も持たないマシンで最初に開くのがこの窓であり、
     // ここが黙って死ぬと「窓は出るが何も操作できない」という形になる。
-    if (!window.choro.state.book) {
+    if (window.choro.kind === "shelf") {
       for (const check of shelfChecks) {
         let outcome;
         try {

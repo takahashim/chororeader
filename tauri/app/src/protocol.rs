@@ -9,40 +9,47 @@ use tauri::Manager;
 
 use chororeader_core::archive::ResourceProvider;
 use chororeader_core::css_compat;
+use chororeader_core::mark;
 
 use crate::library::{Content, Library};
 
 pub const SCHEME: &str = "choro";
 
 /// 画面を開くための入り口。Windows では独自スキームが `http://<名前>.localhost` になる。
-pub fn app_url(query: &str) -> String {
+///
+/// 窓ごとに文書が違う。読書は index.html、書棚は shelf.html で、
+/// 片方にしか要らない道具を、もう片方が読み込まずに済むようにしてある。
+pub fn app_url(page: &str, query: &str) -> String {
     let base = if cfg!(windows) {
         format!("http://{SCHEME}.localhost")
     } else {
         format!("{SCHEME}://localhost")
     };
-    format!("{base}/app/index.html{query}")
+    format!("{base}/app/{page}{query}")
 }
+
+/// 画面を作るファイル。焼き込んで配るので、増やすときはここへ 1 行足す。
+const ASSETS: &[(&str, &str, &str)] = &[
+    ("index.html", include_str!("../ui/index.html"), "text/html; charset=utf-8"),
+    ("shelf.html", include_str!("../ui/shelf.html"), "text/html; charset=utf-8"),
+    ("app.css", include_str!("../ui/app.css"), "text/css; charset=utf-8"),
+    ("selftest.js", include_str!("../ui/selftest.js"), JS),
+    ("reader.js", include_str!("../ui/reader.js"), JS),
+    ("shelf.js", include_str!("../ui/shelf.js"), JS),
+    ("chrome.js", include_str!("../ui/chrome.js"), JS),
+    ("lib/layout.js", include_str!("../ui/lib/layout.js"), JS),
+    ("lib/format.js", include_str!("../ui/lib/format.js"), JS),
+];
+
+const JS: &str = "text/javascript; charset=utf-8";
 
 pub fn serve(app: &tauri::AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let path = percent_decode(request.uri().path().trim_start_matches('/'));
 
     if let Some(name) = path.strip_prefix("app/") {
-        return match name {
-            "index.html" => html(include_str!("../ui/index.html").as_bytes().to_vec()),
-            "app.js" => typed(
-                include_str!("../ui/app.js").as_bytes().to_vec(),
-                "text/javascript; charset=utf-8",
-            ),
-            "selftest.js" => typed(
-                include_str!("../ui/selftest.js").as_bytes().to_vec(),
-                "text/javascript; charset=utf-8",
-            ),
-            "app.css" => typed(
-                include_str!("../ui/app.css").as_bytes().to_vec(),
-                "text/css; charset=utf-8",
-            ),
-            _ => not_found(),
+        return match ASSETS.iter().find(|(asset, _, _)| *asset == name) {
+            Some((_, body, content_type)) => typed(body.as_bytes().to_vec(), content_type),
+            None => not_found(),
         };
     }
 
@@ -52,7 +59,9 @@ pub fn serve(app: &tauri::AppHandle, request: &Request<Vec<u8>>) -> Response<Vec
         let Some((id, href)) = rest.split_once('/') else {
             return not_found();
         };
-        return serve_book(&library, id, href);
+        // 検索から飛んできたときは、当たりを囲んだ本文を返す。
+        // 囲むのを画面側でやると、文字節を切って包む手術を JS で書くことになる。
+        return serve_book(&library, id, href, wanted_mark(request));
     }
 
     if let Some(rest) = path.strip_prefix("pdf/") {
@@ -74,7 +83,27 @@ pub fn serve(app: &tauri::AppHandle, request: &Request<Vec<u8>>) -> Response<Vec
     not_found()
 }
 
-fn serve_book(library: &Library, id: &str, href: &str) -> Response<Vec<u8>> {
+/// 経路に付いた `?q=<語>&nth=<何番目>`。検索から飛んできたときだけ載っている。
+fn wanted_mark(request: &Request<Vec<u8>>) -> Option<(String, usize)> {
+    let query = request.uri().query()?;
+    let mut word = None;
+    let mut nth = 0usize;
+    for pair in query.split('&') {
+        match pair.split_once('=') {
+            Some(("q", value)) => word = Some(percent_decode(value)),
+            Some(("nth", value)) => nth = value.parse().unwrap_or(0),
+            _ => {}
+        }
+    }
+    word.filter(|w| !w.is_empty()).map(|w| (w, nth))
+}
+
+fn serve_book(
+    library: &Library,
+    id: &str,
+    href: &str,
+    mark: Option<(String, usize)>,
+) -> Response<Vec<u8>> {
     let Some(book) = library.get(id) else {
         return not_found();
     };
@@ -96,7 +125,13 @@ fn serve_book(library: &Library, id: &str, href: &str) -> Response<Vec<u8>> {
         // 名前空間の宣言が無い断片で丸ごと解析に失敗する（macOS 版で踏んだ）。
         "xhtml" | "html" | "htm" => {
             let rewritten = css_compat::rewrite_xhtml(&css_compat::decode_text(&data));
-            html(rewritten.css.into_bytes())
+            let body = match mark {
+                Some((query, nth)) => {
+                    mark::insert(&rewritten.css, &query, nth).unwrap_or(rewritten.css)
+                }
+                None => rewritten.css,
+            };
+            html(body.into_bytes())
         }
         other => typed(data, mime_of(other)),
     }
