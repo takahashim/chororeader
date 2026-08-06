@@ -289,7 +289,7 @@ fn search_command(args: &[String]) -> Result<Value, DocumentError> {
         "results": outcome.results.iter().map(|r| json!({
             "href": norm(r.locator.href.as_deref().unwrap_or("")),
             // 丸め方の差で落ちないよう、小数第 3 位へ揃える。
-            "progression": round_to_even(r.locator.progression, 3),
+            "progression": round_half_up(r.locator.progression, 3),
             "match": norm(&r.matched),
             "isCode": r.is_code,
             // 章の中で何番目の当たりか。飛んだ先で押した当たりを選び直すのに使うので、
@@ -404,22 +404,13 @@ fn normalize_newlines(value: &str) -> String {
     value.replace("\r\n", "\n").replace('\r', "\n")
 }
 
-/// C# の MidpointRounding.ToEven に合わせる。ちょうど半分のときは偶数側へ寄せる。
-fn round_to_even(value: f64, digits: u32) -> f64 {
+/// 小数第 3 位へ丸める。ちょうど半分のときは 0 から遠い側へ寄せる（四捨五入）。
+///
+/// 以前は C# の MidpointRounding.ToEven に合わせていたが、C# 版は畳んだ。
+/// 境目に当たる値が出るまで、Swift 版との違いは隠れていた。
+fn round_half_up(value: f64, digits: u32) -> f64 {
     let factor = 10f64.powi(digits as i32);
-    let scaled = value * factor;
-    let floor = scaled.floor();
-    let fraction = scaled - floor;
-    let rounded = if (fraction - 0.5).abs() < f64::EPSILON {
-        if (floor as i64) % 2 == 0 {
-            floor
-        } else {
-            floor + 1.0
-        }
-    } else {
-        scaled.round()
-    };
-    rounded / factor
+    (value * factor).round() / factor
 }
 
 fn read_standard_input() -> Vec<u8> {

@@ -7,35 +7,35 @@
       "isCode": false,
       "match": "語",
       "nth": 0,
-      "progression": 0.516
+      "progression": 0.4
     },
     {
       "href": "OEBPS/text/ch01.xhtml",
       "isCode": false,
       "match": "語",
       "nth": 1,
-      "progression": 0.903
+      "progression": 0.88
     },
     {
       "href": "OEBPS/text/ch01.xhtml",
       "isCode": false,
       "match": "語",
       "nth": 0,
-      "progression": 0.516
+      "progression": 0.4
     },
     {
       "href": "OEBPS/text/ch01.xhtml",
       "isCode": false,
       "match": "語",
       "nth": 1,
-      "progression": 0.903
+      "progression": 0.88
     },
     {
       "href": "OEBPS/text/ch02.xhtml",
       "isCode": false,
       "match": "語",
       "nth": 0,
-      "progression": 0.647
+      "progression": 0.455
     }
   ],
   "schema": 2,

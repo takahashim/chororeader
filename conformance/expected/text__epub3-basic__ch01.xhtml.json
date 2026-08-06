@@ -1,12 +1,12 @@
 {
   "codeRanges": [
     [
-      19,
-      33
+      13,
+      27
     ]
   ],
   "command": "text",
   "href": "OEBPS/text/ch01.xhtml",
   "schema": 2,
-  "text": " 第 1 章 第 1 章 本文です。  puts \"hello\" \n "
+  "text": " 第 1 章 本文です。  puts \"hello\" \n "
 }

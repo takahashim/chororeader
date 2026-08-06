@@ -7,14 +7,14 @@
       "isCode": false,
       "match": "本文",
       "nth": 0,
-      "progression": 0.371
+      "progression": 0.241
     },
     {
       "href": "OEBPS/text/ch02.xhtml",
       "isCode": false,
       "match": "本文",
       "nth": 0,
-      "progression": 0.727
+      "progression": 0.625
     }
   ],
   "schema": 2,

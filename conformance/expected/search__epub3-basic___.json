@@ -7,28 +7,14 @@
       "isCode": false,
       "match": "章",
       "nth": 0,
-      "progression": 0.143
-    },
-    {
-      "href": "OEBPS/text/ch01.xhtml",
-      "isCode": false,
-      "match": "章",
-      "nth": 1,
-      "progression": 0.314
+      "progression": 0.172
     },
     {
       "href": "OEBPS/text/ch02.xhtml",
       "isCode": false,
       "match": "章",
       "nth": 0,
-      "progression": 0.227
-    },
-    {
-      "href": "OEBPS/text/ch02.xhtml",
-      "isCode": false,
-      "match": "章",
-      "nth": 1,
-      "progression": 0.5
+      "progression": 0.313
     }
   ],
   "schema": 2,

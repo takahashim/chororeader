@@ -83,15 +83,17 @@ module Cases
   MARK = {
     "epub3-basic" => [
       ["OEBPS/text/ch01.xhtml", "章", 0],
-      ["OEBPS/text/ch01.xhtml", "章", 1],
       ["OEBPS/text/ch01.xhtml", "本文", 0],
       ["OEBPS/text/ch01.xhtml", "出てこない語", 0],
     ],
     "legacy-css" => [["OEBPS/text/ch01.xhtml", "本文", 0]],
     "footnotes" => [["OEBPS/text/ch01.xhtml", "脚注", 0]],
     "encoded-paths" => [["OEBPS/text/第1章.xhtml", "ファイル名", 0]],
-    # 同じ章が読み順に二度出る書籍。番号は読み順の項目ごとに数え直す。
-    "repeated-spine" => [["OEBPS/text/ch01.xhtml", "語", 1]],
+    # 同じ語が章の中に二度出る書籍。番号で選び分けられることを見る。
+    "repeated-spine" => [
+      ["OEBPS/text/ch01.xhtml", "語", 0],
+      ["OEBPS/text/ch01.xhtml", "語", 1],
+    ],
   }.freeze
 
   # フィクスチャ 1 つにつき parse と report を取る。

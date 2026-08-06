@@ -35,6 +35,14 @@ const ENTITIES: &[(&str, &str)] = &[
 ];
 
 /// 本文に混ぜないところ。extract はこれらを消してから走査する。
+///
+/// head は画面に出ない。題名（title）は本文として数えると、
+/// 検索が「見えないところに当たった」と言い、飛んでも何も無いことになる。
+fn head() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| regex(r"<head\b[^>]*>.*?</head>"))
+}
+
 fn script() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| regex(r"<script\b[^>]*>.*?</script>"))
@@ -56,7 +64,7 @@ fn comment() -> &'static Regex {
 /// 抽出した本文を元の HTML へ突き合わせ直すとき（mark）に、そこを飛ばすために使う。
 pub fn ignored_ranges(html: &str) -> Vec<(usize, usize)> {
     let mut ranges: Vec<(usize, usize)> = Vec::new();
-    for re in [script(), style(), comment()] {
+    for re in [head(), script(), style(), comment()] {
         ranges.extend(re.find_iter(html).map(|m| (m.start(), m.end())));
     }
     ranges.sort_unstable();
@@ -75,7 +83,8 @@ pub fn extract(html: &str) -> Extracted {
     static PRE: OnceLock<Regex> = OnceLock::new();
     let pre = PRE.get_or_init(|| regex(r"<pre\b[^>]*>(.*?)</pre>"));
 
-    let source = script().replace_all(html, "");
+    let source = head().replace_all(html, "");
+    let source = script().replace_all(&source, "");
     let source = style().replace_all(&source, "");
     let source = comment().replace_all(&source, "");
 

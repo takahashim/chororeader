@@ -157,7 +157,7 @@ enum SearchMarkInserter {
         if starts(source, at: cursor, with: "<!--") {
             return find(source, from: cursor, closing: "-->") ?? source.count
         }
-        for name in ["script", "style"] where starts(source, at: cursor, with: "<\(name)") {
+        for name in ["head", "script", "style"] where starts(source, at: cursor, with: "<\(name)") {
             return find(source, from: cursor, closing: "</\(name)>") ?? source.count
         }
         return nil

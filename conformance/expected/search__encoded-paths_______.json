@@ -7,14 +7,14 @@
       "isCode": false,
       "match": "ファイル名",
       "nth": 0,
-      "progression": 0.611
+      "progression": 0.417
     },
     {
       "href": "OEBPS/text/second chapter.xhtml",
       "isCode": false,
       "match": "ファイル名",
       "nth": 0,
-      "progression": 0.65
+      "progression": 0.462
     }
   ],
   "schema": 2,

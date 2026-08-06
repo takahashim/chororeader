@@ -43,6 +43,9 @@ enum HTMLText {
 
     static func extract(_ html: String) -> Extracted {
         var source = html
+        // head は画面に出ない。題名（title）を本文として数えると、検索が
+        // 「見えないところに当たった」と言い、飛んでも何も無いことになる。
+        source = remove(pattern: #"(?is)<head\b[^>]*>.*?</head>"#, from: source)
         source = remove(pattern: #"(?is)<script\b[^>]*>.*?</script>"#, from: source)
         source = remove(pattern: #"(?is)<style\b[^>]*>.*?</style>"#, from: source)
         source = remove(pattern: #"(?s)<!--.*?-->"#, from: source)

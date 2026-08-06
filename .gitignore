@@ -1,6 +1,8 @@
 # Swift のビルド生成物
 macos/build/
 macos/.build/
+# Xcode が package を開いたときに置く各自の状態
+macos/.swiftpm/
 
 # 検証用スパイクの生成物
 spikes/*/.build/
