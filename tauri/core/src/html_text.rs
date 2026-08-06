@@ -34,6 +34,35 @@ const ENTITIES: &[(&str, &str)] = &[
     ("&hellip;", "…"),
 ];
 
+/// 本文に混ぜないところ。extract はこれらを消してから走査する。
+fn script() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| regex(r"<script\b[^>]*>.*?</script>"))
+}
+
+fn style() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| regex(r"<style\b[^>]*>.*?</style>"))
+}
+
+fn comment() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| regex(r"<!--.*?-->"))
+}
+
+/// 本文に混ぜないところの範囲（バイト位置）。
+///
+/// extract は消してから走査するので、消えた場所が元のどこだったかは分からなくなる。
+/// 抽出した本文を元の HTML へ突き合わせ直すとき（mark）に、そこを飛ばすために使う。
+pub fn ignored_ranges(html: &str) -> Vec<(usize, usize)> {
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    for re in [script(), style(), comment()] {
+        ranges.extend(re.find_iter(html).map(|m| (m.start(), m.end())));
+    }
+    ranges.sort_unstable();
+    ranges
+}
+
 fn regex(pattern: &str) -> Regex {
     RegexBuilder::new(pattern)
         .case_insensitive(true)
@@ -43,19 +72,12 @@ fn regex(pattern: &str) -> Regex {
 }
 
 pub fn extract(html: &str) -> Extracted {
-    static SCRIPT: OnceLock<Regex> = OnceLock::new();
-    static STYLE: OnceLock<Regex> = OnceLock::new();
-    static COMMENT: OnceLock<Regex> = OnceLock::new();
     static PRE: OnceLock<Regex> = OnceLock::new();
-
-    let script = SCRIPT.get_or_init(|| regex(r"<script\b[^>]*>.*?</script>"));
-    let style = STYLE.get_or_init(|| regex(r"<style\b[^>]*>.*?</style>"));
-    let comment = COMMENT.get_or_init(|| regex(r"<!--.*?-->"));
     let pre = PRE.get_or_init(|| regex(r"<pre\b[^>]*>(.*?)</pre>"));
 
-    let source = script.replace_all(html, "");
-    let source = style.replace_all(&source, "");
-    let source = comment.replace_all(&source, "");
+    let source = script().replace_all(html, "");
+    let source = style().replace_all(&source, "");
+    let source = comment().replace_all(&source, "");
 
     let mut text = String::new();
     let mut length = 0usize; // 文字数。バイト数ではない。

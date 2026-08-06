@@ -16,6 +16,9 @@ pub struct SearchResult {
     pub matched: String,
     pub after: String,
     pub is_code: bool,
+    /// 読み順の 1 項目の中で何番目の当たりか。
+    /// 飛んだ先で「押したのはこの語のどれか」を選び直すために使う。
+    pub nth: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -81,7 +84,7 @@ pub fn search_epub(
     publication: &Publication,
     query: &str,
 ) -> SearchOutcome {
-    search_epub_within(resources, publication, query, None)
+    search_epub_within(resources, publication, query, None, RESULT_LIMIT)
 }
 
 /// 読み順のうち `only` に挙がった位置だけを走査する。`None` なら全部。
@@ -93,6 +96,7 @@ pub fn search_epub_within(
     publication: &Publication,
     query: &str,
     only: Option<&[u32]>,
+    limit: usize,
 ) -> SearchOutcome {
     let mut results = Vec::new();
     let mut truncated = false;
@@ -129,6 +133,9 @@ pub fn search_epub_within(
         }
         let haystack = fold_all(&chars);
 
+        // 通し番号は読み順の項目ごとに数え直す。同じ経路が読み順に 2 度出ることがあり、
+        // そのときは同じ文書を 2 度開くので、番号も 0 から振り直さないと選び直せない。
+        let mut nth = 0;
         let mut from = 0usize;
         while from + needle.len() <= haystack.folded.len() {
             let Some(hit) = find(&haystack.folded[from..], &needle) else {
@@ -158,9 +165,11 @@ pub fn search_epub_within(
                     .trim()
                     .to_string(),
                 is_code: extracted.is_code(found),
+                nth,
             });
+            nth += 1;
 
-            if results.len() >= RESULT_LIMIT {
+            if results.len() >= limit {
                 truncated = true;
                 break;
             }
@@ -172,6 +181,36 @@ pub fn search_epub_within(
         results,
         truncated,
     }
+}
+
+/// 本文の中で nth 番目の当たりが占める範囲（文字単位、終わりは含まない）。
+///
+/// 走査と同じ畳み方で数えるので、検索が返した通し番号と、ここで選ぶ当たりは必ず一致する。
+/// 当たりを強調するとき、どの語を囲むかをこれで決める。
+pub fn nth_match(text: &str, query: &str, nth: usize) -> Option<(usize, usize)> {
+    let query_chars: Vec<char> = query.chars().collect();
+    let needle = fold_all(&query_chars).folded;
+    if needle.is_empty() {
+        return None;
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    let haystack = fold_all(&chars);
+
+    let mut from = 0usize;
+    let mut count = 0usize;
+    while from + needle.len() <= haystack.folded.len() {
+        let hit = find(&haystack.folded[from..], &needle)?;
+        let folded_at = from + hit;
+        let found = haystack.origin[folded_at];
+        if count == nth {
+            let length = original_length(&haystack, folded_at, needle.len(), chars.len());
+            return Some((found, (found + length).min(chars.len())));
+        }
+        count += 1;
+        from = folded_at + 1;
+    }
+    None
 }
 
 /// 畳んだ列の何文字ぶんが、元の何文字に当たるかを求める。
