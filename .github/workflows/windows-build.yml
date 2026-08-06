@@ -59,13 +59,8 @@ jobs:
         shell: pwsh
         env:
           CHORO_SELFTEST: "1"
-          CHORO_SELFTEST_OUT: selftest-book.json
         run: |
-          ./target/release/chororeader.exe ../samples/sample-reflowable.epub
-          $code = $LASTEXITCODE
-          if (Test-Path selftest-book.json) { Get-Content selftest-book.json }
-          else { "結果が書かれなかった" }
-          exit $code
+          ./run-selftest.ps1 -Exe ./target/release/chororeader.exe -Book ../samples/sample-reflowable.epub
 
       # 引数なしの窓。書籍を 1 冊も持たないマシンでは、まずこれが開く。
       # ここが黙って死ぬと「窓は出るが何も操作できない」という形になる。
@@ -74,13 +69,7 @@ jobs:
         shell: pwsh
         env:
           CHORO_SELFTEST: "1"
-          CHORO_SELFTEST_OUT: selftest-shelf.json
-        run: |
-          ./target/release/chororeader.exe
-          $code = $LASTEXITCODE
-          if (Test-Path selftest-shelf.json) { Get-Content selftest-shelf.json }
-          else { "結果が書かれなかった" }
-          exit $code
+        run: ./run-selftest.ps1 -Exe ./target/release/chororeader.exe
 
       # ここから下は配布物を作るとき（手で起こす、または公開）だけ。
       - name: Tauri の道具を入れる
