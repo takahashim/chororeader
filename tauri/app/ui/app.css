@@ -479,6 +479,26 @@ body.shelf-window #shelf { position: static; flex: 1; min-height: 0; }
 #shelf-table td.thumb { width: 34px; padding: 3px 6px; }
 #shelf-table td.thumb img { display: block; width: 28px; height: 38px; object-fit: cover; border-radius: 2px; }
 
+#lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+  padding: 24px;
+}
+
+#lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #fff;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
 #toast {
   position: absolute;
   bottom: 18px;

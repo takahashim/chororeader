@@ -373,6 +373,7 @@ function flushPendingStep() {
 /// 本文の文書に手を入れる。注入ではなく、親から直接触る。
 function decorate(doc) {
   applyStyle(doc);
+  bindFigures(doc);
   addCodeCopyButtons(doc);
   addChapterFooter(doc);
 
@@ -381,6 +382,30 @@ function decorate(doc) {
   doc.addEventListener("wheel", onWheel, { passive: false });
   doc.addEventListener("scroll", rememberSoon, { passive: true });
   doc.defaultView.addEventListener("scroll", rememberSoon, { passive: true });
+}
+
+/// 図版は本文の幅に縮めてあるので、細かい図は読めない。押したら大きく出す。
+function bindFigures(doc) {
+  for (const img of doc.querySelectorAll("img")) {
+    if (img.dataset.tzrZoom) continue;
+    img.dataset.tzrZoom = "1";
+    img.style.cursor = "zoom-in";
+    img.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      showLightbox(img.src);
+    });
+  }
+}
+
+function showLightbox(src) {
+  $("lightbox-image").src = src;
+  $("lightbox").hidden = false;
+}
+
+function hideLightbox() {
+  $("lightbox").hidden = true;
+  $("lightbox-image").src = "";
 }
 
 function applyStyle(doc) {
@@ -1286,6 +1311,7 @@ function onKeyDown(event) {
   if (event.key === "Escape") {
     hideMenu();
     hidePopover();
+    hideLightbox();
     return;
   }
   if (editing || command || !state.book) return;
@@ -1396,8 +1422,19 @@ async function diagnose() {
     `画像 ${report.imageCount} / フォント ${report.fontCount}`,
     `欠落: リソース ${report.missingResources.length} / 目次 ${report.missingTOCTargets.length} / 章 ${report.missingSpineItems.length}`,
   ];
-  toast(lines.join("　"));
-  console.log(report);
+  // 目で見るだけでは書き写せない。押した時点で写しておく。
+  const detail = [
+    `書籍: ${state.book.title}`,
+    ...lines,
+    report.missingResources.length ? "欠落リソース:\n  " + report.missingResources.join("\n  ") : "",
+    report.missingTOCTargets.length ? "欠落した目次の参照先:\n  " + report.missingTOCTargets.join("\n  ") : "",
+    report.missingSpineItems.length ? "欠落した章:\n  " + report.missingSpineItems.join("\n  ") : "",
+    report.cssChanges.length
+      ? "CSS の変換:\n  " + report.cssChanges.map((c) => `${c.from} → ${c.to} (${c.count})`).join("\n  ")
+      : "",
+  ].filter(Boolean).join("\n");
+  await navigator.clipboard.writeText(detail).catch(() => {});
+  toast(lines.join("　") + "（診断を写しました）");
 }
 
 function toggleSidebar() {
@@ -1456,6 +1493,7 @@ $("layout").addEventListener("change", (event) => {
   $("pdf").dataset.key = "";
   showPage(state.page);
 });
+$("lightbox").addEventListener("click", hideLightbox);
 $("go-back").addEventListener("click", goBack);
 $("go-forward").addEventListener("click", goForward);
 $("bookmark").addEventListener("click", toggleBookmark);

@@ -13,6 +13,7 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
 use tzreader_core::archive::ResourceProvider;
+use tzreader_core::publication::detect_format;
 use tzreader_core::style::{ReaderStyle, Theme};
 use tzreader_core::{css_compat, html_text, paths, preview, report, search};
 
@@ -56,6 +57,19 @@ pub fn run() {
             if let tauri::WindowEvent::Focused(true) = event {
                 for webview in window.webviews() {
                     let _ = webview.set_focus();
+                }
+            }
+            // 落とされた書籍は、1 冊につき 1 つの窓で開く。
+            // 画面側で拾う道もあるが、こちらなら経路が渡ってくるので取り違えない。
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                for path in paths {
+                    let Some(path) = path.to_str() else { continue };
+                    if detect_format(path).is_none() {
+                        continue;
+                    }
+                    let n = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let query = format!("?path={}", urlencode(path));
+                    let _ = open_window(&window.app_handle().clone(), &format!("book-{n}"), &query);
                 }
             }
         })
