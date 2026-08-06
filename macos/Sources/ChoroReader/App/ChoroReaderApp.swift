@@ -168,6 +168,13 @@ struct AppCommands: Commands {
 
             Button("書棚") { openWindow(id: "library") }
                 .keyboardShortcut("l", modifiers: .command)
+
+            // 読書中の窓からも蔵書を引けるようにする。⌘F は開いている本の中を引く。
+            Button("蔵書を検索…") {
+                openWindow(id: "library")
+                NotificationCenter.default.post(name: .choroFocusLibrarySearch, object: nil)
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
         }
 
         CommandGroup(replacing: .textEditing) {

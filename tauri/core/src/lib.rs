@@ -7,6 +7,7 @@ pub mod archive;
 pub mod css_compat;
 pub mod epub_parser;
 pub mod html_text;
+pub mod index;
 pub mod paths;
 pub mod pdf;
 pub mod preview;

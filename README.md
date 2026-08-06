@@ -38,6 +38,7 @@ Windows 版は [tauri/README.md](tauri/README.md) を見よ。
 - CSS 互換レイヤー（`-epub-` プレフィックスを配信時に変換、原本は非破壊）
 - 読書位置の保存と復元（fragment → 周辺テキスト → progression の順にフォールバック）
 - 章内検索（部分一致、全角半角を区別しない、コード内かどうかを表示）
+- 蔵書の横断検索（書棚から。⌘⇧F）
 - しおり、戻る／進む履歴
 - コードブロックのコピーと折り返し切り替え（ホバー時のボタン）
 - 脚注リンクのポップオーバー表示（本文の位置を動かさない）と、内部リンクのホバープレビュー
@@ -61,7 +62,7 @@ macos/Sources/ChoroReader/
 ├── Library/      蔵書と読書位置の保存
 ├── Model/        Locator、Publication などの形式共通モデル
 ├── Reader/       ナビゲータ（WebView / PDFKit）、スキームハンドラ、注入スクリプト
-├── Search/       テキスト抽出と検索
+├── Search/       テキスト抽出と検索、全文検索の索引
 ├── Style/        CSS 互換レイヤー、表示設定
 ├── Support/      ZIP リーダー
 └── UI/           SwiftUI ビュー

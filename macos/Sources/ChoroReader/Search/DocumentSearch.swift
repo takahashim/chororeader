@@ -11,8 +11,7 @@ struct SearchResult: Identifiable, Hashable {
     var isCode: Bool
 }
 
-/// 章の HTML から本文とコードを取り出す。索引は作らず、要求されたときに走査する。
-/// 全文インデックス（SQLite FTS）は第 2 段階。
+/// 章の HTML から本文とコードを取り出す。
 enum HTMLText {
     struct Extracted {
         var text: String
@@ -119,47 +118,59 @@ enum DocumentSearch {
 
     static func searchEPUB(resources: ResourceProvider, publication: EPUBPublication, query: String,
                            completion: @escaping (Outcome) -> Void) {
-        let order = publication.readingOrder
-        let titles = order.map { publication.title(forHref: $0.href) ?? ($0.href as NSString).lastPathComponent }
-
         DispatchQueue.global(qos: .userInitiated).async {
-            var results: [SearchResult] = []
-            var truncated = false
-
-            outer: for (i, link) in order.enumerated() {
-                guard let data = try? resources.read(link.href) else { continue }
-                let extracted = HTMLText.extract(CSSCompat.decodeText(data))
-                let text = extracted.text
-                guard !text.isEmpty else { continue }
-                let chars = Array(text)
-
-                var searchStart = text.startIndex
-                while let range = text.range(of: query, options: options, range: searchStart ..< text.endIndex) {
-                    let offset = text.distance(from: text.startIndex, to: range.lowerBound)
-                    let matchLength = text.distance(from: range.lowerBound, to: range.upperBound)
-                    let before = String(chars[max(0, offset - 30) ..< offset])
-                    let after = String(chars[min(chars.count, offset + matchLength) ..< min(chars.count, offset + matchLength + 40)])
-
-                    results.append(SearchResult(
-                        locator: Locator(href: link.href,
-                                         progression: chars.isEmpty ? 0 : Double(offset) / Double(chars.count),
-                                         title: titles[i],
-                                         text: String(chars[offset ..< min(chars.count, offset + max(matchLength, 12))])),
-                        chapterTitle: titles[i],
-                        before: before.trimmingCharacters(in: .whitespaces),
-                        match: String(text[range]),
-                        after: after.trimmingCharacters(in: .whitespaces),
-                        isCode: extracted.isCode(at: offset)
-                    ))
-
-                    if results.count >= resultLimit { truncated = true; break outer }
-                    searchStart = range.upperBound
-                }
-            }
-
-            let outcome = Outcome(results: results, truncated: truncated)
+            let outcome = scanEPUB(resources: resources, publication: publication, query: query)
             DispatchQueue.main.async { completion(outcome) }
         }
+    }
+
+    /// 読み順のうち `only` に挙がった位置だけを走査する。`nil` なら全部。
+    ///
+    /// 索引で絞った候補を渡すための入り口。索引は候補を減らすだけで当たりは決めないので、
+    /// ここから先の判定は絞っても絞らなくても同じ結果になる。
+    /// 章を丸ごと読むので、呼ぶ側が背後のスレッドを用意する。
+    static func scanEPUB(resources: ResourceProvider, publication: EPUBPublication, query: String,
+                         only: [Int]? = nil, limit: Int = resultLimit) -> Outcome {
+        let order = publication.readingOrder
+        let titles = order.map { publication.title(forHref: $0.href) ?? ($0.href as NSString).lastPathComponent }
+        let wanted = only.map(Set.init)
+
+        var results: [SearchResult] = []
+        var truncated = false
+
+        outer: for (i, link) in order.enumerated() {
+            if let wanted, !wanted.contains(i) { continue }
+            guard let data = try? resources.read(link.href) else { continue }
+            let extracted = HTMLText.extract(CSSCompat.decodeText(data))
+            let text = extracted.text
+            guard !text.isEmpty else { continue }
+            let chars = Array(text)
+
+            var searchStart = text.startIndex
+            while let range = text.range(of: query, options: options, range: searchStart ..< text.endIndex) {
+                let offset = text.distance(from: text.startIndex, to: range.lowerBound)
+                let matchLength = text.distance(from: range.lowerBound, to: range.upperBound)
+                let before = String(chars[max(0, offset - 30) ..< offset])
+                let after = String(chars[min(chars.count, offset + matchLength) ..< min(chars.count, offset + matchLength + 40)])
+
+                results.append(SearchResult(
+                    locator: Locator(href: link.href,
+                                     progression: chars.isEmpty ? 0 : Double(offset) / Double(chars.count),
+                                     title: titles[i],
+                                     text: String(chars[offset ..< min(chars.count, offset + max(matchLength, 12))])),
+                    chapterTitle: titles[i],
+                    before: before.trimmingCharacters(in: .whitespaces),
+                    match: String(text[range]),
+                    after: after.trimmingCharacters(in: .whitespaces),
+                    isCode: extracted.isCode(at: offset)
+                ))
+
+                if results.count >= limit { truncated = true; break outer }
+                searchStart = range.upperBound
+            }
+        }
+
+        return Outcome(results: results, truncated: truncated)
     }
 }
 

@@ -59,6 +59,11 @@ struct Folded {
     origin: Vec<usize>,
 }
 
+/// 索引と同じ畳み方を使えるようにするための入り口。
+pub fn fold_text(text: &str) -> Vec<char> {
+    text.chars().filter_map(fold).collect()
+}
+
 fn fold_all(chars: &[char]) -> Folded {
     let mut folded = Vec::with_capacity(chars.len());
     let mut origin = Vec::with_capacity(chars.len());
@@ -76,6 +81,19 @@ pub fn search_epub(
     publication: &Publication,
     query: &str,
 ) -> SearchOutcome {
+    search_epub_within(resources, publication, query, None)
+}
+
+/// 読み順のうち `only` に挙がった位置だけを走査する。`None` なら全部。
+///
+/// 索引で絞った候補を渡すための入り口。索引は候補を減らすだけで当たりは決めないので、
+/// ここから先の判定は絞っても絞らなくても同じである。
+pub fn search_epub_within(
+    resources: &dyn ResourceProvider,
+    publication: &Publication,
+    query: &str,
+    only: Option<&[u32]>,
+) -> SearchOutcome {
     let mut results = Vec::new();
     let mut truncated = false;
 
@@ -88,9 +106,12 @@ pub fn search_epub(
         };
     }
 
-    for link in &publication.reading_order {
+    for (position, link) in publication.reading_order.iter().enumerate() {
         if truncated {
             break;
+        }
+        if only.is_some_and(|only| !only.contains(&(position as u32))) {
+            continue;
         }
         let Some(data) = resources.read(&link.href) else {
             continue;

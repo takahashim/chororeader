@@ -17,15 +17,24 @@ struct LibraryView: View {
     @State private var dropTargeted = false
     /// 表で並べるときの選択。contextMenu(forSelectionType:) はこれを前提にしている。
     @State private var selection: LibraryEntry.ID?
+    @StateObject private var search = LibrarySearchModel()
+    @State private var queryText = ""
+    @FocusState private var queryFocused: Bool
 
     var body: some View {
-        Group {
-            if store.entries.isEmpty {
-                empty
-            } else if mode == .cover {
-                covers
-            } else {
-                table
+        VStack(spacing: 0) {
+            searchBar
+            Divider()
+            Group {
+                if !search.query.isEmpty {
+                    results
+                } else if store.entries.isEmpty {
+                    empty
+                } else if mode == .cover {
+                    covers
+                } else {
+                    table
+                }
             }
         }
         .frame(minWidth: 520, minHeight: 360)
@@ -67,6 +76,95 @@ struct LibraryView: View {
         .onAppear {
             OpenRequests.shared.setHandler { url in open(url) }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .choroFocusLibrarySearch)) { _ in
+            queryFocused = true
+        }
+    }
+
+    // MARK: - 横断検索
+
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            // 蔵書を丸ごと引くのは重いので、1 文字ごとには走らせず、確定してから走らせる。
+            TextField("蔵書を検索（Return で実行）", text: $queryText)
+                .textFieldStyle(.plain)
+                .focused($queryFocused)
+                .onSubmit { runSearch() }
+            if !search.query.isEmpty || !queryText.isEmpty {
+                Button {
+                    queryText = ""
+                    search.clear()
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("検索をやめる")
+            }
+            if search.running {
+                ProgressView().controlSize(.small)
+                Text(progressLabel)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var progressLabel: String {
+        if let building = search.building { return "索引を作成中：\(building)" }
+        return "\(search.searched) / \(search.total) 冊"
+    }
+
+    private func runSearch() {
+        search.run(queryText, over: store.recent) { store.resolveURL(for: $0) }
+    }
+
+    private var results: some View {
+        Group {
+            if search.hits.isEmpty && !search.running {
+                VStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.secondary)
+                    Text("「\(search.query)」は見つかりませんでした")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(groupedHits, id: \.title) { group in
+                        Section(header: Text("\(group.title)（\(group.hits.count) 件）")) {
+                            ForEach(group.hits) { hit in
+                                HitRow(hit: hit, query: search.query)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture(count: 2) { openHit(hit) }
+                                    .contextMenu {
+                                        Button("新しいウィンドウで開く") { openHit(hit) }
+                                    }
+                            }
+                        }
+                    }
+                }
+                .listStyle(.inset)
+            }
+        }
+    }
+
+    /// 本ごとにまとめる。並びは書棚と同じ（最近開いた順）。
+    private var groupedHits: [(title: String, hits: [LibraryHit])] {
+        var order: [BookID] = []
+        var grouped: [BookID: [LibraryHit]] = [:]
+        for hit in search.hits {
+            if grouped[hit.bookID] == nil { order.append(hit.bookID) }
+            grouped[hit.bookID, default: []].append(hit)
+        }
+        return order.map { (grouped[$0]!.first!.bookTitle, grouped[$0]!) }
+    }
+
+    private func openHit(_ hit: LibraryHit) {
+        openWindow(value: BookRoute(path: hit.path, locator: hit.result.locator))
     }
 
     private var empty: some View {
@@ -232,5 +330,33 @@ enum FileOpener {
         panel.allowedContentTypes = types
         panel.message = "EPUB または PDF を選択してください"
         return panel.runModal() == .OK ? panel.urls : []
+    }
+}
+
+/// 当たり 1 件。章名と前後の文脈を出し、当たった語だけを強める。
+private struct HitRow: View {
+    let hit: LibraryHit
+    let query: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(hit.result.chapterTitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                if hit.result.isCode {
+                    Text("コード")
+                        .font(.system(size: 10))
+                        .padding(.horizontal, 4)
+                        .background(Color.secondary.opacity(0.16), in: RoundedRectangle(cornerRadius: 3))
+                }
+            }
+            (Text(hit.result.before).foregroundStyle(.secondary)
+                + Text(hit.result.match).bold()
+                + Text(hit.result.after).foregroundStyle(.secondary))
+                .font(.system(size: 12))
+                .lineLimit(2)
+        }
+        .padding(.vertical, 2)
     }
 }

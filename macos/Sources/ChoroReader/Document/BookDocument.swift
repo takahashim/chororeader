@@ -212,6 +212,7 @@ final class DocumentRegistry {
         let doc = try BookDocument(url: url)
         documents[id] = doc
         LibraryStore.shared.record(doc)
+        IndexBuilder.scheduleIfNeeded(for: url)
         return doc
     }
 

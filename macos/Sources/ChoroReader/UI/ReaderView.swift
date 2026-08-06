@@ -184,6 +184,8 @@ struct DisplaySettingsView: View {
 
 extension Notification.Name {
     static let choroFocusSearch = Notification.Name("choroFocusSearch")
+    /// 書棚の横断検索へ入る合図。
+    static let choroFocusLibrarySearch = Notification.Name("choroFocusLibrarySearch")
     static let choroToggleSidebar = Notification.Name("choroToggleSidebar")
     static let choroShowDiagnostics = Notification.Name("choroShowDiagnostics")
 }
