@@ -197,6 +197,14 @@ body {
   padding: 16px 0;
 }
 
+#pdf iframe {
+  display: block;
+  margin: 0 auto 16px;
+  border: 0;
+  background: #fff;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+}
+
 #pdf img {
   display: block;
   margin: 0 auto 16px;

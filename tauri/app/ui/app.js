@@ -74,6 +74,25 @@ function waitUntil(check, what, timeout = 10000) {
 
 const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 
+/// 紙面として扱う書籍かどうか。PDF と固定レイアウト EPUB はページで数える。
+/// 綴じ方向も拡大も送り方も、この 2 つでは同じに振る舞う。
+const isPaged = () => !!state.book && (state.book.format === "pdf" || state.book.format === "fixedEPUB");
+const isFixed = () => !!state.book && state.book.format === "fixedEPUB";
+
+/// 紙面のページ番号へ移す。中身の作り方だけが形式で違う。
+function showPage(page) {
+  return isFixed() ? showFixed(page) : showPdf(page);
+}
+
+/// 固定レイアウトでは目次が章の経路を指す。ページ番号へ読み替える。
+function pageOfHref(href) {
+  if (!isFixed()) return Number(href);
+  const index = state.book.pages.findIndex((p) => p.href === href);
+  if (index >= 0) return index;
+  // 絵に置き換えたページは href が絵の側になる。読み順の側でも探す。
+  return Math.max(0, state.book.chapters.findIndex((c) => c.href === href));
+}
+
 function toast(message) {
   const box = $("toast");
   box.textContent = message;
@@ -100,7 +119,16 @@ async function openPath(path, href, fragment) {
   renderBookmarks();
   renderToc();
 
-  if (state.book.format === "pdf") {
+  if (state.book.format === "fixedEPUB") {
+    $("page").hidden = true;
+    $("pdf").hidden = false;
+    $("fit").hidden = false;
+    // 寸法は meta viewport から来る。名乗っていない書籍のために当てを置く。
+    state.pageSize = state.book.pageSize || [800, 1130];
+    const fitted = zoomForFit(state.settings.fit);
+    setZoom(fitted == null ? state.settings.zoom || 1 : fitted, state.settings.fit);
+    await showFixed(href ? Number(href) : saved.position.page || 0);
+  } else if (state.book.format === "pdf") {
     $("page").hidden = true;
     $("pdf").hidden = false;
     $("fit").hidden = false;
@@ -150,8 +178,8 @@ function renderToc() {
 }
 
 function markCurrentToc() {
-  const current = state.book.format === "pdf"
-    ? String(state.page)
+  const current = isPaged()
+    ? (isFixed() ? (state.book.pages[state.page] || {}).href : String(state.page))
     : (state.book.chapters[state.index] || {}).href;
   for (const a of $("toc").children) {
     a.classList.toggle("current", a.dataset.href === current);
@@ -183,7 +211,7 @@ function openTarget(a, newWindow) {
   if (newWindow) {
     return invoke("open_in_new_window", { path: state.book.path, href, fragment });
   }
-  if (state.book.format === "pdf") return jump(() => showPdf(Number(href)));
+  if (isPaged()) return jump(() => showPage(pageOfHref(href)));
   const index = state.book.chapters.findIndex((c) => c.href === href);
   if (index >= 0) jump(() => showChapter(index, fragment || null));
 }
@@ -529,6 +557,49 @@ function buildPdf() {
   renderPdf();
 }
 
+/// 固定レイアウト EPUB の紙面。
+///
+/// ページが絵 1 枚でできているならその絵を出す。
+/// 文字が座標で置かれているページは、元の XHTML をそのまま埋める。
+/// どちらかを見分けるのは core の仕事で、ここは並べるだけにする。
+function buildFixed() {
+  const box = $("pdf");
+  if (box.dataset.book === state.book.id) return;
+  box.dataset.book = state.book.id;
+  box.textContent = "";
+
+  state.book.pages.forEach((page, index) => {
+    const url = `/book/${state.book.id}/${encodePath(page.href)}`;
+    let element;
+    if (page.kind === "image") {
+      element = document.createElement("img");
+      element.loading = "lazy";
+      element.src = url;
+    } else {
+      // 本文のあるページは書籍の script を動かさない。読書の窓と同じ扱いにする。
+      element = document.createElement("iframe");
+      element.setAttribute("sandbox", "allow-same-origin");
+      element.loading = "lazy";
+      element.src = url;
+    }
+    element.dataset.page = String(index);
+    box.appendChild(element);
+  });
+
+  box.addEventListener("scroll", onPdfScroll, { passive: true });
+  layoutPdf();
+}
+
+async function showFixed(page) {
+  state.page = Math.max(0, Math.min(state.book.pages.length - 1, page));
+  buildFixed();
+  const box = $("pdf");
+  const target = box.children[state.page];
+  if (target) box.scrollTop = target.offsetTop - 16;
+  markCurrentToc();
+  rememberSoon();
+}
+
 /// 倍率に合わせて枠の大きさだけを整える。
 /// 画像を取り直すより桁違いに軽いので、拡大の手応えはここで出す。
 /// 大きさを与えないと画像がすべて同じ位置に積まれ、loading="lazy" が効かない。
@@ -598,7 +669,7 @@ function zoomForFit(fit) {
 function setZoom(value, fit) {
   state.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, value));
   // PDF と本文では合う倍率が違うので、別々に覚える。
-  if (state.book && state.book.format === "pdf") {
+  if (isPaged()) {
     state.settings.zoom = state.zoom;
     if (fit) state.settings.fit = fit;
   } else {
@@ -612,9 +683,9 @@ function setZoom(value, fit) {
 
 function applyZoom() {
   if (!state.book) return;
-  if (state.book.format === "pdf") {
+  if (isPaged()) {
     layoutPdf();
-    renderPdf();
+    if (!isFixed()) renderPdf();
     return;
   }
   // リフローする本文は、文字も図も一緒に拡大する。
@@ -631,8 +702,8 @@ function zoomBy(step) {
 
 function resetZoom() {
   if (!state.book) return;
-  const fit = state.book.format === "pdf" ? "width" : "custom";
-  const value = state.book.format === "pdf" ? (zoomForFit("width") || 1) : 1;
+  const fit = isPaged() ? "width" : "custom";
+  const value = isPaged() ? (zoomForFit("width") || 1) : 1;
   setZoom(value, fit);
   toast("拡大 " + Math.round(state.zoom * 100) + "%");
 }
@@ -721,11 +792,12 @@ async function runSearch() {
       if (newWindow) {
         return invoke("open_in_new_window", {
           path: state.book.path,
-          href: state.book.format === "pdf" ? String(hit.page) : hit.href,
+          href: isPaged() && !isFixed() ? String(hit.page) : hit.href,
           fragment: "",
         });
       }
-      if (state.book.format === "pdf") return jump(() => showPdf(hit.page));
+      if (isFixed()) return jump(() => showPage(pageOfHref(hit.href)));
+      if (isPaged()) return jump(() => showPage(hit.page));
       const index = state.book.chapters.findIndex((c) => c.href === hit.href);
       if (index >= 0) {
         jump(() => {
@@ -768,7 +840,7 @@ function rememberSoon() {
 }
 
 function currentPosition() {
-  if (state.book.format === "pdf") {
+  if (isPaged()) {
     return { href: "", progression: 0, page: state.page, fragment: "", text: "" };
   }
   const doc = $("page").contentDocument;
@@ -825,7 +897,7 @@ function scrollToText(doc, text) {
 async function toggleBookmark() {
   if (!state.book) return;
   const position = currentPosition();
-  const label = state.book.format === "pdf"
+  const label = isPaged()
     ? `p.${state.page + 1}`
     : (state.book.chapters[state.index] || {}).title || "";
   state.bookmarks = await invoke("toggle_bookmark", {
@@ -843,7 +915,7 @@ function renderBookmarks() {
     const a = document.createElement("a");
     a.textContent = bookmark.label || bookmark.href;
     a.addEventListener("click", () => {
-      if (state.book.format === "pdf") return jump(() => showPdf(bookmark.page));
+      if (isPaged()) return jump(() => showPage(bookmark.page));
       const index = state.book.chapters.findIndex((c) => c.href === bookmark.href);
       if (index >= 0) {
         jump(() => {
@@ -1132,7 +1204,7 @@ function onKeyDown(event) {
 
 /// 本文を送る。割合で渡されたときは 1 画面ぶんとして扱う。
 function scrollContent(amount, byScreen) {
-  if (state.book.format === "pdf") {
+  if (isPaged()) {
     const box = $("pdf");
     box.scrollTop += byScreen ? amount * box.clientHeight : amount;
     return;
@@ -1177,7 +1249,7 @@ function goForward() {
 
 /// 覚えておいた場所へ戻す。ここでは履歴を積まない。
 function reveal(position) {
-  if (state.book.format === "pdf") return showPdf(position.page);
+  if (isPaged()) return showPage(position.page);
   const index = state.book.chapters.findIndex((c) => c.href === position.href);
   if (index < 0) return;
   // 履歴から戻すときも、割合だけでなく書き出しを手掛かりにする。
@@ -1192,7 +1264,8 @@ function updateHistoryButtons() {
 
 function step(delta) {
   trace(`step(${delta}) loading=${loading} index=${state.index}`);
-  if (state.book.format === "pdf") return showPdf(state.page + delta);
+  // 紙面の送りも履歴に載せる。目次から飛んだあと元のページへ帰れるようにするため。
+  if (isPaged()) return jump(() => showPage(state.page + delta));
   // 読み込み中の分は取っておき、終わってからまとめて動かす。
   if (loading) { pendingStep += delta; return; }
   const index = state.index + delta;
@@ -1236,7 +1309,7 @@ $("sidebar-tabs").addEventListener("click", (event) => {
 /// 同じ書籍でも構わない。離れた 2 か所を並べて見るための道具である。
 function openHere() {
   if (!state.book) return;
-  const href = state.book.format === "pdf"
+  const href = isPaged()
     ? String(state.page)
     : (state.book.chapters[state.index] || {}).href || "";
   invoke("open_in_new_window", { path: state.book.path, href });

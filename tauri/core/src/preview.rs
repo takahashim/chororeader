@@ -226,6 +226,38 @@ pub mod fixed_layout {
         }
     }
 
+    /// ページの寸法。固定レイアウトの各ページは meta viewport で大きさを名乗る。
+    ///
+    /// 拡大の枠を先に決めるために要る。大きさを与えないと画像がすべて同じ位置に積まれ、
+    /// 遅延読み込みが効かなくなる。
+    pub fn viewport(href: &str, resources: &dyn ResourceProvider) -> Option<(f64, f64)> {
+        static VIEWPORT: OnceLock<Regex> = OnceLock::new();
+        let pattern = VIEWPORT.get_or_init(|| {
+            RegexBuilder::new(r#"(?i)<meta\b[^>]*\bname\s*=\s*["']viewport["'][^>]*\bcontent\s*=\s*["']([^"']+)["']"#)
+                .case_insensitive(true)
+                .build()
+                .expect("組み込みの正規表現")
+        });
+
+        let source = css_compat::decode_text(&resources.read(href)?);
+        let content = pattern.captures(&source)?[1].to_string();
+
+        let mut width = None;
+        let mut height = None;
+        for part in content.split(',') {
+            let (key, value) = part.split_once('=')?;
+            match key.trim() {
+                "width" => width = value.trim().parse::<f64>().ok(),
+                "height" => height = value.trim().parse::<f64>().ok(),
+                _ => {}
+            }
+        }
+        match (width, height) {
+            (Some(w), Some(h)) if w > 0.0 && h > 0.0 => Some((w, h)),
+            _ => None,
+        }
+    }
+
     /// 見開きの組み方。表紙は単独で見せ、以降を 2 枚ずつまとめる。
     pub fn spreads(page_count: usize) -> Vec<Vec<usize>> {
         if page_count == 0 {
@@ -267,6 +299,20 @@ mod tests {
         let (body, is_footnote) = extract(source, Some("no-such-id"));
         assert!(!is_footnote);
         assert_eq!(body, "<p>あたま</p>");
+    }
+
+    #[test]
+    fn viewportから寸法を読む() {
+        struct One(String);
+        impl ResourceProvider for One {
+            fn contains(&self, _: &str) -> bool { true }
+            fn read(&self, _: &str) -> Option<Vec<u8>> { Some(self.0.clone().into_bytes()) }
+        }
+        let page = One(r#"<html><head><meta name="viewport" content="width=1200, height=1697"/></head><body/></html>"#.to_string());
+        assert_eq!(fixed_layout::viewport("p.xhtml", &page), Some((1200.0, 1697.0)));
+
+        let none = One("<html><head/><body/></html>".to_string());
+        assert_eq!(fixed_layout::viewport("p.xhtml", &none), None);
     }
 
     #[test]

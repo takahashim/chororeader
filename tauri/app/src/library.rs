@@ -12,6 +12,7 @@ use tzreader_core::archive::EpubArchive;
 use tzreader_core::epub_parser;
 use tzreader_core::paths;
 use tzreader_core::pdf::PdfWorker;
+use tzreader_core::preview::fixed_layout;
 use tzreader_core::publication::{detect_format, DocumentFormat, Publication, TocEntry};
 
 pub enum Content {
@@ -104,6 +105,13 @@ pub struct TocNode {
 }
 
 #[derive(Serialize)]
+pub struct FixedPage {
+    /// image なら 1 枚の絵、document なら元の XHTML をそのまま埋める。
+    pub kind: String,
+    pub href: String,
+}
+
+#[derive(Serialize)]
 pub struct Chapter {
     pub href: String,
     pub title: String,
@@ -124,6 +132,10 @@ pub struct BookInfo {
     pub page_count: i32,
     /// PDF にテキスト層があるか。無い書籍では検索できないことを画面に出す。
     pub has_text_layer: bool,
+    /// 固定レイアウトのページ。リフロー型では空。
+    pub pages: Vec<FixedPage>,
+    /// ページの寸法。拡大の枠を先に決めるために要る。
+    pub page_size: Option<(f64, f64)>,
 }
 
 pub fn describe(book: &Book) -> BookInfo {
@@ -132,7 +144,28 @@ pub fn describe(book: &Book) -> BookInfo {
             publication,
             archive,
         } => {
-            let _ = archive;
+            // 固定レイアウトのときだけ、ページの種別と寸法を先に決めておく。
+            let (pages, page_size) = if publication.is_fixed() {
+                let pages: Vec<FixedPage> = publication
+                    .reading_order
+                    .iter()
+                    .map(|link| {
+                        let content = fixed_layout::content(&link.href, archive);
+                        FixedPage {
+                            kind: content.kind.to_string(),
+                            href: content.href,
+                        }
+                    })
+                    .collect();
+                let size = publication
+                    .reading_order
+                    .iter()
+                    .find_map(|link| fixed_layout::viewport(&link.href, archive));
+                (pages, size)
+            } else {
+                (Vec::new(), None)
+            };
+
             BookInfo {
                 id: book.id.clone(),
                 path: book.path.clone(),
@@ -155,6 +188,8 @@ pub fn describe(book: &Book) -> BookInfo {
                     .collect(),
                 page_count: 0,
                 has_text_layer: true,
+                pages,
+                page_size,
             }
         }
         Content::Pdf { worker, title } => BookInfo {
@@ -169,6 +204,8 @@ pub fn describe(book: &Book) -> BookInfo {
             chapters: Vec::new(),
             page_count: worker.page_count,
             has_text_layer: worker.has_text_layer,
+            pages: Vec::new(),
+            page_size: None,
         },
     }
 }
