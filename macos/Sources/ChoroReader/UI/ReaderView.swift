@@ -45,6 +45,12 @@ struct ReaderView: View {
         .preferredColorScheme(settings.theme == .dark ? .dark : .light)
         .focusedSceneValue(\.readerSession, session)
         .toolbar { toolbarContent }
+        .onAppear {
+            // 書棚の横断検索から語句を持って開かれたときは、その一覧を出した状態で始める。
+            if !session.searchQuery.isEmpty, session.sidebarTab == .search {
+                sidebarVisible = .all
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .choroFocusSearch)) { _ in
             session.sidebarTab = .search
             sidebarVisible = .all

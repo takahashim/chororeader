@@ -105,6 +105,8 @@ struct LibraryView: View {
             }
             if search.running {
                 ProgressView().controlSize(.small)
+            }
+            if search.running || !search.books.isEmpty {
                 Text(progressLabel)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -116,7 +118,8 @@ struct LibraryView: View {
 
     private var progressLabel: String {
         if let building = search.building { return "索引を作成中：\(building)" }
-        return "\(search.searched) / \(search.total) 冊"
+        if search.running { return "\(search.searched) / \(search.total) 冊" }
+        return "\(search.books.count) 冊 / \(search.hitCount) 件"
     }
 
     private func runSearch() {
@@ -125,7 +128,7 @@ struct LibraryView: View {
 
     private var results: some View {
         Group {
-            if search.hits.isEmpty && !search.running {
+            if search.books.isEmpty && !search.running {
                 VStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 36))
@@ -136,15 +139,25 @@ struct LibraryView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
-                    ForEach(groupedHits, id: \.title) { group in
-                        Section(header: Text("\(group.title)（\(group.hits.count) 件）")) {
-                            ForEach(group.hits) { hit in
-                                HitRow(hit: hit, query: search.query)
+                    ForEach(search.books) { book in
+                        Section(header: header(for: book)) {
+                            ForEach(book.hits) { hit in
+                                HitRow(hit: hit)
                                     .contentShape(Rectangle())
-                                    .onTapGesture(count: 2) { openHit(hit) }
+                                    .onTapGesture(count: 2) { openHit(hit, in: book) }
                                     .contextMenu {
-                                        Button("新しいウィンドウで開く") { openHit(hit) }
+                                        Button("新しいウィンドウで開く") { openHit(hit, in: book) }
                                     }
+                            }
+                            // 打ち切った本は、その本を開いて全件を見る道を出す。
+                            if book.truncated {
+                                Button {
+                                    openAll(book)
+                                } label: {
+                                    Label("この本の中をすべて見る", systemImage: "arrow.up.forward.square")
+                                        .font(.system(size: 12))
+                                }
+                                .buttonStyle(.link)
                             }
                         }
                     }
@@ -154,19 +167,21 @@ struct LibraryView: View {
         }
     }
 
-    /// 本ごとにまとめる。並びは書棚と同じ（最近開いた順）。
-    private var groupedHits: [(title: String, hits: [LibraryHit])] {
-        var order: [BookID] = []
-        var grouped: [BookID: [LibraryHit]] = [:]
-        for hit in search.hits {
-            if grouped[hit.bookID] == nil { order.append(hit.bookID) }
-            grouped[hit.bookID, default: []].append(hit)
+    private func header(for book: LibraryBookHits) -> some View {
+        HStack(spacing: 6) {
+            Text(book.title)
+            Text(book.truncated ? "\(book.hits.count) 件以上" : "\(book.hits.count) 件")
+                .foregroundStyle(.secondary)
         }
-        return order.map { (grouped[$0]!.first!.bookTitle, grouped[$0]!) }
     }
 
-    private func openHit(_ hit: LibraryHit) {
-        openWindow(value: BookRoute(path: hit.path, locator: hit.result.locator))
+    private func openHit(_ hit: LibraryHit, in book: LibraryBookHits) {
+        openWindow(value: BookRoute(path: book.path, locator: hit.result.locator, query: nil))
+    }
+
+    /// その本を開き、同じ語句で引いた一覧を出す。件数の上限は章内検索のもの（400 件）に上がる。
+    private func openAll(_ book: LibraryBookHits) {
+        openWindow(value: BookRoute(path: book.path, locator: nil, query: search.query))
     }
 
     private var empty: some View {
@@ -261,7 +276,7 @@ struct LibraryView: View {
 
     /// 選んだ本は読書のウィンドウに開く。書棚は残る。
     private func open(_ url: URL) {
-        openWindow(value: BookRoute(path: url.path, locator: nil))
+        openWindow(value: BookRoute(path: url.path, locator: nil, query: nil))
     }
 }
 
@@ -338,7 +353,6 @@ enum FileOpener {
 /// 当たり 1 件。章名と前後の文脈を出し、当たった語だけを強める。
 private struct HitRow: View {
     let hit: LibraryHit
-    let query: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {

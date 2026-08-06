@@ -3,10 +3,17 @@ import PDFKit
 
 struct LibraryHit: Identifiable, Hashable {
     let id = UUID()
-    var bookID: BookID
-    var bookTitle: String
-    var path: String
     var result: SearchResult
+}
+
+/// 1 冊ぶんの当たり。
+struct LibraryBookHits: Identifiable, Hashable {
+    var id: BookID
+    var title: String
+    var path: String
+    var hits: [LibraryHit]
+    /// 上限で打ち切ったか。打ち切ったときは、その本を開いて全件を見る道を出す。
+    var truncated: Bool
 }
 
 /// 書棚にある書籍を横断して引く。
@@ -21,7 +28,7 @@ final class LibrarySearchModel: ObservableObject {
     /// 1 冊から拾う上限。1 冊が結果を埋め尽くさないようにする。
     nonisolated static let perBookLimit = 20
 
-    @Published private(set) var hits: [LibraryHit] = []
+    @Published private(set) var books: [LibraryBookHits] = []
     @Published private(set) var searched = 0
     @Published private(set) var total = 0
     @Published private(set) var building: String?
@@ -37,9 +44,11 @@ final class LibrarySearchModel: ObservableObject {
         building = nil
     }
 
+    var hitCount: Int { books.reduce(0) { $0 + $1.hits.count } }
+
     func clear() {
         cancel()
-        hits = []
+        books = []
         searched = 0
         total = 0
         query = ""
@@ -49,7 +58,7 @@ final class LibrarySearchModel: ObservableObject {
         cancel()
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         self.query = query
-        hits = []
+        books = []
         searched = 0
         guard !query.isEmpty else {
             total = 0
@@ -92,9 +101,9 @@ final class LibrarySearchModel: ObservableObject {
         building = title
     }
 
-    private func absorb(_ generation: Int, _ found: [LibraryHit]) {
+    private func absorb(_ generation: Int, _ found: LibraryBookHits?) {
         guard isCurrent(generation) else { return }
-        hits.append(contentsOf: found)
+        if let found { books.append(found) }
         searched += 1
         building = nil
     }
@@ -107,42 +116,46 @@ final class LibrarySearchModel: ObservableObject {
 
     // MARK: - 1 冊を引く
 
-    private nonisolated static func hits(query: String, entry: LibraryEntry, url: URL) -> [LibraryHit] {
+    private nonisolated static func hits(query: String, entry: LibraryEntry, url: URL) -> LibraryBookHits? {
         // 索引があるうちは書籍を開かない。当たらない本には触らずに済む。
         var source: SearchIndexStore.Source?
         var index = SearchIndexStore.cached(for: url)
         if index == nil {
             source = SearchIndexStore.open(url)
-            guard let source else { return [] }
+            guard let source else { return nil }
             index = SearchIndexStore.index(for: url, source: source)
         }
-        guard let candidates = index?.candidates(query) else { return [] }
-        if candidates.isEmpty { return [] }
+        guard let candidates = index?.candidates(query), !candidates.isEmpty else { return nil }
 
         if source == nil { source = SearchIndexStore.open(url) }
-        guard let source else { return [] }
+        guard let source else { return nil }
 
         let results: [SearchResult]
+        let truncated: Bool
         switch source {
         case let .epub(resources, publication):
-            results = DocumentSearch.scanEPUB(resources: resources, publication: publication,
-                                              query: query, only: candidates,
-                                              limit: perBookLimit).results
+            let outcome = DocumentSearch.scanEPUB(resources: resources, publication: publication,
+                                                  query: query, only: candidates, limit: perBookLimit)
+            results = outcome.results
+            truncated = outcome.truncated
         case let .pdf(pdf):
-            results = scanPDF(pdf, query: query, pages: candidates)
+            let outcome = scanPDF(pdf, query: query, pages: candidates)
+            results = outcome.results
+            truncated = outcome.truncated
         }
+        if results.isEmpty { return nil }
 
-        return results.map {
-            LibraryHit(bookID: entry.id, bookTitle: entry.title, path: entry.path, result: $0)
-        }
+        return LibraryBookHits(id: entry.id, title: entry.title, path: entry.path,
+                               hits: results.map { LibraryHit(result: $0) }, truncated: truncated)
     }
 
     /// PDF は候補のページだけを読み直す。PDFKit の検索は書籍全体にしか掛けられないため。
     private nonisolated static func scanPDF(_ pdf: PDFKit.PDFDocument, query: String,
-                                            pages: [Int]) -> [SearchResult] {
+                                            pages: [Int]) -> DocumentSearch.Outcome {
         var results: [SearchResult] = []
+        var truncated = false
         for number in pages {
-            if results.count >= perBookLimit { break }
+            if results.count >= perBookLimit { truncated = true; break }
             guard let page = pdf.page(at: number), let text = page.string else { continue }
             let chars = Array(text)
 
@@ -164,10 +177,10 @@ final class LibrarySearchModel: ObservableObject {
                         .trimmingCharacters(in: .whitespacesAndNewlines),
                     isCode: false
                 ))
-                if results.count >= perBookLimit { break }
+                if results.count >= perBookLimit { truncated = true; break }
                 from = range.upperBound
             }
         }
-        return results
+        return DocumentSearch.Outcome(results: results, truncated: truncated)
     }
 }

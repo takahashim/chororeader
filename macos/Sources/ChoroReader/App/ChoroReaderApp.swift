@@ -4,6 +4,8 @@ import SwiftUI
 struct BookRoute: Codable, Hashable {
     var path: String
     var locator: Locator?
+    /// 開いた直後に引かせる語句。書棚の横断検索から「この本の全件」へ渡るときに使う。
+    var query: String?
 }
 
 /// Finder やメニューからのファイル要求を、開いているウィンドウのどれか 1 つが処理する。
@@ -86,7 +88,7 @@ struct ReaderWindowView: View {
         }
         .onAppear {
             OpenRequests.shared.setHandler { url in
-                openWindow(value: BookRoute(path: url.path, locator: nil))
+                openWindow(value: BookRoute(path: url.path, locator: nil, query: nil))
             }
             if session == nil { load() }
         }
@@ -101,8 +103,12 @@ struct ReaderWindowView: View {
             let document = try DocumentRegistry.shared.open(url: url)
             DocumentRegistry.shared.retain(document)
             let newSession = ReaderSession(document: document, startLocator: route.locator)
+            if let query = route.query, !query.isEmpty {
+                newSession.searchQuery = query
+                newSession.runSearch()
+            }
             newSession.openInNewWindow = { locator in
-                openWindow(value: BookRoute(path: route.path, locator: locator))
+                openWindow(value: BookRoute(path: route.path, locator: locator, query: nil))
             }
             session = newSession
         } catch let error as BookDocument.OpenError {
