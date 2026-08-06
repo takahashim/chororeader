@@ -25,7 +25,7 @@ class Probe
 
   # パスはリポジトリの根から解いた形にする。
   # tzconf をどこから起動しても同じ場所を指すようにするため。
-  # 区切りを含まない要素（"dotnet" など）は PATH から探すものとみなして触らない。
+  # 区切りを含まない要素は PATH から探すものとみなして触らない。
   def self.resolve_paths(argv, root)
     argv.map do |arg|
       next arg unless arg.include?("/")

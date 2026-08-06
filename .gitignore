@@ -12,10 +12,6 @@ spikes/epub-view/results/unzipped/
 # 手元の実書籍の位置。書籍そのものも配置も共有しない
 macos/Tests/local-books.json
 
-# .NET のビルド生成物
-windows/**/bin/
-windows/**/obj/
-
 # Rust と Node のビルド生成物
 target/
 node_modules/

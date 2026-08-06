@@ -1,6 +1,6 @@
 # 実装間の検証ツール
 
-macOS 版（Swift）と、将来の Windows 版（C#）が同じ振る舞いをすることを確かめる。
+macOS 版（Swift）と Windows 版（Rust）が同じ振る舞いをすることを確かめる。
 取り決めは [CONTRACT.md](CONTRACT.md) にある。
 
 ## 準備
@@ -21,8 +21,8 @@ Ruby は mise で固定する。macOS の `/usr/bin/ruby` は古く、Apple が�
 ./tzconf check        # 期待値と照合する（CI で回すのはこれ）
 ./tzconf probes       # 登録されている実装を一覧する
 
-./tzconf diff swift csharp                 # フィクスチャ全件で 2 実装を突き合わせる
-./tzconf diff swift csharp 手元の本.epub   # 期待値を持たない実書籍で突き合わせる
+./tzconf diff swift rust                 # フィクスチャ全件で 2 実装を突き合わせる
+./tzconf diff swift rust 手元の本.epub   # 期待値を持たない実書籍で突き合わせる
 ```
 
 ツール自身のテスト:

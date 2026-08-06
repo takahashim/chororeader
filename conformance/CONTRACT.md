@@ -1,7 +1,10 @@
 # 実装間の契約
 
 実装が同じ振る舞いをすることを、機械的に確かめるための取り決め。
-いまは macOS 版（Swift）、Windows 版（C#）、Tauri 版（Rust）の 3 つがある。
+いまは macOS 版（Swift）と Windows 版（Rust）の 2 つがある。
+
+Swift と Rust は独立して書かれており、XML の解析も ZIP の読み出しも正規表現も別物である。
+両方が同じ誤り方をすることは考えにくい、というのがこの突き合わせの拠り所になっている。
 
 ## 揃えるもの
 
@@ -20,7 +23,7 @@
 
 ## 揃えないもの
 
-- 本文のレンダリング結果（WKWebView と WebView2 は別物である）
+- 本文のレンダリング結果（WKWebView とシステムの WebView は別物である）
 - 性能の数値
 - UI の見た目とウィンドウ管理
 - エラーの表示文言（分類名だけを揃える）
@@ -59,7 +62,6 @@
 
 ```
 macos/build/TZReader.app/Contents/MacOS/TZReader probe parse foo.epub
-dotnet windows/TZReader.Probe/bin/Debug/net10.0/tzprobe.dll probe parse foo.epub
 tauri/target/release/tzprobe probe parse foo.epub
 ```
 
