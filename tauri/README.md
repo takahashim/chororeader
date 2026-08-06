@@ -30,6 +30,21 @@ swift ↔ rust: 68 件すべて一致しました
 移る途中は C# 版も相手にしていた（3 実装が一致）。
 移り終えたあとに畳んでいる。理由は spikes/findings-windows.md にある。
 
+## Windows のビルドから OCR を削る
+
+```sh
+cd tauri && cargo fetch && ruby trim-mupdf.rb
+```
+
+tzreader は OCR を使わないが、Windows では毎回コンパイルされる。
+`mupdf-sys` の機能指定は Make のときだけ効き、MSBuild では何もしないためである
+（`build.rs` の `Build::make_bool`）。`libmupdf.vcxproj` が無条件に参照している。
+
+冷えた状態の Windows ビルドは 24 分かかり、その相当部分がこれである。
+本筋は upstream を直すことだが、手元で完結させるためにここで削っている。
+CI では組み立ての前に走らせる。当てる先が見つからなければ失敗するので、
+mupdf-sys の版が上がって形が変わったときは気付ける。
+
 ## 動かし方
 
 ```sh

@@ -38,6 +38,15 @@ jobs:
           shared-key: tauri-app-windows
           cache-on-failure: true
 
+      # OCR は使わないのに、Windows では毎回コンパイルされる。
+      # mupdf-sys の機能指定は MSBuild では効かないので、参照そのものを削る。
+      # 当てる先が見つからなければ失敗する。版が上がって形が変われば気付けるようにするため。
+      - name: MuPDF から OCR を削る
+        working-directory: tauri
+        run: |
+          cargo fetch
+          ruby trim-mupdf.rb
+
       - name: 組み立てる
         working-directory: tauri
         run: cargo build --release -p tzreader
