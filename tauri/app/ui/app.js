@@ -139,6 +139,9 @@ async function openPath(path, href, fragment) {
 
   document.title = state.book.title;
   $("book-title").textContent = state.book.title;
+  // ページの一覧は紙面の書籍にしか意味がない。
+  $("sidebar-tabs").querySelector('[data-pane="thumbs"]').hidden =
+    !(state.book.format === "pdf" || state.book.format === "fixedEPUB");
 
   const saved = await invoke("book_state", { path });
   state.bookmarks = saved.bookmarks || [];
@@ -643,6 +646,7 @@ async function showFixed(page) {
   const target = pageElement(box, state.page);
   if (target) box.scrollTop = isContinuous() ? target.offsetTop - 16 : 0;
   markCurrentToc();
+  markCurrentThumb();
   rememberSoon();
 }
 
@@ -685,6 +689,7 @@ async function showPdf(page) {
   const target = pageElement(box, state.page);
   if (target) box.scrollTop = isContinuous() ? target.offsetTop - 16 : 0;
   markCurrentToc();
+  markCurrentThumb();
   rememberSoon();
 }
 
@@ -799,6 +804,58 @@ for (const kind of ["pointerup", "pointercancel"]) {
     panning = null;
     $("pdf").classList.remove("panning");
   });
+}
+
+// ---- ページの一覧 -------------------------------------------------------
+//
+// 紙面の書籍では、目次より縮小した絵のほうが目当てのページを見つけやすい。
+// 原寸で復号すると数百ページで潰れるので、小さく描いたものを遅延で取りに行く。
+
+const THUMB_ZOOM = 0.22;
+
+function renderThumbs() {
+  const box = $("thumbs");
+  if (!isPaged()) { box.textContent = ""; return; }
+  const total = isFixed() ? state.book.pages.length : state.book.pageCount;
+  if (box.dataset.book === state.book.id && box.children.length === total) {
+    return markCurrentThumb();
+  }
+  box.dataset.book = state.book.id;
+  box.textContent = "";
+
+  for (let index = 0; index < total; index++) {
+    const figure = document.createElement("figure");
+    figure.dataset.page = String(index);
+
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.alt = "";
+    if (isFixed()) {
+      const page = state.book.pages[index];
+      // 本文を持つページは絵にできない。枠だけ置いて番号で選ばせる。
+      if (page.kind === "image") img.src = `/book/${state.book.id}/${encodePath(page.href)}`;
+      else img.style.aspectRatio = String((state.pageSize || [800, 1130])[0] / (state.pageSize || [800, 1130])[1]);
+    } else {
+      img.src = `/pdf/${state.book.id}/${index}/${THUMB_ZOOM}`;
+    }
+
+    const caption = document.createElement("figcaption");
+    caption.textContent = String(index + 1);
+
+    figure.append(img, caption);
+    figure.addEventListener("click", () => jump(() => showPage(index)));
+    box.appendChild(figure);
+  }
+  markCurrentThumb();
+}
+
+function markCurrentThumb() {
+  const box = $("thumbs");
+  for (const figure of box.children) {
+    const on = Number(figure.dataset.page) === state.page;
+    figure.classList.toggle("current", on);
+    if (on) figure.scrollIntoView({ block: "nearest" });
+  }
 }
 
 // ---- 検索 ---------------------------------------------------------------
@@ -1353,7 +1410,8 @@ function showPane(name) {
   for (const button of $("sidebar-tabs").children) {
     button.classList.toggle("on", button.dataset.pane === name);
   }
-  for (const id of ["toc", "results", "bookmarks"]) $(id).hidden = id !== name;
+  for (const id of ["toc", "thumbs", "results", "bookmarks"]) $(id).hidden = id !== name;
+  if (name === "thumbs") renderThumbs();
   $("sidebar").hidden = false;
 }
 

@@ -166,6 +166,32 @@ body {
 .pane .depth-2 { padding-left: 26px; font-size: 12px; }
 .pane .depth-3 { padding-left: 40px; font-size: 12px; color: var(--dim); }
 
+#thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 10px;
+  padding: 10px;
+  align-content: start;
+}
+
+#thumbs figure {
+  margin: 0;
+  cursor: pointer;
+  text-align: center;
+}
+
+#thumbs img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 2px;
+}
+
+#thumbs figcaption { font-size: 11px; color: var(--dim); padding-top: 2px; }
+#thumbs figure.current img { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+#thumbs figure.current figcaption { color: var(--accent); }
+
 .hit .where { color: var(--dim); font-size: 11px; }
 .hit .excerpt {
   display: block;
