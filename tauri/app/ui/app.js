@@ -1516,6 +1516,14 @@ window.addEventListener("resize", () => {
 // ---- 起動 ---------------------------------------------------------------
 
 async function main() {
+  // 土台と話せることを最初に確かめる。ここで落ちれば、あとは何を押しても動かない。
+  try {
+    await invoke("settings");
+  } catch (error) {
+    showFailure("土台に届きません（命令が拒まれました）", error);
+    throw error;
+  }
+
   const saved = await invoke("settings");
   state.settings = { ...DEFAULT_SETTINGS, ...(saved && typeof saved === "object" ? saved : {}) };
   fillSettings();
@@ -1555,7 +1563,23 @@ window.tzr = {
   resetZoom,
 };
 
-window.__TAURI__.event.listen("menu", (event) => {
+// 受け取りの登録で転んでも、残りの組み立てを道連れにしない。
+// ここが例外を投げると、この後ろの main() が動かず窓が黙って死ぬ。
+try {
+  listenToMenu();
+} catch (error) {
+  showFailure("献立を受け取れません", error);
+}
+
+function listenToMenu() {
+  const events = window.__TAURI__ && window.__TAURI__.event;
+  if (!events || typeof events.listen !== "function") {
+    throw new Error("window.__TAURI__.event が無い");
+  }
+  events.listen("menu", onMenu).catch((error) => showFailure("献立を受け取れません", error));
+}
+
+function onMenu(event) {
   const actions = {
     open: pick,
     "new-window": openHere,
@@ -1578,6 +1602,28 @@ window.__TAURI__.event.listen("menu", (event) => {
   };
   const action = actions[event.payload];
   if (action) action();
-});
+}
 
-main();
+// 画面が黙って死ぬのを防ぐ。
+//
+// 何かの拍子に土台へ届かなくなると、窓は出るのに何を押しても反応しない状態になる。
+// 手元と違う OS では原因が見えないので、起きたことをその場に書き出す。
+function showFailure(what, error) {
+  const detail = String((error && (error.stack || error.message)) || error || "");
+  let box = document.getElementById("boot-failure");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "boot-failure";
+    box.setAttribute("style",
+      "position:fixed;left:0;right:0;top:0;z-index:99;padding:10px 14px;" +
+      "background:#7a1c1c;color:#fff;font:12px/1.6 ui-monospace,Menlo,monospace;" +
+      "white-space:pre-wrap;max-height:50vh;overflow:auto");
+    document.body.appendChild(box);
+  }
+  box.textContent += `${what}\n${detail}\n\n`;
+}
+
+window.addEventListener("error", (event) => showFailure("画面で例外が起きました", event.error || event.message));
+window.addEventListener("unhandledrejection", (event) => showFailure("応答が返りませんでした", event.reason));
+
+main().catch((error) => showFailure("起動に失敗しました", error));

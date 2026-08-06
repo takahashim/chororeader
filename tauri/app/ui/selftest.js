@@ -178,6 +178,17 @@
     const panel = open();
     const list = $("selftest-list");
 
+    // 書棚の窓には本文が無い。ここで走らせても不合格が並ぶだけで意味を持たない。
+    if (!window.tzr.state.book) {
+      record(list, {
+        name: "書籍が開いていない",
+        ok: null,
+        detail: "書籍を開いた窓で走らせてください（ファイル献立のサンプルでも構いません）",
+      });
+      finish(panel);
+      return;
+    }
+
     for (const check of automatic) {
       if (!applies(check)) {
         record(list, { name: check.name, ok: null, detail: "この書籍では確かめない" });

@@ -93,17 +93,14 @@ pub fn run() {
                 }
             }
             // 落とされた書籍は、1 冊につき 1 つの窓で開く。
-            // 画面側で拾う道もあるが、こちらなら経路が渡ってくるので取り違えない。
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
-                for path in paths {
-                    let Some(path) = path.to_str() else { continue };
-                    if detect_format(path).is_none() {
-                        continue;
-                    }
-                    let n = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    let query = format!("?path={}", urlencode(path));
-                    let _ = open_window(&window.app_handle().clone(), &format!("book-{n}"), &query);
-                }
+                open_dropped(&window.app_handle().clone(), paths);
+            }
+        })
+        // 落とし込みは窓ではなく WebView 側に届くことがある。取りこぼさないよう両方で受ける。
+        .on_webview_event(|webview, event| {
+            if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                open_dropped(&webview.app_handle().clone(), paths);
             }
         })
         .register_asynchronous_uri_scheme_protocol(protocol::SCHEME, |ctx, request, responder| {
@@ -149,6 +146,21 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("Tauri の起動に失敗した");
+}
+
+/// 落とされた経路のうち、開ける形式のものを 1 つずつ窓に開く。
+fn open_dropped(app: &tauri::AppHandle, paths: &[std::path::PathBuf]) {
+    for path in paths {
+        let Some(path) = path.to_str() else { continue };
+        if detect_format(path).is_none() {
+            continue;
+        }
+        let n = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let query = format!("?path={}", urlencode(path));
+        if let Err(error) = open_window(app, &format!("book-{n}"), &query) {
+            eprintln!("落とされた書籍を開けなかった: {error}");
+        }
+    }
 }
 
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
