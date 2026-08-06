@@ -17,6 +17,9 @@ cp "$BIN" "$APP/Contents/MacOS/ChoroReader"
 BUNDLE="$(swift build -c "$CONFIG" --show-bin-path)/ChoroReader_ChoroReader.bundle"
 [ -d "$BUNDLE" ] && cp -R "$BUNDLE" "$APP/Contents/Resources/"
 
+# アイコンは assets/icon/build.rb が焼いたものを使う。
+cp ChoroReader.icns "$APP/Contents/Resources/ChoroReader.icns"
+
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -26,6 +29,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDisplayName</key><string>ChoroReader</string>
     <key>CFBundleIdentifier</key><string>dev.chororeader.ChoroReader</string>
     <key>CFBundleExecutable</key><string>ChoroReader</string>
+    <key>CFBundleIconFile</key><string>ChoroReader</string>
+    <key>CFBundleIconName</key><string>ChoroReader</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>1</string>
