@@ -42,6 +42,7 @@ pub fn run() {
             page_size,
             diagnose,
             open_in_new_window,
+            open_shelf,
             book_state,
             remember_position,
             toggle_bookmark,
@@ -66,7 +67,8 @@ pub fn run() {
         .setup(move |app| {
             app.manage(Store::load(app.handle()));
             if opening.is_empty() {
-                open_window(app.handle(), "main", "")?;
+                // 何も渡されなければ書棚から始める。macOS 版のライブラリ窓と同じ位置づけ。
+                open_shelf_window(app.handle())?;
             } else {
                 for (index, path) in opening.iter().enumerate() {
                     let label = if index == 0 {
@@ -88,6 +90,31 @@ fn open_window(
     label: &str,
     query: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    build_window(app, label, query, "tzreader", 1000.0, 760.0)
+}
+
+/// 書棚の窓。1 つしか持たない。すでにあるなら前へ出す。
+///
+/// 書棚を窓として独立させているのは macOS 版に倣ったものである。
+/// 書棚が本を配る側、読書の窓が読む側、と役割が分かれ、
+/// 「選んだ本がどの窓に開くのか」が決まる。
+fn open_shelf_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(window) = app.get_webview_window("shelf") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    build_window(app, "shelf", "?shelf=1", "書棚", 900.0, 640.0)
+}
+
+fn build_window(
+    app: &tauri::AppHandle,
+    label: &str,
+    query: &str,
+    title: &str,
+    width: f64,
+    height: f64,
+) -> Result<(), Box<dyn std::error::Error>> {
     // 同じ大きさで真上に重ねると、増えたことに気付けない。少しずらす。
     let offset = (app.webview_windows().len() as f64) * 26.0 % 160.0;
     WebviewWindowBuilder::new(
@@ -95,8 +122,8 @@ fn open_window(
         label,
         WebviewUrl::External(protocol::app_url(query).parse()?),
     )
-    .title("tzreader")
-    .inner_size(1000.0, 760.0)
+    .title(title)
+    .inner_size(width, height)
     .position(60.0 + offset, 60.0 + offset)
     .build()?;
     Ok(())
@@ -190,6 +217,19 @@ struct Shelved {
     format: String,
     cover: String,
     exists: bool,
+    /// 一覧モードで見せる読み進み。位置を持たない書籍では空。
+    progress: String,
+}
+
+/// 読み進みの見せ方。PDF はページ、EPUB は割合で言う。
+fn progress_label(position: &Position) -> String {
+    if position.page > 0 {
+        return format!("p.{}", position.page + 1);
+    }
+    if position.href.is_empty() && position.progression <= 0.0 {
+        return String::new();
+    }
+    format!("{}%", (position.progression * 100.0).round() as i64)
 }
 
 /// 書棚。書籍を開き直さずに並べられるよう、覚え書きから作る。
@@ -209,9 +249,15 @@ fn library(store: tauri::State<'_, Store>) -> Vec<Shelved> {
             format: state.format,
             cover: state.cover,
             exists: std::path::Path::new(&path).exists(),
+            progress: progress_label(&state.position),
             path,
         })
         .collect()
+}
+
+#[tauri::command]
+fn open_shelf(app: tauri::AppHandle) -> Result<(), String> {
+    open_shelf_window(&app).map_err(|e| e.to_string())
 }
 
 /// 窓の名札。閉じた窓の番号を使い回さないよう、単調に増やす。

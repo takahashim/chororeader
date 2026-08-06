@@ -47,17 +47,25 @@
          allow-same-origin だけ与えて、親からこの中の DOM を触れるようにする。 -->
     <iframe id="page" sandbox="allow-same-origin" title="本文"></iframe>
     <div id="pdf" tabindex="-1" hidden></div>
-    <div id="shelf">
-      <div id="shelf-bar">
-        <h1>書棚</h1>
-        <span class="spacer"></span>
-        <button id="shelf-open">書籍を開く…</button>
-        <button id="shelf-close" hidden>読書に戻る</button>
-      </div>
-      <div id="shelf-grid"></div>
-      <p id="shelf-empty" hidden>まだ開いた書籍がありません。EPUB か PDF を開いてください。</p>
-    </div>
-  </main>
+</main>
+</div>
+
+<div id="shelf">
+  <div id="shelf-bar">
+    <h1>書棚</h1>
+    <span class="spacer"></span>
+    <span id="shelf-modes">
+      <button data-mode="cover" title="表紙で並べる">表紙</button>
+      <button data-mode="table" title="表で並べる">一覧</button>
+    </span>
+    <button id="shelf-open">書籍を開く…</button>
+  </div>
+  <div id="shelf-grid"></div>
+  <table id="shelf-table" hidden>
+    <thead><tr><th></th><th>題名</th><th>著者</th><th>形式</th><th>読み進み</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <p id="shelf-empty" hidden>まだ開いた書籍がありません。EPUB か PDF を開いてください。</p>
 </div>
 
 <div id="settings" hidden>

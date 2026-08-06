@@ -344,12 +344,59 @@ body {
 #popover-body { height: 46vh; }
 
 /* 書棚を出しているあいだは、書籍に紐づく操作を隠して横幅いっぱい使う。 */
-body.shelving #sidebar,
-body.shelving #zoom,
-body.shelving #fit,
-body.shelving #search-input,
-body.shelving #bookmark,
-body.shelving #settings-button { display: none !important; }
+/* 書棚の窓では、読書のための道具帯も本文も出さない。 */
+body.shelf-window #bar,
+body.shelf-window #layout { display: none !important; }
+
+body.shelf-window #shelf { position: static; flex: 1; min-height: 0; }
+
+#shelf-modes { display: inline-flex; gap: 0; }
+
+#shelf-modes button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--dim);
+  padding: 3px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+
+#shelf-modes button:first-child { border-radius: 5px 0 0 5px; }
+#shelf-modes button:last-child { border-radius: 0 5px 5px 0; border-left: 0; }
+#shelf-modes button.on { color: var(--accent); border-color: var(--accent); }
+
+#shelf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+#shelf-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--dim);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+#shelf-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#shelf-table tbody tr:hover td { background: rgba(127, 127, 127, 0.12); }
+#shelf-table tr.missing td { color: var(--dim); text-decoration: line-through; cursor: default; }
+
+#shelf-table td.thumb { width: 34px; padding: 3px 6px; }
+#shelf-table td.thumb img { display: block; width: 28px; height: 38px; object-fit: cover; border-radius: 2px; }
 
 #toast {
   position: absolute;

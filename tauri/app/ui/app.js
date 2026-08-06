@@ -9,7 +9,10 @@ const invoke = window.__TAURI__.core.invoke;
 
 // 不具合を追うときだけ記録する。TZR_DEBUG=1 を付けて起動すると有効になり、
 // キーがどこへ届いたかが標準エラーに出る。常時は何もしない。
-const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+const PARAMS = new URLSearchParams(location.search);
+const DEBUG = PARAMS.get("debug") === "1";
+// この窓が書棚かどうか。書棚は本を配る側で、読書はしない。
+const SHELF = PARAMS.get("shelf") === "1";
 const trace = (message) => { if (DEBUG) invoke("ui_log", { message }).catch(() => {}); };
 const $ = (id) => document.getElementById(id);
 
@@ -28,6 +31,8 @@ const DEFAULT_SETTINGS = {
   codeFont: "SF Mono",
   codeWrap: false,
   publisherStyle: false,
+  /// 書棚の見せ方。cover は表紙を並べ、table は表で並べる。
+  shelfMode: "cover",
 };
 
 const state = {
@@ -84,7 +89,6 @@ async function openPath(path, href) {
 
   document.title = state.book.title;
   $("book-title").textContent = state.book.title;
-  hideShelf();
 
   const saved = await invoke("book_state", { path });
   state.bookmarks = saved.bookmarks || [];
@@ -779,61 +783,104 @@ function fillSettings() {
 // 「次はどれを開くか」を選ぶ場面は読書の最中にも来る。
 
 async function showShelf() {
-  const grid = $("shelf-grid");
-  grid.textContent = "";
   const books = await invoke("library");
   $("shelf-empty").hidden = books.length > 0;
+  renderShelf(books);
+  applyShelfMode();
+}
+
+/// 表紙で並べる形と、表で並べる形の両方を作っておく。切り替えは見せ方だけ。
+function renderShelf(books) {
+  const grid = $("shelf-grid");
+  const rows = $("shelf-table").tBodies[0];
+  grid.textContent = "";
+  rows.textContent = "";
 
   for (const book of books) {
-    const card = document.createElement("div");
-    card.className = "book" + (book.exists ? "" : " missing");
-    card.title = book.path;
+    grid.appendChild(coverCard(book));
+    rows.appendChild(tableRow(book));
+  }
+}
 
-    const art = document.createElement("div");
-    art.className = "art";
-    if (book.cover) {
-      const img = document.createElement("img");
-      img.src = "/cover/" + encodeURIComponent(book.cover);
-      img.alt = "";
-      // 表紙が消えていたら、代わりの枠を出す。
-      img.addEventListener("error", () => art.replaceChildren(blankArt(book)));
-      art.appendChild(img);
-    } else {
-      art.appendChild(blankArt(book));
-    }
+function coverCard(book) {
+  const card = document.createElement("div");
+  card.className = "book" + (book.exists ? "" : " missing");
+  card.title = book.path;
 
-    const name = document.createElement("div");
-    name.className = "name";
-    name.textContent = book.title;
+  const art = document.createElement("div");
+  art.className = "art";
+  art.appendChild(coverImage(book, () => art.replaceChildren(blankArt(book))) || blankArt(book));
 
-    card.append(art, name);
-    if (book.authors.length > 0) {
-      const by = document.createElement("div");
-      by.className = "by";
-      by.textContent = book.authors.join("、");
-      card.appendChild(by);
-    }
-    const kind = document.createElement("div");
-    kind.className = "kind";
-    kind.textContent = book.format === "pdf" ? "PDF" : "EPUB";
-    card.appendChild(kind);
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = book.title;
 
-    if (book.exists) {
-      card.addEventListener("click", (event) => {
-        if (event.metaKey || event.ctrlKey) {
-          return invoke("open_in_new_window", { path: book.path, href: "" });
-        }
-        openPath(book.path);
-      });
-    }
-    grid.appendChild(card);
+  card.append(art, name);
+  if (book.authors.length > 0) {
+    const by = document.createElement("div");
+    by.className = "by";
+    by.textContent = book.authors.join("、");
+    card.appendChild(by);
+  }
+  const kind = document.createElement("div");
+  kind.className = "kind";
+  kind.textContent = book.format === "pdf" ? "PDF" : "EPUB";
+  card.appendChild(kind);
+
+  bindOpen(card, book);
+  return card;
+}
+
+function tableRow(book) {
+  const row = document.createElement("tr");
+  if (!book.exists) row.className = "missing";
+  row.title = book.path;
+
+  const thumb = document.createElement("td");
+  thumb.className = "thumb";
+  const small = coverImage(book, () => thumb.textContent = "");
+  if (small) thumb.appendChild(small);
+
+  const cells = [book.title, book.authors.join("、"),
+                 book.format === "pdf" ? "PDF" : "EPUB", book.progress];
+  row.appendChild(thumb);
+  for (const value of cells) {
+    const cell = document.createElement("td");
+    cell.textContent = value;
+    row.appendChild(cell);
   }
 
-  $("shelf").hidden = false;
-  $("shelf-close").hidden = !state.book;
-  $("shelf-button").classList.add("on");
-  // 書籍に紐づく操作は書棚では意味を持たない。隠して横幅いっぱい使う。
-  document.body.classList.add("shelving");
+  bindOpen(row, book);
+  return row;
+}
+
+function coverImage(book, onError) {
+  if (!book.cover) return null;
+  const img = document.createElement("img");
+  img.src = "/cover/" + encodeURIComponent(book.cover);
+  img.alt = "";
+  img.loading = "lazy";
+  // 表紙が消えていたら、代わりの枠を出す。
+  img.addEventListener("error", onError);
+  return img;
+}
+
+/// 選んだ本は読書の窓に開く。書棚は残る。
+/// どの窓に開くのかを決めておかないと、書棚を窓として分けた意味がなくなる。
+function bindOpen(element, book) {
+  if (!book.exists) return;
+  element.addEventListener("click", () => {
+    invoke("open_in_new_window", { path: book.path, href: "" });
+  });
+}
+
+function applyShelfMode() {
+  const mode = state.settings.shelfMode === "table" ? "table" : "cover";
+  $("shelf-grid").hidden = mode !== "cover";
+  $("shelf-table").hidden = mode !== "table";
+  for (const button of $("shelf-modes").children) {
+    button.classList.toggle("on", button.dataset.mode === mode);
+  }
 }
 
 function blankArt(book) {
@@ -843,12 +890,7 @@ function blankArt(book) {
   return blank;
 }
 
-function hideShelf() {
-  $("shelf").hidden = true;
-  $("shelf-button").classList.remove("on");
-  document.body.classList.remove("shelving");
-  focusContent();
-}
+
 
 // ---- 焦点 ---------------------------------------------------------------
 
@@ -895,9 +937,7 @@ function onKeyDown(event) {
   }
   if (command && event.key.toLowerCase() === "l") {
     event.preventDefault();
-    if ($("shelf").hidden) return showShelf();
-    if (state.book) return hideShelf();
-    return;
+    return invoke("open_shelf");
   }
   if (command && event.key === "\\") { event.preventDefault(); return toggleSidebar(); }
   if (command && event.key.toLowerCase() === "d") { event.preventDefault(); return toggleBookmark(); }
@@ -912,7 +952,6 @@ function onKeyDown(event) {
   if (command && event.key === "0") { event.preventDefault(); return resetZoom(); }
   if (event.key === "Escape") {
     hidePopover();
-    if (!$("shelf").hidden && state.book) hideShelf();
     return;
   }
   if (editing || command || !state.book) return;
@@ -1007,13 +1046,15 @@ async function pick() {
 
 $("open-button").addEventListener("click", pick);
 $("shelf-open").addEventListener("click", pick);
-$("new-window").addEventListener("click", openHere);
-$("shelf-close").addEventListener("click", hideShelf);
-$("shelf-button").addEventListener("click", () => {
-  // 書籍を開いていないなら、閉じても見せるものが無い。
-  if ($("shelf").hidden) showShelf();
-  else if (state.book) hideShelf();
+$("shelf-modes").addEventListener("click", (event) => {
+  const mode = event.target.dataset.mode;
+  if (!mode) return;
+  state.settings.shelfMode = mode;
+  invoke("save_settings", { settings: state.settings });
+  applyShelfMode();
 });
+$("new-window").addEventListener("click", openHere);
+$("shelf-button").addEventListener("click", () => invoke("open_shelf"));
 $("toggle-sidebar").addEventListener("click", toggleSidebar);
 $("bookmark").addEventListener("click", toggleBookmark);
 $("settings-button").addEventListener("click", (event) => {
@@ -1041,11 +1082,19 @@ async function main() {
   bindSettings();
   await refreshStyle();
 
-  const parameters = new URLSearchParams(location.search);
-  const path = parameters.get("path");
-  if (path) return openPath(path, parameters.get("href"));
+  // 書棚の窓は本を配るだけで、読書はしない。道具帯も本文も出さない。
+  if (SHELF) {
+    document.body.classList.add("shelf-window");
+    document.title = "書棚";
+    return showShelf();
+  }
 
-  showShelf();
+  $("shelf").hidden = true;
+  const path = PARAMS.get("path");
+  if (path) return openPath(path, PARAMS.get("href"));
+
+  // 書籍を持たない読書の窓は作らない。ここへ来たら書棚へ回す。
+  invoke("open_shelf");
 }
 
 main();
