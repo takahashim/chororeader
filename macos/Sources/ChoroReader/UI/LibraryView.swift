@@ -350,29 +350,56 @@ enum FileOpener {
     }
 }
 
-/// 当たり 1 件。章名と前後の文脈を出し、当たった語だけを強める。
+/// 当たり 1 件。1 件 1 行に収める。
+///
+/// 何十件も並ぶ一覧なので、行が折り返すと目で追えなくなる。
+/// 章名を左に揃え、前後の文脈は 1 行に詰めて、当たった語だけを強める。
 private struct HitRow: View {
     let hit: LibraryHit
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(hit.result.chapterTitle)
-                    .font(.system(size: 11))
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(oneLine(hit.result.chapterTitle))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 132, alignment: .leading)
+
+            if hit.result.isCode {
+                Image(systemName: "curlybraces")
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                if hit.result.isCode {
-                    Text("コード")
-                        .font(.system(size: 10))
-                        .padding(.horizontal, 4)
-                        .background(Color.secondary.opacity(0.16), in: RoundedRectangle(cornerRadius: 3))
-                }
+                    .help("コードブロックの中")
             }
-            (Text(hit.result.before).foregroundStyle(.secondary)
-                + Text(hit.result.match).bold()
-                + Text(hit.result.after).foregroundStyle(.secondary))
+
+            (Text(oneLine(hit.result.before)).foregroundStyle(.secondary)
+                + Text(oneLine(hit.result.match)).bold()
+                + Text(oneLine(hit.result.after)).foregroundStyle(.secondary))
                 .font(.system(size: 12))
-                .lineLimit(2)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 1)
+    }
+
+    /// 改行と連なった空白を 1 つの空白に詰める。
+    /// PDF の本文は行ごとに改行が入っており、そのまま出すと 1 件が何行にもなる。
+    /// 端の空白は落とさない。落とすと英文で前後の語がくっつく。
+    private func oneLine(_ text: String) -> String {
+        var out = ""
+        var lastWasSpace = false
+        for character in text {
+            if character.isWhitespace {
+                if !lastWasSpace { out.append(" ") }
+                lastWasSpace = true
+            } else {
+                out.append(character)
+                lastWasSpace = false
+            }
+        }
+        return out
     }
 }
