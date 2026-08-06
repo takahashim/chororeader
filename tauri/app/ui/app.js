@@ -1434,7 +1434,7 @@ async function diagnose() {
       : "",
   ].filter(Boolean).join("\n");
   await navigator.clipboard.writeText(detail).catch(() => {});
-  toast(lines.join("　") + "（診断を写しました）");
+  toast(lines.join("　") + "（診断をコピーしました）");
 }
 
 function toggleSidebar() {

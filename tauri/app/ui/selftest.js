@@ -254,7 +254,7 @@
         <strong>動作確認</strong>
         <span id="selftest-count"></span>
         <span class="spacer"></span>
-        <button id="selftest-copy">結果を写す</button>
+        <button id="selftest-copy" title="結果を文字にしてクリップボードへ入れる">結果をコピー</button>
         <button id="selftest-close">閉じる</button>
       </div>
       <div id="selftest-list"></div>
@@ -266,7 +266,17 @@
       </div>`;
     document.body.appendChild(panel);
     $("selftest-close").onclick = () => panel.remove();
-    $("selftest-copy").onclick = () => navigator.clipboard.writeText(asText()).catch(() => {});
+    $("selftest-copy").onclick = async () => {
+      const button = $("selftest-copy");
+      try {
+        await navigator.clipboard.writeText(asText());
+        // 押しても画面は変わらない。何が起きたかを押しボタン自身に出す。
+        button.textContent = "コピーしました";
+      } catch (_) {
+        button.textContent = "コピーできません";
+      }
+      setTimeout(() => { button.textContent = "結果をコピー"; }, 1600);
+    };
     return panel;
   }
 
