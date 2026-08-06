@@ -400,10 +400,13 @@ fn fingerprint(path: &str) -> String {
 /// ダイアログの応答を待つあいだイベントループが止まり、開いたまま固まる。
 /// 待たない形（結果を受け取る関数を渡す形）を使い、受け取りは別スレッドで待つ。
 #[tauri::command]
-async fn pick_book(app: tauri::AppHandle) -> Option<String> {
+async fn pick_book(app: tauri::AppHandle, window: tauri::Window) -> Option<String> {
     let (sender, receiver) = std::sync::mpsc::channel();
+    // 親を渡さないと、Windows では窓の裏に出ることがある。
+    // 出ているのに見えないので、押しても何も起きないように見える。
     app.dialog()
         .file()
+        .set_parent(&window)
         .add_filter("書籍", &["epub", "pdf"])
         .pick_file(move |file| {
             let _ = sender.send(file);

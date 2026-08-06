@@ -430,6 +430,29 @@ body.shelf-window #layout { display: none !important; }
 
 body.shelf-window #shelf { position: static; flex: 1; min-height: 0; }
 
+#shelf-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--dim);
+  line-height: 2;
+}
+
+#shelf-empty p { margin: 0; }
+
+#shelf-samples { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+
+#shelf-samples button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+
+#shelf-samples button:hover { border-color: var(--accent); color: var(--accent); }
+
 #shelf-modes { display: inline-flex; gap: 0; }
 
 #shelf-modes button {

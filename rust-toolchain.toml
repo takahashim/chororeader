@@ -1,0 +1,8 @@
+# 版を固定する。
+#
+# CI のキャッシュの鍵には rustc の版が入る。stable が動くたびに鍵が変わり、
+# MuPDF を C のソースから作り直すことになる。冷えた Windows で 20 分を超える。
+# 上げるときは意識して上げる。
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]

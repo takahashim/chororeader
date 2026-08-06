@@ -1476,6 +1476,10 @@ async function pick() {
 
 $("open-button").addEventListener("click", pick);
 $("shelf-open").addEventListener("click", pick);
+$("shelf-samples").addEventListener("click", (event) => {
+  const kind = event.target.dataset.kind;
+  if (kind) invoke("open_sample", { kind });
+});
 $("shelf-modes").addEventListener("click", (event) => {
   const mode = event.target.dataset.mode;
   if (!mode) return;

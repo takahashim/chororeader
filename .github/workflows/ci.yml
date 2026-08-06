@@ -18,7 +18,10 @@ jobs:
           bundler-cache: true
           working-directory: conformance
 
-      - uses: dtolnay/rust-toolchain@stable
+      # 版は rust-toolchain.toml に従う。stable が動くたびにキャッシュを捨てないため。
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95.0"
 
       # MuPDF を C のソースからビルドするため、キャッシュが無いと数分かかる。
       - uses: Swatinem/rust-cache@v2
