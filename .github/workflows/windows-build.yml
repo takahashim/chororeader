@@ -43,9 +43,7 @@ jobs:
       # 当てる先が見つからなければ失敗する。版が上がって形が変われば気付けるようにするため。
       - name: MuPDF から OCR を削る
         working-directory: tauri
-        run: |
-          cargo fetch
-          ruby trim-mupdf.rb
+        run: ruby trim-mupdf.rb
 
       - name: 組み立てる
         working-directory: tauri

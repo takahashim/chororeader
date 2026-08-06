@@ -33,7 +33,7 @@ swift ↔ rust: 68 件すべて一致しました
 ## Windows のビルドから OCR を削る
 
 ```sh
-cd tauri && cargo fetch && ruby trim-mupdf.rb
+cd tauri && ruby trim-mupdf.rb
 ```
 
 chororeader は OCR を使わないが、Windows では毎回コンパイルされる。

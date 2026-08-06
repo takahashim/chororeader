@@ -16,14 +16,26 @@
 # 何度実行してもよい。当てる先が見つからないときは、黙って通さずに失敗する。
 # 版が上がって形が変われば気付けるようにするためである。
 
-require "fileutils"
+require "json"
 
 TARGETS = %w[libtesseract libleptonica].freeze
 DEFINES = %w[HAVE_TESSERACT HAVE_LEPTONICA].freeze
 
+# 置き場所は cargo に聞く。
+#
+# 登録先の経路を自分で組み立てて探すと、CARGO_HOME の置き方や OS の違いで外れる。
+# 実際 Windows の CI で見つけられなかった。
+# cargo metadata は解決のためにソースを展開するので、置き場所を答えられる状態にもなる。
 def registry_roots
-  home = ENV["CARGO_HOME"] || File.join(Dir.home, ".cargo")
-  Dir[File.join(home, "registry", "src", "*", "mupdf-sys-*")]
+  manifest = File.expand_path("Cargo.toml", __dir__)
+  out = IO.popen(["cargo", "metadata", "--format-version", "1",
+                  "--manifest-path", manifest], &:read)
+  abort("cargo metadata を実行できませんでした") unless $?.success?
+
+  JSON.parse(out)["packages"]
+      .select { |pkg| pkg["name"] == "mupdf-sys" }
+      .map { |pkg| File.dirname(pkg["manifest_path"]) }
+      .select { |dir| Dir.exist?(dir) }
 end
 
 def patch(path)
@@ -54,7 +66,7 @@ def check(path)
 end
 
 roots = registry_roots
-abort("mupdf-sys が見つかりません。先に cargo fetch を実行してください。") if roots.empty?
+abort("依存に mupdf-sys がありません。") if roots.empty?
 
 touched = 0
 roots.each do |root|
