@@ -28,6 +28,7 @@ module Fixtures
       "broken-refs" => method(:broken_refs),
       "malformed-xhtml" => method(:malformed_xhtml),
       "nonlinear-spine" => method(:nonlinear_spine),
+      "repeated-spine" => method(:repeated_spine),
       "fixed-layout" => method(:fixed_layout),
       "rtl" => method(:rtl),
       "footnotes" => method(:footnotes),
@@ -333,6 +334,52 @@ module Fixtures
   end
 
   # linear="no" の項目は読み順から外し、目次からは開けるままにする。
+  # 同じ章を読み順に 2 度置いた書籍。spine から同じ manifest 項目を 2 度指すのは EPUB として正しい。
+  #
+  # 検索の当たりに振る章内の通し番号は、読み順の項目ごとに 0 から数え直す。
+  # 同じ経路が 2 度出るときに数え直しを忘れると、片方の実装だけが続きの番号を振り、
+  # その当たりを別の実装で開いたときに違う語を強調することになる。
+  def repeated_spine(path)
+    opf = <<~XML
+      <?xml version="1.0" encoding="UTF-8"?>
+      <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <dc:title>同じ章を二度置く書籍</dc:title>
+          <dc:language>ja</dc:language>
+          <dc:identifier id="pub-id">urn:uuid:repeated</dc:identifier>
+        </metadata>
+        <manifest>
+          <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+          <item id="c1" href="text/ch01.xhtml" media-type="application/xhtml+xml"/>
+          <item id="c2" href="text/ch02.xhtml" media-type="application/xhtml+xml"/>
+        </manifest>
+        <spine>
+          <itemref idref="c1"/>
+          <itemref idref="c1"/>
+          <itemref idref="c2"/>
+        </spine>
+      </package>
+    XML
+
+    nav = <<~XHTML
+      <?xml version="1.0" encoding="UTF-8"?>
+      <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+      <head><title>目次</title></head>
+      <body><nav epub:type="toc"><ol>
+        <li><a href="text/ch01.xhtml">第 1 章</a></li>
+        <li><a href="text/ch02.xhtml">第 2 章</a></li>
+      </ol></nav></body></html>
+    XHTML
+
+    write_epub(path,
+               "META-INF/container.xml" => container,
+               "OEBPS/content.opf" => opf,
+               "OEBPS/nav.xhtml" => nav,
+               "OEBPS/text/ch01.xhtml" =>
+                 chapter("第 1 章", "<p>この章には目当ての語が二度出る。</p><p>二度目の語。</p>"),
+               "OEBPS/text/ch02.xhtml" => chapter("第 2 章", "<p>ここにも語がある。</p>"))
+  end
+
   def nonlinear_spine(path)
     opf = <<~XML
       <?xml version="1.0" encoding="UTF-8"?>

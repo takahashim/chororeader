@@ -12,7 +12,7 @@ use chororeader_core::publication::{detect_format, DocumentError, DocumentFormat
 use chororeader_core::style::{ReaderStyle, Theme};
 use chororeader_core::{css_compat, epub_parser, html_text, paths, pdf, preview, report, search};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
@@ -291,6 +291,9 @@ fn search_command(args: &[String]) -> Result<Value, DocumentError> {
             "progression": round_to_even(r.locator.progression, 3),
             "match": norm(&r.matched),
             "isCode": r.is_code,
+            // 章の中で何番目の当たりか。飛んだ先で押した当たりを選び直すのに使うので、
+            // 実装どうしで食い違うと、開き直した窓が別の語を強調することになる。
+            "nth": r.nth,
         })).collect::<Vec<_>>(),
     }))
 }

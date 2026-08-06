@@ -1,0 +1,43 @@
+{
+  "command": "search",
+  "query": "語",
+  "results": [
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "isCode": false,
+      "match": "語",
+      "nth": 0,
+      "progression": 0.516
+    },
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "isCode": false,
+      "match": "語",
+      "nth": 1,
+      "progression": 0.903
+    },
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "isCode": false,
+      "match": "語",
+      "nth": 0,
+      "progression": 0.516
+    },
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "isCode": false,
+      "match": "語",
+      "nth": 1,
+      "progression": 0.903
+    },
+    {
+      "href": "OEBPS/text/ch02.xhtml",
+      "isCode": false,
+      "match": "語",
+      "nth": 0,
+      "progression": 0.647
+    }
+  ],
+  "schema": 2,
+  "truncated": false
+}

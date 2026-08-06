@@ -69,9 +69,13 @@ module Cases
   FIXED = { "fixed-layout" => [0, 1, 4], "epub3-basic" => [0] }.freeze
 
   SEARCH = {
-    "epub3-basic" => ["本文", "hello"],
+    # 「章」は 1 つの章に 2 度出る。章の中での通し番号（nth）が揃うことは、
+    # これのように同じ章で複数当たる問い合わせでしか確かめられない。
+    "epub3-basic" => ["本文", "hello", "章"],
     "legacy-css" => ["本文"],
     "encoded-paths" => ["ファイル名"],
+    # 同じ章が読み順に 2 度出る。通し番号を読み順の項目ごとに数え直しているかを見る。
+    "repeated-spine" => ["語"],
   }.freeze
 
   # フィクスチャ 1 つにつき parse と report を取る。

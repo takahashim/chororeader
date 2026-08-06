@@ -2,5 +2,5 @@
   "command": "style",
   "css": "html { background-color: #1c1c1e !important; }\nbody { max-width: 42em !important; margin-left: auto !important; margin-right: auto !important; }\nimg, svg, video { max-width: 100% !important; height: auto !important; }\npre { overflow-x: auto; }",
   "needsForegroundMarking": false,
-  "schema": 1
+  "schema": 2
 }

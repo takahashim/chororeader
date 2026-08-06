@@ -1,5 +1,5 @@
 {
   "command": "detect",
   "format": "reflowableEPUB",
-  "schema": 1
+  "schema": 2
 }

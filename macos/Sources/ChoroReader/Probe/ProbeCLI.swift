@@ -5,7 +5,7 @@ import PDFKit
 /// 出力の形は conformance/CONTRACT.md で定義し、Windows 実装も同じ形を返す。
 /// UI もライブラリ保存も通らない純粋な経路にしておく（副作用を持ち込まない）。
 enum ProbeCLI {
-    static let schemaVersion = 1
+    static let schemaVersion = 2
 
     static func shouldRun(_ arguments: [String]) -> Bool {
         arguments.count >= 2 && arguments[1] == "probe"
@@ -192,7 +192,8 @@ enum ProbeCLI {
                     SearchOutput.Hit(href: norm($0.locator.href ?? ""),
                                      progression: round($0.locator.progression * 1000) / 1000,
                                      match: norm($0.match),
-                                     isCode: $0.isCode)
+                                     isCode: $0.isCode,
+                                     nth: $0.nth)
                 }
             ))
         } catch {
@@ -331,6 +332,9 @@ struct SearchOutput: Codable {
         var progression: Double
         var match: String
         var isCode: Bool
+        /// 章の中で何番目の当たりか。飛んだ先で押した当たりを選び直すのに使うので、
+        /// 実装どうしで食い違うと、開き直したウィンドウが別の語を強調することになる。
+        var nth: Int
     }
     var schema: Int
     var command: String

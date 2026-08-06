@@ -2,5 +2,5 @@
   "command": "style",
   "css": "html {\n    font-size: 100% !important;\n    background-color: #ffffff !important;\n    -webkit-text-size-adjust: none;\n}\nbody {\n    line-height: 1.80 !important;\n    max-width: 42em !important;\n    margin: 0 auto !important;\n    padding: 2em 1.6em 6em !important;\n    background-color: #ffffff !important;\n    \n}\nbody { color: #1a1a1a; }\nimg, svg, video { max-width: 100% !important; height: auto !important; }\ntable { max-width: 100% !important; display: block; overflow-x: auto; }\n/* コードは等幅で読めることを最優先にし、内側の色付けには触れない */\npre, code, kbd, samp {\n    font-family: \"SF Mono\", ui-monospace, Menlo, monospace !important;\n    background-color: #f4f4f6 !important;\n}\npre {\n    padding: 0.8em 1em !important;\n    border-radius: 6px;\n    overflow-x: auto !important;\n    white-space: pre !important;\n    word-break: normal !important;\n}",
   "needsForegroundMarking": false,
-  "schema": 1
+  "schema": 2
 }

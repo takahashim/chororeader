@@ -3,5 +3,5 @@
   "command": "resolve",
   "href": "../images/a.png",
   "result": "OEBPS/images/a.png",
-  "schema": 1
+  "schema": 2
 }

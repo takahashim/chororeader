@@ -3,25 +3,27 @@
   "report": {
     "cssChanges": [],
     "cssFileCount": 0,
-    "deflatedEntryCount": 13,
+    "deflatedEntryCount": 5,
     "direction": "ltr",
     "fontCount": 0,
-    "format": "fixedEPUB",
+    "format": "reflowableEPUB",
     "hasCover": false,
     "hasEncryptionMetadata": false,
-    "imageCount": 5,
-    "layout": "fixed",
+    "imageCount": 0,
+    "layout": "reflowable",
     "legacyCSSFileCount": 0,
     "malformedXHTMLCount": 0,
-    "missingResources": [],
+    "missingResources": [
+      "OEBPS/style/book.css"
+    ],
     "missingSpineItems": [],
     "missingTOCTargets": [],
     "nonUTF8CSSCount": 0,
-    "spineCount": 5,
+    "spineCount": 3,
     "storedEntryCount": 1,
-    "tocEntryCount": 1,
+    "tocEntryCount": 2,
     "tocMaxDepth": 1,
-    "xhtmlCount": 6
+    "xhtmlCount": 3
   },
   "schema": 2
 }

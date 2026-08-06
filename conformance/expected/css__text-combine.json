@@ -8,5 +8,5 @@
   ],
   "command": "css",
   "output": ".k { text-combine-upright: all; }\n",
-  "schema": 1
+  "schema": 2
 }
