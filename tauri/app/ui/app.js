@@ -44,6 +44,8 @@ const state = {
   /// PDF のページの大きさ（ポイント）。合わせ方の計算に要る。
   pageSize: null,
   settings: { ...DEFAULT_SETTINGS },
+  shelfBooks: [],
+  shelfSelected: -1,
   style: { css: "", needsForegroundMarking: false },
   bookmarks: [],
   restoring: null,
@@ -865,10 +867,12 @@ function renderShelf(books) {
   grid.textContent = "";
   rows.textContent = "";
 
-  for (const book of books) {
+  state.shelfBooks = books;
+  state.shelfSelected = -1;
+  books.forEach((book, index) => {
     grid.appendChild(coverCard(book));
-    rows.appendChild(tableRow(book));
-  }
+    rows.appendChild(tableRow(book, index));
+  });
 }
 
 function coverCard(book) {
@@ -896,12 +900,14 @@ function coverCard(book) {
   kind.textContent = book.format === "pdf" ? "PDF" : "EPUB";
   card.appendChild(kind);
 
-  bindOpen(card, book);
+  // 表紙は的が大きく、押しボタンとして扱える。ここは押せば開く。
+  if (book.exists) card.addEventListener("click", () => openBook(book));
   return card;
 }
 
-function tableRow(book) {
+function tableRow(book, index) {
   const row = document.createElement("tr");
+  row.dataset.index = String(index);
   if (!book.exists) row.className = "missing";
   row.title = book.path;
 
@@ -919,7 +925,12 @@ function tableRow(book) {
     row.appendChild(cell);
   }
 
-  bindOpen(row, book);
+  // 一覧は探すための画面なので、押しただけでは開かない。
+  // 見比べているあいだに窓が増えるのは邪魔になる。Finder と Explorer の作法にも合う。
+  if (book.exists) {
+    row.addEventListener("click", () => selectRow(index));
+    row.addEventListener("dblclick", () => openBook(book));
+  }
   return row;
 }
 
@@ -936,11 +947,31 @@ function coverImage(book, onError) {
 
 /// 選んだ本は読書の窓に開く。書棚は残る。
 /// どの窓に開くのかを決めておかないと、書棚を窓として分けた意味がなくなる。
-function bindOpen(element, book) {
+function openBook(book) {
   if (!book.exists) return;
-  element.addEventListener("click", () => {
-    invoke("open_in_new_window", { path: book.path, href: "" });
-  });
+  invoke("open_in_new_window", { path: book.path, href: "", fragment: "" });
+}
+
+/// 一覧の行を選ぶ。冊数が増えると鍵盤で辿れることが効いてくる。
+function selectRow(index) {
+  const rows = $("shelf-table").tBodies[0].rows;
+  if (rows.length === 0) return;
+  state.shelfSelected = Math.max(0, Math.min(rows.length - 1, index));
+  for (const row of rows) {
+    row.classList.toggle("selected", Number(row.dataset.index) === state.shelfSelected);
+  }
+  rows[state.shelfSelected].scrollIntoView({ block: "nearest" });
+}
+
+/// 書棚の窓の鍵盤。読書の窓とは操作が別なので、入口で分ける。
+function shelfKeys(event) {
+  if (state.settings.shelfMode !== "table") return;
+  if (event.key === "ArrowDown") { event.preventDefault(); return selectRow(state.shelfSelected + 1); }
+  if (event.key === "ArrowUp") { event.preventDefault(); return selectRow(state.shelfSelected - 1); }
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  const book = state.shelfBooks[state.shelfSelected];
+  if (book) openBook(book);
 }
 
 function applyShelfMode() {

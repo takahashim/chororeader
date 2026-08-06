@@ -419,6 +419,7 @@ body.shelf-window #shelf { position: static; flex: 1; min-height: 0; }
 }
 
 #shelf-table tbody tr:hover td { background: rgba(127, 127, 127, 0.12); }
+#shelf-table tbody tr.selected td { background: var(--accent); color: #fff; }
 #shelf-table tr.missing td { color: var(--dim); text-decoration: line-through; cursor: default; }
 
 #shelf-table td.thumb { width: 34px; padding: 3px 6px; }
