@@ -32,17 +32,67 @@ enum SearchIndexStore {
         guard let source = source() else { return nil }
         let index = SearchIndex.build(unitTexts(of: source))
         write(index, for: url)
+        if let (size, modified) = stamp(of: url) {
+            memory.setObject(Box(index: index, size: size, modified: modified),
+                             forKey: url.standardizedFileURL.path as NSString,
+                             cost: index.encoded().count)
+        }
         return index
     }
 
     /// 作らずに、既にあるものだけを返す。
+    ///
+    /// 一度ほどいたものは持ち続ける。書棚の横断検索は引くたびに全冊の索引に触るので、
+    /// 毎回ほどき直すと蔵書 78 冊で 1.4 秒かかり、絞り込みより読み込みの方が高く付く。
     static func cached(for url: URL) -> SearchIndex? {
+        guard let (size, modified) = stamp(of: url) else { return nil }
+        let key = url.standardizedFileURL.path as NSString
+
+        if let box = memory.object(forKey: key), box.size == size, box.modified == modified {
+            return box.index
+        }
+
         guard let data = try? Data(contentsOf: location(for: url)),
-              let (size, modified, payload) = unwrap(data),
-              let (currentSize, currentModified) = stamp(of: url),
-              size == currentSize, modified == currentModified else { return nil }
-        return SearchIndex(decoding: payload)
+              let (storedSize, storedModified, payload) = unwrap(data),
+              storedSize == size, storedModified == modified,
+              let index = SearchIndex(decoding: payload) else { return nil }
+
+        memory.setObject(Box(index: index, size: size, modified: modified),
+                         forKey: key, cost: payload.count)
+        return index
     }
+
+    /// 引かれる前に、置いてある索引をほどいておく。
+    ///
+    /// 書棚を開いた時点で始めておけば、最初の検索が読み込みを待たずに済む。
+    static func warm(_ urls: [URL]) {
+        let urls = urls.filter { memory.object(forKey: $0.standardizedFileURL.path as NSString) == nil }
+        guard !urls.isEmpty else { return }
+        DispatchQueue.global(qos: .utility).async {
+            DispatchQueue.concurrentPerform(iterations: urls.count) { at in
+                _ = cached(for: urls[at])
+            }
+        }
+    }
+
+    private final class Box {
+        let index: SearchIndex
+        let size: UInt64
+        let modified: UInt64
+
+        init(index: SearchIndex, size: UInt64, modified: UInt64) {
+            self.index = index
+            self.size = size
+            self.modified = modified
+        }
+    }
+
+    /// ほどいた索引は元の 3 倍ほどの場所を取る。蔵書が増えても際限なく抱えないよう頭を打つ。
+    private static let memory: NSCache<NSString, Box> = {
+        let cache = NSCache<NSString, Box>()
+        cache.totalCostLimit = 32 * 1024 * 1024
+        return cache
+    }()
 
     static func hasIndex(for url: URL) -> Bool {
         cached(for: url) != nil

@@ -75,6 +75,8 @@ struct LibraryView: View {
         }
         .onAppear {
             OpenRequests.shared.setHandler { url in open(url) }
+            // 引かれる前に索引をほどいておく。最初の検索を待たせないため。
+            SearchIndexStore.warm(store.recent.compactMap { store.resolveURL(for: $0) })
         }
         .onReceive(NotificationCenter.default.publisher(for: .choroFocusLibrarySearch)) { _ in
             queryFocused = true
