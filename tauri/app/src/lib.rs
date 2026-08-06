@@ -410,6 +410,12 @@ fn diagnose(library: tauri::State<'_, Library>, id: String) -> Result<serde_json
     }))
 }
 
+/// 画面側の様子を標準エラーへ出す。原因を追うあいだだけ使う。
+#[tauri::command]
+fn ui_log(message: String) {
+    eprintln!("[ui] {message}");
+}
+
 // MARK: 位置としおり
 
 #[tauri::command(async)]

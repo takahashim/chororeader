@@ -6,6 +6,11 @@
 // 詳しくは spikes/findings-tauri.md を見よ。
 
 const invoke = window.__TAURI__.core.invoke;
+
+// 不具合を追うときだけ記録する。TZR_DEBUG=1 を付けて起動すると有効になり、
+// キーがどこへ届いたかが標準エラーに出る。常時は何もしない。
+const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
+const trace = (message) => { if (DEBUG) invoke("ui_log", { message }).catch(() => {}); };
 const $ = (id) => document.getElementById(id);
 
 const DEFAULT_SETTINGS = {
@@ -154,26 +159,38 @@ $("toc").addEventListener("click", (event) => {
 
 // ---- 本文（EPUB） -------------------------------------------------------
 
+// 読み込み中の状態。章の送りはここを見て振る舞いを変える。
+let loadToken = 0;
+let loading = false;
+// 読み込み中に押された分を取っておく。取りこぼすと「進まないことがある」になる。
+let pendingStep = 0;
+
 async function showChapter(index, fragment) {
   const chapter = state.book.chapters[index];
   if (!chapter) return;
+  const token = ++loadToken;
   state.index = index;
+  loading = true;
 
   const frame = $("page");
   const url = `/book/${state.book.id}/${encodePath(chapter.href)}`;
-  frame.src = url;
+
+  // 読み込みのあいだも、入れ替わる文書に手を付け続ける。
+  // 空きを作ると、その隙に押されたキーがどこにも届かない。
+  const stopWatching = watchDocument(frame);
 
   let doc;
   try {
-    doc = await waitUntil(() => {
-      const d = frame.contentDocument;
-      return d && d.readyState === "complete" && d.body && d.location.href.includes(encodePath(chapter.href).split("/").pop())
-        ? d : null;
-    }, "本文");
+    doc = await loadInto(frame, url);
   } catch (error) {
+    stopWatching();
+    loading = false;
     toast(String(error.message || error));
     return;
   }
+  stopWatching();
+  // 後から押された分に追い越されていたら、こちらの後始末はしない。
+  if (token !== loadToken) return;
 
   decorate(doc);
   markCurrentToc();
@@ -191,7 +208,47 @@ async function showChapter(index, fragment) {
   } else {
     (doc.scrollingElement || doc.documentElement).scrollTop = 0;
   }
+  loading = false;
   rememberSoon();
+  flushPendingStep();
+}
+
+/// 目当ての文書が入り終わるまで待つ。
+///
+/// iframe は生成直後に about:blank を持っており、それも readyState は 'complete' を返す。
+/// ファイル名の部分一致で見分けると、名前が似た章どうしで取り違える。経路全体で照合する。
+function loadInto(frame, url) {
+  const expected = decodeURIComponent(new URL(url, location.href).pathname);
+  frame.src = url;
+  return waitUntil(() => {
+    const doc = frame.contentDocument;
+    if (!doc || doc.readyState !== "complete" || !doc.body) return null;
+    return decodeURIComponent(doc.location.pathname) === expected ? doc : null;
+  }, "本文");
+}
+
+/// 入れ替わる文書へ、現れた次の描画で手を付ける。読み込みが終わるまでの繋ぎ。
+function watchDocument(frame) {
+  let stopped = false;
+  let seen = null;
+  const tick = () => {
+    if (stopped) return;
+    const doc = frame.contentDocument;
+    if (doc && doc !== seen) {
+      seen = doc;
+      // 同じ関数を二度足しても増えない。decorate と重なってよい。
+      doc.addEventListener("keydown", onKeyDown);
+    }
+    requestAnimationFrame(tick);
+  };
+  tick();
+  return () => { stopped = true; };
+}
+
+function flushPendingStep() {
+  const delta = pendingStep;
+  pendingStep = 0;
+  if (delta !== 0) step(delta);
 }
 
 /// 本文の文書に手を入れる。注入ではなく、親から直接触る。
@@ -826,6 +883,9 @@ window.addEventListener("focus", focusContent);
 // 矢印キーは移動、上下とスペースは読むための送り。軸ごとに意味を 1 つに定める。
 function onKeyDown(event) {
   const editing = event.target && /input|textarea/i.test(event.target.tagName || "");
+  trace(`key=${event.key} loading=${loading} pending=${pendingStep} index=${state.index} `
+      + `target=${event.target && event.target.nodeName} `
+      + `sameDoc=${event.target && event.target.ownerDocument === document}`);
   const command = event.metaKey || event.ctrlKey;
 
   if (command && event.key.toLowerCase() === "o") { event.preventDefault(); return pick(); }
@@ -886,7 +946,10 @@ function scrollContent(amount, byScreen) {
 }
 
 function step(delta) {
+  trace(`step(${delta}) loading=${loading} index=${state.index}`);
   if (state.book.format === "pdf") return showPdf(state.page + delta);
+  // 読み込み中の分は取っておき、終わってからまとめて動かす。
+  if (loading) { pendingStep += delta; return; }
   const index = state.index + delta;
   if (index < 0 || index >= state.book.chapters.length) return;
   showChapter(index);
