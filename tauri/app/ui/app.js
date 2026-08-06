@@ -1537,4 +1537,44 @@ async function main() {
   invoke("open_shelf");
 }
 
+// 献立からの呼び出しと、動作確認の治具に渡す入口。
+// 画面の中身をそのまま外へ出さず、必要なものだけを名前を付けて渡す。
+window.tzr = {
+  state,
+  step,
+  goBack,
+  goForward,
+  hideMenu,
+  showPane,
+  toggleSidebar,
+  toggleBookmark,
+  diagnose,
+  pick,
+  openHere,
+  zoomBy,
+  resetZoom,
+};
+
+window.__TAURI__.event.listen("menu", (event) => {
+  const actions = {
+    open: pick,
+    "new-window": openHere,
+    shelf: () => invoke("open_shelf"),
+    back: goBack,
+    forward: goForward,
+    prev: () => step(-1),
+    next: () => step(1),
+    find: () => $("search-input").focus(),
+    bookmark: toggleBookmark,
+    sidebar: toggleSidebar,
+    "zoom-in": () => zoomBy(1.25),
+    "zoom-out": () => zoomBy(1 / 1.25),
+    "zoom-reset": resetZoom,
+    diagnose,
+    selftest: () => window.tzrSelfTest && window.tzrSelfTest(),
+  };
+  const action = actions[event.payload];
+  if (action) action();
+});
+
 main();

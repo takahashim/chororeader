@@ -9,7 +9,8 @@ mod protocol;
 pub mod store;
 
 use serde::Serialize;
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
 use tzreader_core::archive::ResourceProvider;
@@ -28,6 +29,20 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Windows には献立帯が無いと、鍵盤の割り当てを知る手立てがない。
+        // macOS 版の献立と同じ並びにしてあり、動作確認もここから呼ぶ。
+        .menu(build_menu)
+        .on_menu_event(|app, event| {
+            let id = event.id().0.clone();
+            // 実際の処理は画面側が持っている。名前だけ渡す。
+            for (_, window) in app.webview_windows() {
+                if window.is_focused().unwrap_or(false) {
+                    let _ = window.emit("menu", id.clone());
+                    return;
+                }
+            }
+            let _ = app.emit("menu", id);
+        })
         .manage(Library::default())
         .invoke_handler(tauri::generate_handler![
             open_book,
@@ -44,6 +59,8 @@ pub fn run() {
             diagnose,
             open_in_new_window,
             open_shelf,
+            window_count,
+            selftest_report,
             book_state,
             remember_position,
             toggle_bookmark,
@@ -80,6 +97,24 @@ pub fn run() {
         })
         .setup(move |app| {
             app.manage(Store::load(app.handle()));
+
+            // 画面へ渡す旗。TZR_DEBUG は様子を標準エラーへ、
+            // TZR_SELFTEST は開いた直後に動作確認を走らせて結果を出して終わる。
+            let mut flags = String::new();
+            if std::env::var("TZR_DEBUG").is_ok() {
+                flags.push_str("&debug=1");
+            }
+            if std::env::var("TZR_SELFTEST").is_ok() {
+                flags.push_str("&selftest=1");
+                // 判定が終わらないまま居座らないための見張り。
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(120));
+                    eprintln!("動作確認が 120 秒以内に終わらなかった");
+                    handle.exit(2);
+                });
+            }
+
             if opening.is_empty() {
                 // 何も渡されなければ書棚から始める。macOS 版のライブラリ窓と同じ位置づけ。
                 open_shelf_window(app.handle())?;
@@ -90,13 +125,71 @@ pub fn run() {
                     } else {
                         format!("book-{}", NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
                     };
-                    open_window(app.handle(), &label, &format!("?path={}", urlencode(path)))?;
+                    let query = format!("?path={}{flags}", urlencode(path));
+                    open_window(app.handle(), &label, &query)?;
                 }
             }
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("Tauri の起動に失敗した");
+}
+
+fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    let item = |id: &str, label: &str, key: Option<&str>| -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
+        let mut builder = MenuItemBuilder::with_id(id, label);
+        if let Some(key) = key {
+            builder = builder.accelerator(key);
+        }
+        builder.build(app)
+    };
+
+    // macOS では先頭の一組がアプリの献立として扱われる。
+    // これを置かないと「ファイル」がそこへ吸われて消える。Windows では並びに影響しない。
+    let application = SubmenuBuilder::new(app, "tzreader")
+        .about(None)
+        .separator()
+        .hide()
+        .quit()
+        .build()?;
+
+    let file = SubmenuBuilder::new(app, "ファイル")
+        .item(&item("open", "開く…", Some("CmdOrCtrl+O"))?)
+        .item(&item("new-window", "この場所を新しいウィンドウで開く", Some("CmdOrCtrl+N"))?)
+        .separator()
+        .item(&item("shelf", "書棚", Some("CmdOrCtrl+L"))?)
+        .separator()
+        .close_window()
+        .build()?;
+
+    let go = SubmenuBuilder::new(app, "移動")
+        .item(&item("back", "戻る", Some("CmdOrCtrl+["))?)
+        .item(&item("forward", "進む", Some("CmdOrCtrl+]"))?)
+        .separator()
+        .item(&item("prev", "前の章／ページ", Some("CmdOrCtrl+Up"))?)
+        .item(&item("next", "次の章／ページ", Some("CmdOrCtrl+Down"))?)
+        .separator()
+        .item(&item("find", "検索", Some("CmdOrCtrl+F"))?)
+        .item(&item("bookmark", "しおりを追加", Some("CmdOrCtrl+D"))?)
+        .build()?;
+
+    let view = SubmenuBuilder::new(app, "表示")
+        .item(&item("sidebar", "サイドバーの表示を切り替え", Some("CmdOrCtrl+\\"))?)
+        .separator()
+        .item(&item("zoom-in", "大きくする", Some("CmdOrCtrl+Plus"))?)
+        .item(&item("zoom-out", "小さくする", Some("CmdOrCtrl+-"))?)
+        .item(&item("zoom-reset", "標準の大きさ", Some("CmdOrCtrl+0"))?)
+        .build()?;
+
+    let help = SubmenuBuilder::new(app, "ヘルプ")
+        .item(&item("diagnose", "この書籍の診断…", Some("CmdOrCtrl+Alt+I"))?)
+        .separator()
+        .item(&item("selftest", "動作確認…", None)?)
+        .build()?;
+
+    MenuBuilder::new(app)
+        .items(&[&application, &file, &go, &view, &help])
+        .build()
 }
 
 fn open_window(
@@ -131,6 +224,9 @@ fn build_window(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 同じ大きさで真上に重ねると、増えたことに気付けない。少しずらす。
     let offset = (app.webview_windows().len() as f64) * 26.0 % 160.0;
+    if std::env::var("TZR_SELFTEST").is_ok() {
+        eprintln!("[窓] {label} {}", protocol::app_url(query));
+    }
     WebviewWindowBuilder::new(
         app,
         label,
@@ -267,6 +363,26 @@ fn library(store: tauri::State<'_, Store>) -> Vec<Shelved> {
             path,
         })
         .collect()
+}
+
+/// いま開いている窓の数。治具が「別窓で開いたか」を確かめるのに使う。
+#[tauri::command]
+fn window_count(app: tauri::AppHandle) -> usize {
+    app.webview_windows().len()
+}
+
+/// 治具の結果を受け取る。届いた時点で判定は終わりなので、そのまま終了する。
+#[tauri::command]
+fn selftest_report(app: tauri::AppHandle, results: serde_json::Value) {
+    let items = results.as_array().cloned().unwrap_or_default();
+    // 飛ばしたものは不合格にしない。人の操作が要る検査は引数から走らせると必ず飛ぶ。
+    let failed = items.iter().filter(|r| r["ok"] == false).count();
+    let passed = items.iter().filter(|r| r["ok"] == true).count();
+    let skipped = items.len() - failed - passed;
+
+    println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
+    println!("\n合格 {passed} ／ 不合格 {failed} ／ 飛ばした {skipped}");
+    app.exit(if failed == 0 { 0 } else { 1 });
 }
 
 #[tauri::command]

@@ -34,6 +34,10 @@ pub fn serve(app: &tauri::AppHandle, request: &Request<Vec<u8>>) -> Response<Vec
                 include_str!("../ui/app.js").as_bytes().to_vec(),
                 "text/javascript; charset=utf-8",
             ),
+            "selftest.js" => typed(
+                include_str!("../ui/selftest.js").as_bytes().to_vec(),
+                "text/javascript; charset=utf-8",
+            ),
             "app.css" => typed(
                 include_str!("../ui/app.css").as_bytes().to_vec(),
                 "text/css; charset=utf-8",

@@ -1,4 +1,4 @@
-name: Tauri スパイク
+name: Windows での確認
 
 # 本体の CI から切り離してある。
 # MuPDF を C のソースからビルドするため、キャッシュが冷えていると十数分かかる。
@@ -9,6 +9,7 @@ on:
     paths:
       - "spikes/tauri-spike/**"
       - "spikes/rust-mupdf/**"
+      - "tauri/**"
       - ".github/workflows/tauri-spike.yml"
   workflow_dispatch:
 
@@ -43,3 +44,35 @@ jobs:
       - name: スパイクを実行する
         working-directory: spikes/tauri-spike/src-tauri
         run: cargo run --release
+
+  # 本体の動作確認。Windows の実機に触れないまま作っている部分を機械的に潰す。
+  # 人の操作が要る分（右クリック、修飾キー、落とし込み）はここでは飛ばす。
+  # それらはアプリのヘルプ献立から「動作確認…」を選べば、手元で順に確かめられる。
+  selftest-windows:
+    name: Tauri 版の動作確認を Windows で回す
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+          working-directory: conformance
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri
+          shared-key: tauri-app-windows
+          cache-on-failure: true
+
+      # 実書籍は置けないので、合成フィクスチャで確かめる。
+      - name: フィクスチャを作る
+        working-directory: conformance
+        run: bundle exec ./tzconf generate
+
+      - name: 動作確認を走らせる
+        working-directory: tauri
+        env:
+          TZR_SELFTEST: "1"
+        run: cargo run --release -p tzreader -- ../conformance/fixtures/epub3-basic.epub

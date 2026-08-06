@@ -499,6 +499,81 @@ body.shelf-window #shelf { position: static; flex: 1; min-height: 0; }
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
 }
 
+/* 動作確認の板。読書の邪魔にならないよう右下に置く。 */
+#selftest {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 70;
+  width: min(560px, 70vw);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+#selftest-bar,
+#selftest-ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+}
+
+#selftest-ask {
+  border-bottom: 0;
+  border-top: 1px solid var(--line);
+  background: var(--accent);
+  color: #fff;
+}
+
+#selftest-bar button,
+#selftest-ask button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 2px 9px;
+  cursor: pointer;
+  font: inherit;
+}
+
+#selftest-count { color: var(--dim); font-size: 12px; }
+#selftest-left { font-size: 12px; opacity: 0.85; }
+#selftest-ask #selftest-ask-text { flex: 1; }
+
+#selftest-list { overflow: auto; padding: 4px 0; }
+
+#selftest-list .row {
+  display: flex;
+  gap: 8px;
+  padding: 3px 10px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+#selftest-list .mark { width: 1.2em; font-weight: 700; }
+#selftest-list .row.ok .mark { color: #2a8a3e; }
+#selftest-list .row.ng .mark { color: #c0392b; }
+#selftest-list .row.skip .mark { color: var(--dim); }
+#selftest-list .name { flex: 1; min-width: 14ch; }
+
+/* 書籍の題のように長い注記で、検査の名前が 1 文字ずつに潰れないようにする。 */
+#selftest-list .detail {
+  color: var(--dim);
+  max-width: 46%;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 #toast {
   position: absolute;
   bottom: 18px;
