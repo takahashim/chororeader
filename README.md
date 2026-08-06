@@ -1,12 +1,13 @@
 # tzreader
 
 マルチフォーマット技術書リーダー（EPUB / PDF）。
-仕様は [spec.md](spec.md)、実現可能性の検証結果は [spikes/findings.md](spikes/findings.md) と
-[spikes/findings-windows.md](spikes/findings-windows.md) にある。
+macOS 版は `macos/`、Windows 版は `tauri/` にある。
+仕様は [spec.md](spec.md)。
 
-## ビルドと実行
+## ビルドと実行（macOS）
 
 ```sh
+cd macos
 ./make-app.sh          # build/TZReader.app を作る（debug）
 ./make-app.sh release  # 最適化ビルド
 open build/TZReader.app
@@ -15,16 +16,12 @@ open build/TZReader.app
 テスト（手元の実 EPUB を使う。無い場合はスキップされる）:
 
 ```sh
-swift test
+cd macos && swift test
 ```
 
-実装間の検証（将来の Windows 版と振る舞いを揃えるため）:
+Windows 版は [tauri/README.md](tauri/README.md) を見よ。
 
-```sh
-cd conformance && bundle install && ./tzconf check
-```
-
-## 現状
+## macOS 版の現状
 
 - EPUB を展開せずに読む（ZIP の中央ディレクトリを読み、章を要求時に取り出す）
 - リフロー型 EPUB の縦スクロール表示、目次（EPUB3 nav / EPUB2 NCX）
@@ -51,10 +48,10 @@ cd conformance && bundle install && ./tzconf check
 - 全文インデックス
 - 新しいウィンドウの自動隣接配置
 
-## 構成
+## macOS 版の構成
 
 ```
-Sources/TZReader/
+macos/Sources/TZReader/
 ├── App/          アプリ本体、ウィンドウ、メニュー
 ├── Document/     EPUB パーサ、BookDocument（書籍ごとの共有層）
 ├── Library/      蔵書と読書位置の保存

@@ -1,6 +1,10 @@
-# Tauri 版
+# Windows 版（Tauri）
 
-Rust と OS 標準の WebView で作る実装。Windows を主対象にするが、コードは OS に依らない。
+Rust と OS 標準の WebView で作る実装。**Windows 版の本体である。**
+
+macOS では使わない。macOS には `macos/` のネイティブ実装があり、そちらが正式な macOS 版である。
+ここを macOS でも動かしているのは、開発と検証を macOS の上で回すためであって、
+macOS で配るためではない（spec.md 第 13.1 節）。
 
 ```
 tauri/
