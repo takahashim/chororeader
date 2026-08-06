@@ -492,8 +492,22 @@ fn selftest_report(app: tauri::AppHandle, results: serde_json::Value) {
     let passed = items.iter().filter(|r| r["ok"] == true).count();
     let skipped = items.len() - failed - passed;
 
-    println!("{}", serde_json::to_string_pretty(&results).unwrap_or_default());
-    println!("\n合格 {passed} ／ 不合格 {failed} ／ 飛ばした {skipped}");
+    let mut report = serde_json::to_string_pretty(&results).unwrap_or_default();
+    report.push_str(&format!(
+        "\n\n合格 {passed} ／ 不合格 {failed} ／ 飛ばした {skipped}\n"
+    ));
+
+    // Windows の release は端末を持たないため、標準出力はどこにも届かない。
+    // 落ちたときにどの検査で落ちたのかが分からないのでは治具の意味がない。
+    // 行き先を渡されていればそこへ書く。
+    match std::env::var("TZR_SELFTEST_OUT") {
+        Ok(path) => {
+            if let Err(error) = std::fs::write(&path, &report) {
+                eprintln!("結果を書けなかった: {error}");
+            }
+        }
+        Err(_) => print!("{report}"),
+    }
     app.exit(if failed == 0 { 0 } else { 1 });
 }
 
