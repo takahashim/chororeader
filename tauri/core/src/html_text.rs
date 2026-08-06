@@ -150,6 +150,97 @@ pub fn strip_tags(source: &str) -> String {
     decode_entities(&output)
 }
 
+/// 抽出した本文の 1 文字ごとに、元の HTML でその文字が始まるバイト位置を求める。
+///
+/// extract は削って詰めるだけなので、元を頭から舐めながら同じ文字を拾えば揃う。
+/// 揃わない文字（タグの位置に足した空白など）は、いま見ている位置を指しておく。
+/// 完全に一致しなくてよい。ずれるのは、これを使って印を置く位置だけである。
+///
+/// **strip_tags と同じ規則をここでも辿る。** 片方だけ直すと揃わなくなるので、
+/// タグの扱い・実体参照・空白の詰め方を変えるときは、必ず両方を見ること。
+pub fn align(html: &str, text: &str) -> Vec<usize> {
+    let wanted: Vec<char> = text.chars().collect();
+    let mut origins = Vec::with_capacity(wanted.len());
+    let mut at = 0usize;
+
+    // 本文に混ぜないところ（script / style / コメント）は、抽出も消している。飛ばす。
+    let ignored = ignored_ranges(html);
+    let mut cursor = 0usize;
+    let mut inside_tag = false;
+
+    while at < wanted.len() && cursor < html.len() {
+        if let Some((_, end)) = ignored.iter().find(|(from, to)| cursor >= *from && cursor < *to) {
+            cursor = *end;
+            inside_tag = false;
+            continue;
+        }
+        let c = html[cursor..].chars().next().expect("境界は文字の頭");
+        let width = c.len_utf8();
+
+        if c == '<' {
+            inside_tag = true;
+            cursor += width;
+            continue;
+        }
+        if c == '>' {
+            inside_tag = false;
+            cursor += width;
+            // タグの位置には空白が 1 つ入る。本文側がそれを待っていれば、ここを指す。
+            if wanted[at] == ' ' {
+                origins.push(cursor);
+                at += 1;
+            }
+            continue;
+        }
+        if inside_tag {
+            cursor += width;
+            continue;
+        }
+
+        // 実体参照は解かれて 1 文字になる。始まりの位置を指しておく。
+        if c == '&' {
+            if let Some(length) = entity_length(&html[cursor..]) {
+                origins.push(cursor);
+                at += 1;
+                cursor += length;
+                continue;
+            }
+        }
+
+        if c == wanted[at] {
+            origins.push(cursor);
+            at += 1;
+            cursor += width;
+            continue;
+        }
+
+        // 改行や連なった空白は 1 つに詰められる。本文側が空白を待っていれば、そこで揃える。
+        if wanted[at] == ' ' && c.is_whitespace() {
+            origins.push(cursor);
+            at += 1;
+            cursor += width;
+            continue;
+        }
+        cursor += width;
+    }
+
+    // 揃えきれなかった残りは、末尾を指しておく。
+    while origins.len() < wanted.len() {
+        origins.push(html.len());
+    }
+    origins
+}
+
+/// `&...;` の長さ。実体参照でなければ `None`。
+pub fn entity_length(rest: &str) -> Option<usize> {
+    let end = rest.char_indices().take(12).find(|(_, c)| *c == ';')?.0;
+    let inside = &rest[1..end];
+    if inside.is_empty() || inside.contains('<') || inside.contains(' ') {
+        return None;
+    }
+    Some(end + 1)
+}
+
 fn decode_entities(source: &str) -> String {
     if !source.contains('&') {
         return source.to_string();

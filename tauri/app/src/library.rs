@@ -12,7 +12,7 @@ use chororeader_core::archive::EpubArchive;
 use chororeader_core::epub_parser;
 use chororeader_core::paths;
 use chororeader_core::pdf::PdfWorker;
-use chororeader_core::preview::fixed_layout;
+use chororeader_core::fixed_layout;
 use chororeader_core::publication::{detect_format, DocumentFormat, Publication, TocEntry};
 
 pub enum Content {

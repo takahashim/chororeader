@@ -1,7 +1,6 @@
 //! 章を順に走査して照合位置を返す。索引は持たない。
 
 use crate::archive::ResourceProvider;
-use crate::css_compat;
 use crate::html_text;
 use crate::paths;
 use crate::publication::{Locator, Publication};
@@ -117,7 +116,7 @@ pub fn search_epub_within(
         if only.is_some_and(|only| !only.contains(&(position as u32))) {
             continue;
         }
-        let Some(data) = resources.read(&link.href) else {
+        let Some(source) = resources.read_text(&link.href) else {
             continue;
         };
 
@@ -126,28 +125,15 @@ pub fn search_epub_within(
             .map(str::to_string)
             .unwrap_or_else(|| paths::last_component(&link.href).to_string());
 
-        let extracted = html_text::extract(&css_compat::decode_text(&data));
+        let extracted = html_text::extract(&source);
         let chars: Vec<char> = extracted.text.chars().collect();
         if chars.is_empty() {
             continue;
         }
-        let haystack = fold_all(&chars);
-
         // 通し番号は読み順の項目ごとに数え直す。同じ経路が読み順に 2 度出ることがあり、
         // そのときは同じ文書を 2 度開くので、番号も 0 から振り直さないと選び直せない。
-        let mut nth = 0;
-        let mut from = 0usize;
-        while from + needle.len() <= haystack.folded.len() {
-            let Some(hit) = find(&haystack.folded[from..], &needle) else {
-                break;
-            };
-            let folded_at = from + hit;
-            let found = haystack.origin[folded_at];
-
-            // 照合の長さは元の文字列側で数える。畳んだ結果と長さが変わりうるため。
-            let match_length = original_length(&haystack, folded_at, needle.len(), chars.len());
-            let after_start = (found + match_length).min(chars.len());
-            let snippet_end = (found + match_length.max(12)).min(chars.len());
+        for (nth, (found, match_end)) in matches(&chars, &needle).enumerate() {
+            let snippet_end = (found + (match_end - found).max(12)).min(chars.len());
 
             results.push(SearchResult {
                 locator: Locator {
@@ -160,20 +146,18 @@ pub fn search_epub_within(
                 before: slice(&chars, found.saturating_sub(30), found)
                     .trim()
                     .to_string(),
-                matched: slice(&chars, found, after_start),
-                after: slice(&chars, after_start, (after_start + 40).min(chars.len()))
+                matched: slice(&chars, found, match_end),
+                after: slice(&chars, match_end, (match_end + 40).min(chars.len()))
                     .trim()
                     .to_string(),
                 is_code: extracted.is_code(found),
                 nth,
             });
-            nth += 1;
 
             if results.len() >= limit {
                 truncated = true;
                 break;
             }
-            from = folded_at + 1;
         }
     }
 
@@ -190,27 +174,33 @@ pub fn search_epub_within(
 pub fn nth_match(text: &str, query: &str, nth: usize) -> Option<(usize, usize)> {
     let query_chars: Vec<char> = query.chars().collect();
     let needle = fold_all(&query_chars).folded;
-    if needle.is_empty() {
-        return None;
-    }
-
     let chars: Vec<char> = text.chars().collect();
-    let haystack = fold_all(&chars);
+    // 末尾式のままだと、走査が落ちる順の都合で借りを返せない。いったん受ける。
+    let found = matches(&chars, &needle).nth(nth);
+    found
+}
 
+/// 本文に当たる語が現れる範囲を、元の文字位置で順に返す。
+///
+/// 走査も強調も、当たりを数えるのはここ 1 か所にする。
+/// 別々に数えると、畳み方を変えたときに片方だけ直り、
+/// 検索が言う「何番目」と、強調が囲む語が食い違う。
+fn matches<'a>(chars: &'a [char], needle: &'a [char]) -> impl Iterator<Item = (usize, usize)> + 'a {
+    let haystack = fold_all(chars);
+    let total = chars.len();
     let mut from = 0usize;
-    let mut count = 0usize;
-    while from + needle.len() <= haystack.folded.len() {
-        let hit = find(&haystack.folded[from..], &needle)?;
+    std::iter::from_fn(move || {
+        if needle.is_empty() || from + needle.len() > haystack.folded.len() {
+            return None;
+        }
+        let hit = find(&haystack.folded[from..], needle)?;
         let folded_at = from + hit;
         let found = haystack.origin[folded_at];
-        if count == nth {
-            let length = original_length(&haystack, folded_at, needle.len(), chars.len());
-            return Some((found, (found + length).min(chars.len())));
-        }
-        count += 1;
+        // 照合の長さは元の文字列側で数える。畳んだ結果と長さが変わりうるため。
+        let length = original_length(&haystack, folded_at, needle.len(), total);
         from = folded_at + 1;
-    }
-    None
+        Some((found, (found + length).min(total)))
+    })
 }
 
 /// 畳んだ列の何文字ぶんが、元の何文字に当たるかを求める。

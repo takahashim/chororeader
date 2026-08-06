@@ -6,6 +6,7 @@
 pub mod archive;
 pub mod css_compat;
 pub mod epub_parser;
+pub mod fixed_layout;
 pub mod html_text;
 pub mod mark;
 pub mod index;

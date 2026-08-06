@@ -7,7 +7,7 @@ use std::io::Read;
 use serde_json::{json, Map, Value};
 
 use chororeader_core::archive::{EpubArchive, ResourceProvider};
-use chororeader_core::preview::fixed_layout;
+use chororeader_core::fixed_layout;
 use chororeader_core::publication::{detect_format, DocumentError, DocumentFormat, TocEntry};
 use chororeader_core::style::{ReaderStyle, Theme};
 use chororeader_core::{css_compat, epub_parser, html_text, mark, paths, pdf, preview, report, search};

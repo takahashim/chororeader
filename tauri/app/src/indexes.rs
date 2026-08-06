@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use chororeader_core::archive::{EpubArchive, ResourceProvider};
-use chororeader_core::index::Index;
+use chororeader_core::index::{varint, Index};
 use chororeader_core::paths;
 use chororeader_core::pdf::PdfWorker;
 use chororeader_core::publication::{detect_format, DocumentFormat, Publication};
@@ -130,9 +130,9 @@ impl Indexes {
         let mut out = Vec::new();
         out.extend_from_slice(b"CHIB");
         out.push(1);
-        put_bytes(&mut out, path.as_bytes());
-        put(&mut out, size);
-        put(&mut out, modified);
+        varint::put_bytes(&mut out, path.as_bytes());
+        varint::put(&mut out, size);
+        varint::put(&mut out, modified);
         out.extend_from_slice(&index.encode());
         let _ = std::fs::write(self.location(&path), &out);
 
@@ -199,45 +199,10 @@ fn unwrap(bytes: &[u8]) -> Option<(String, u64, u64, &[u8])> {
     if bytes.len() < 5 || &bytes[..4] != b"CHIB" || bytes[4] != 1 {
         return None;
     }
-    let mut at = 5;
-    let length = get(bytes, &mut at)? as usize;
-    let path = String::from_utf8(bytes.get(at..at + length)?.to_vec()).ok()?;
-    at += length;
-    let size = get(bytes, &mut at)?;
-    let modified = get(bytes, &mut at)?;
-    Some((path, size, modified, bytes.get(at..)?))
+    let mut cursor = varint::Cursor::new(bytes, 5);
+    let path = String::from_utf8(cursor.take()?.to_vec()).ok()?;
+    let size = cursor.get()?;
+    let modified = cursor.get()?;
+    Some((path, size, modified, bytes.get(cursor.at..)?))
 }
 
-fn put(out: &mut Vec<u8>, mut value: u64) {
-    loop {
-        let byte = (value & 0x7f) as u8;
-        value >>= 7;
-        if value == 0 {
-            out.push(byte);
-            return;
-        }
-        out.push(byte | 0x80);
-    }
-}
-
-fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
-    put(out, bytes.len() as u64);
-    out.extend_from_slice(bytes);
-}
-
-fn get(bytes: &[u8], at: &mut usize) -> Option<u64> {
-    let mut value = 0u64;
-    let mut shift = 0;
-    loop {
-        let byte = *bytes.get(*at)?;
-        *at += 1;
-        value |= ((byte & 0x7f) as u64) << shift;
-        if byte & 0x80 == 0 {
-            return Some(value);
-        }
-        shift += 7;
-        if shift >= 64 {
-            return None;
-        }
-    }
-}
