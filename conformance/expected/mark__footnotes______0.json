@@ -1,0 +1,10 @@
+{
+  "before": "第 1 章</h1>\n<p>本文の途中に",
+  "command": "mark",
+  "found": true,
+  "href": "OEBPS/text/ch01.xhtml",
+  "marked": "脚注",
+  "nth": 0,
+  "query": "脚注",
+  "schema": 2
+}

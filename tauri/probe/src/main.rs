@@ -10,7 +10,7 @@ use chororeader_core::archive::{EpubArchive, ResourceProvider};
 use chororeader_core::preview::fixed_layout;
 use chororeader_core::publication::{detect_format, DocumentError, DocumentFormat, TocEntry};
 use chororeader_core::style::{ReaderStyle, Theme};
-use chororeader_core::{css_compat, epub_parser, html_text, paths, pdf, preview, report, search};
+use chororeader_core::{css_compat, epub_parser, html_text, mark, paths, pdf, preview, report, search};
 
 const SCHEMA_VERSION: i64 = 2;
 
@@ -23,7 +23,7 @@ fn main() {
     };
 
     let Some(command) = arguments.first() else {
-        fail("usage: choroprobe probe <version|parse|report|style|text|preview|fixed|resolve|css|search|detect> ...");
+        fail("usage: choroprobe probe <version|parse|report|style|text|preview|fixed|resolve|css|search|mark|detect> ...");
     };
     let rest = &arguments[1..];
 
@@ -38,6 +38,7 @@ fn main() {
         "resolve" => resolve(rest),
         "css" => Ok(css()),
         "search" => search_command(rest),
+        "mark" => mark_command(rest),
         "detect" => detect(rest),
         other => fail(&format!("unknown command: {other}")),
     };
@@ -296,6 +297,43 @@ fn search_command(args: &[String]) -> Result<Value, DocumentError> {
             "nth": r.nth,
         })).collect::<Vec<_>>(),
     }))
+}
+
+/// 検索結果から飛んだ先で、どの語をどこで囲むか。
+///
+/// 囲んだ HTML を丸ごと比べると、実装ごとの細部で偽の差分が出る。
+/// 囲んだ語と、その直前にある本文で示す。置いた場所が同じかどうかはこれで分かる。
+fn mark_command(args: &[String]) -> Result<Value, DocumentError> {
+    let usage = "usage: probe mark <epub> <href> <query> [nth]";
+    let path = arg(args, 0, usage);
+    let href = arg(args, 1, usage);
+    let query = arg(args, 2, usage);
+    let nth: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    let archive = EpubArchive::open(path)?;
+    let data = archive
+        .read(href)
+        .ok_or_else(|| DocumentError::broken_archive(format!("{href} を読めない")))?;
+    // 配るときと同じ順で通す。印は書き換えたあとの本文へ入る。
+    let html = css_compat::rewrite_xhtml(&css_compat::decode_text(&data)).css;
+
+    let mut out = Map::new();
+    out.insert("schema".into(), json!(SCHEMA_VERSION));
+    out.insert("command".into(), json!("mark"));
+    out.insert("href".into(), json!(norm(href)));
+    out.insert("query".into(), json!(norm(query)));
+    out.insert("nth".into(), json!(nth));
+    match mark::locate(&html, query, nth) {
+        Some(placement) => {
+            out.insert("found".into(), json!(true));
+            out.insert("marked".into(), json!(norm(&placement.marked)));
+            out.insert("before".into(), json!(norm(&placement.before)));
+        }
+        None => {
+            out.insert("found".into(), json!(false));
+        }
+    }
+    Ok(Value::Object(out))
 }
 
 fn detect(args: &[String]) -> Result<Value, DocumentError> {

@@ -14,8 +14,44 @@ use crate::search;
 /// 印に付ける名前。画面側の CSS はこれを見て色を当てる。
 pub const CLASS: &str = "choro-found";
 
+/// 印を入れた場所。実装間で突き合わせるために、囲んだ語とその直前の文脈で表す。
+///
+/// 位置を数で言うと、実装ごとの数え方（バイトか、符号位置か、書記素か）の違いが
+/// そのまま差になる。文字列で示せば、置いた場所が同じかどうかだけを比べられる。
+#[derive(Debug, Clone)]
+pub struct Placement {
+    /// 囲んだ語。
+    pub marked: String,
+    /// 囲んだところの直前にある本文（元の HTML から、最大 20 文字）。
+    pub before: String,
+}
+
+/// 印を置く場所。囲めなければ `None`。
+pub fn locate(html: &str, query: &str, nth: usize) -> Option<Placement> {
+    let (start, end) = span(html, query, nth)?;
+    let before: String = html[..start].chars().rev().take(20).collect::<Vec<_>>()
+        .into_iter().rev().collect();
+    Some(Placement {
+        marked: html[start..end].to_string(),
+        before,
+    })
+}
+
 /// 本文の nth 番目の当たりを `<mark>` で囲んだ HTML。囲めなければ `None`。
 pub fn insert(html: &str, query: &str, nth: usize) -> Option<String> {
+    let (start, end) = span(html, query, nth)?;
+
+    let mut out = String::with_capacity(html.len() + 40);
+    out.push_str(&html[..start]);
+    out.push_str(&format!("<mark class=\"{CLASS}\">"));
+    out.push_str(&html[start..end]);
+    out.push_str("</mark>");
+    out.push_str(&html[end..]);
+    Some(out)
+}
+
+/// 囲む範囲（元の HTML のバイト位置）。
+fn span(html: &str, query: &str, nth: usize) -> Option<(usize, usize)> {
     let extracted = html_text::extract(html);
     let (from, to) = search::nth_match(&extracted.text, query, nth)?;
 
@@ -26,17 +62,7 @@ pub fn insert(html: &str, query: &str, nth: usize) -> Option<String> {
     let end = last + source_width(&html[last..]);
     // 節をまたぐ当たりは、始まりの地の文で切る。タグを囲むと入れ子が壊れる。
     let end = end.min(run_end(html, start));
-    if end <= start {
-        return None;
-    }
-
-    let mut out = String::with_capacity(html.len() + 40);
-    out.push_str(&html[..start]);
-    out.push_str(&format!("<mark class=\"{CLASS}\">"));
-    out.push_str(&html[start..end]);
-    out.push_str("</mark>");
-    out.push_str(&html[end..]);
-    Some(out)
+    (end > start).then_some((start, end))
 }
 
 /// その文字が属する地の文の終わり。次のタグの手前で止める。

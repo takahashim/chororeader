@@ -13,13 +13,44 @@ enum SearchMarkInserter {
     /// 印に付ける名前。本文へ入れるスタイルはこれを見て色を当てる。
     static let className = "choro-found"
 
+    /// 印を入れた場所。実装間で突き合わせるために、囲んだ語とその直前の文脈で表す。
+    ///
+    /// 位置を数で言うと、実装ごとの数え方（バイトか、符号位置か、書記素か）の違いが
+    /// そのまま差になる。文字列で示せば、置いた場所が同じかどうかだけを比べられる。
+    struct Placement {
+        /// 囲んだ語。
+        var marked: String
+        /// 囲んだところの直前にある本文（元の HTML から、最大 20 文字）。
+        var before: String
+    }
+
+    /// 印を置く場所。囲めなければ nil。
+    static func locate(in html: String, query: String, nth: Int) -> Placement? {
+        let source = Array(html)
+        guard let (start, end) = span(source, query: query, nth: nth) else { return nil }
+        return Placement(marked: String(source[start ..< end]),
+                         before: String(source[max(0, start - 20) ..< start]))
+    }
+
     /// 本文の nth 番目の当たりを囲んだ HTML。囲めなければ nil。
     static func insert(into html: String, query: String, nth: Int) -> String? {
+        let source = Array(html)
+        guard let (start, end) = span(source, query: query, nth: nth) else { return nil }
+
+        var out = String(source[0 ..< start])
+        out += "<mark class=\"\(className)\">"
+        out += String(source[start ..< end])
+        out += "</mark>"
+        out += String(source[end...])
+        return out
+    }
+
+    /// 囲む範囲（元の HTML の文字位置）。
+    private static func span(_ source: [Character], query: String, nth: Int) -> (Int, Int)? {
         guard !query.isEmpty else { return nil }
-        let text = HTMLText.extract(html).text
+        let text = HTMLText.extract(String(source)).text
         guard let (from, to) = nthMatch(in: text, query: query, nth: nth) else { return nil }
 
-        let source = Array(html)
         let origins = align(source, Array(text))
         guard from < origins.count, to - 1 < origins.count else { return nil }
 
@@ -28,13 +59,7 @@ enum SearchMarkInserter {
         // 節をまたぐ当たりは、始まりの地の文で切る。タグを囲むと入れ子が壊れる。
         end = min(end, runEnd(source, from: start))
         guard end > start, end <= source.count else { return nil }
-
-        var out = String(source[0 ..< start])
-        out += "<mark class=\"\(className)\">"
-        out += String(source[start ..< end])
-        out += "</mark>"
-        out += String(source[end...])
-        return out
+        return (start, end)
     }
 
     /// 本文の中で nth 番目の当たりが占める範囲（文字単位、終わりは含まない）。

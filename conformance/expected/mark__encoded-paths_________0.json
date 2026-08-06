@@ -1,0 +1,10 @@
+{
+  "before": "/head>\n<body><p>日本語の",
+  "command": "mark",
+  "found": true,
+  "href": "OEBPS/text/第1章.xhtml",
+  "marked": "ファイル名",
+  "nth": 0,
+  "query": "ファイル名",
+  "schema": 2
+}

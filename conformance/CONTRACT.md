@@ -15,6 +15,7 @@ Swift と Rust は独立して書かれており、XML の解析も ZIP の読�
 - CSS 互換レイヤーの変換結果と変更内訳
 - 章から取り出す本文と、その中でコードが占める範囲
 - 検索のヒット位置、件数、順序、章の中での通し番号（`nth`）
+- 検索結果から飛んだ先で、どの語をどこで囲むか
 - 形式判定とエラーの分類
 - 書籍の診断レポート
 - 表示設定から作る CSS
@@ -45,6 +46,7 @@ Swift と Rust は独立して書かれており、XML の解析も ZIP の読�
 <probe> probe css                     # 標準入力から CSS を受け取る
 <probe> probe style                   # 標準入力から表示設定を JSON で受け取る
 <probe> probe search  <epub> <query>
+<probe> probe mark    <epub> <href> <query> [nth]
 <probe> probe detect  <file>
 ```
 
@@ -54,6 +56,11 @@ Swift と Rust は独立して書かれており、XML の解析も ZIP の読�
 {"fontSizePercent": 100, "lineHeight": 1.8, "maxWidthEm": 42, "theme": "light",
  "bodyFont": "", "codeFont": "SF Mono", "codeWrap": false, "publisherStyle": false}
 ```
+
+`mark` は囲んだ HTML を丸ごと比べない。実装ごとの細部で偽の差分が出るためである。
+囲んだ語（`marked`）と、その直前にある本文（`before`、元の HTML から最大 20 文字）で示す。
+置いた場所が同じかどうかは、これで分かる。囲めなかったときは `found` を偽にし、
+`marked` と `before` は出さない。
 
 `preview` は整形の細部ではなく、切り出した範囲を揃える。
 出力の `text` は抜粋からタグとスタイルを除いたもので、注入した CSS は含めない。

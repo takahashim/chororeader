@@ -78,6 +78,22 @@ module Cases
     "repeated-spine" => ["語"],
   }.freeze
 
+  # 検索結果から飛んだ先で、どの語をどこで囲むか。
+  # 同じ章に何度も出る語、実体参照を挟むもの、全角と半角の違いを見る。
+  MARK = {
+    "epub3-basic" => [
+      ["OEBPS/text/ch01.xhtml", "章", 0],
+      ["OEBPS/text/ch01.xhtml", "章", 1],
+      ["OEBPS/text/ch01.xhtml", "本文", 0],
+      ["OEBPS/text/ch01.xhtml", "出てこない語", 0],
+    ],
+    "legacy-css" => [["OEBPS/text/ch01.xhtml", "本文", 0]],
+    "footnotes" => [["OEBPS/text/ch01.xhtml", "脚注", 0]],
+    "encoded-paths" => [["OEBPS/text/第1章.xhtml", "ファイル名", 0]],
+    # 同じ章が読み順に二度出る書籍。番号は読み順の項目ごとに数え直す。
+    "repeated-spine" => [["OEBPS/text/ch01.xhtml", "語", 1]],
+  }.freeze
+
   # フィクスチャ 1 つにつき parse と report を取る。
   def for_fixture(name)
     cases = [
@@ -87,6 +103,10 @@ module Cases
     ]
     (SEARCH[name] || []).each do |query|
       cases << { id: "search/#{name}/#{query}", args: ["search", :fixture, query] }
+    end
+    (MARK[name] || []).each do |href, query, nth|
+      cases << { id: "mark/#{name}/#{query}/#{nth}",
+                 args: ["mark", :fixture, href, query, nth] }
     end
     (TEXT[name] || []).each do |href|
       cases << { id: "text/#{name}/#{File.basename(href)}", args: ["text", :fixture, href] }
