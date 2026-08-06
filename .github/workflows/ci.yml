@@ -97,8 +97,8 @@ jobs:
         working-directory: windows
         run: dotnet run --project TZReader.WebViewSpike/TZReader.WebViewSpike.csproj
 
-  windows-build:
-    name: Windows 実装のビルド
+  csharp-build:
+    name: C# 実装のビルド
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7

@@ -1,4 +1,7 @@
-name: Windows での確認
+name: Tauri スパイク
+
+# 本体のビルドと動作確認は windows-build.yml が持つ。
+# こちらは前提（書籍の JS を止められるか、生成元が揃うか）だけを見る。
 
 # 本体の CI から切り離してある。
 # MuPDF を C のソースからビルドするため、キャッシュが冷えていると十数分かかる。
@@ -9,7 +12,6 @@ on:
     paths:
       - "spikes/tauri-spike/**"
       - "spikes/rust-mupdf/**"
-      - "tauri/**"
       - ".github/workflows/tauri-spike.yml"
   workflow_dispatch:
 
@@ -44,26 +46,3 @@ jobs:
       - name: スパイクを実行する
         working-directory: spikes/tauri-spike/src-tauri
         run: cargo run --release
-
-  # 本体の動作確認。Windows の実機に触れないまま作っている部分を機械的に潰す。
-  # 人の操作が要る分（右クリック、修飾キー、落とし込み）はここでは飛ばす。
-  # それらはアプリのヘルプ献立から「動作確認…」を選べば、手元で順に確かめられる。
-  selftest-windows:
-    name: Tauri 版の動作確認を Windows で回す
-    runs-on: windows-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: tauri
-          shared-key: tauri-app-windows
-          cache-on-failure: true
-
-      # 同梱のサンプルで確かめる。実書籍を置けないマシンでも、これだけで足りる。
-      - name: 動作確認を走らせる
-        working-directory: tauri
-        env:
-          TZR_SELFTEST: "1"
-        run: cargo run --release -p tzreader -- ../samples/sample-reflowable.epub
