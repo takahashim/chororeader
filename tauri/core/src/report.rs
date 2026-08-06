@@ -42,72 +42,98 @@ pub struct BookReport {
     pub has_encryption_metadata: bool,
 }
 
-pub fn make(archive: &EpubArchive, publication: &Publication) -> BookReport {
-    let mut missing_resources: Vec<String> = Vec::new();
-    let mut missing_spine: Vec<String> = Vec::new();
-    let mut css_files = 0;
-    let mut non_utf8 = 0;
-    let mut legacy_css = 0;
-    let mut change_totals: BTreeMap<String, Change> = BTreeMap::new();
-    let mut xhtml = 0;
-    let mut malformed = 0;
-    let mut images = 0;
-    let mut fonts = 0;
-    let mut stored = 0;
-    let mut deflated = 0;
+/// 書庫を 1 回だけ舐めて数えるもの。
+///
+/// ZIP からの取り出しは高いので、走査は 1 度で済ませる。
+/// そのぶん数え上げが 1 か所に集まるため、器を分けて `make` から追い出す。
+#[derive(Default)]
+struct Tally {
+    css_files: usize,
+    non_utf8: usize,
+    legacy_css: usize,
+    changes: BTreeMap<String, Change>,
+    xhtml: usize,
+    malformed: usize,
+    images: usize,
+    fonts: usize,
+    stored: usize,
+    deflated: usize,
+}
 
-    let mut names: Vec<&String> = archive.names().iter().collect();
-    names.sort();
+impl Tally {
+    fn of(archive: &EpubArchive) -> Tally {
+        let mut tally = Tally::default();
+        let mut names: Vec<&String> = archive.names().iter().collect();
+        names.sort();
+        for name in names {
+            tally.count(archive, name);
+        }
+        tally
+    }
 
-    for name in names {
+    fn count(&mut self, archive: &EpubArchive, name: &str) {
         if archive.is_stored(name) {
-            stored += 1;
+            self.stored += 1;
         } else {
-            deflated += 1;
+            self.deflated += 1;
         }
 
         match extension(name).as_str() {
-            "css" => {
-                css_files += 1;
-                let Some(data) = archive.read(name) else {
-                    continue;
-                };
-                if !css_compat::is_valid_utf8(&data) {
-                    non_utf8 += 1;
-                }
-                let text = css_compat::decode_text(&data);
-                if !text.contains("-epub-") {
-                    continue;
-                }
-                legacy_css += 1;
-                for change in css_compat::rewrite(&text).changes {
-                    let key = format!("{}→{}", change.from, change.to);
-                    change_totals
-                        .entry(key)
-                        .and_modify(|existing| existing.count += change.count)
-                        .or_insert(change);
-                }
-            }
-
-            "xhtml" | "html" | "htm" => {
-                xhtml += 1;
-                match archive.read(name) {
-                    Some(data) => {
-                        let text = css_compat::decode_text(&data);
-                        let normalized = css_compat::rewrite_xhtml(&text).css;
-                        if !xml::is_well_formed(&normalized) {
-                            malformed += 1;
-                        }
-                    }
-                    None => malformed += 1,
-                }
-            }
-
-            "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" => images += 1,
-            "ttf" | "otf" | "woff" | "woff2" => fonts += 1,
+            "css" => self.count_css(archive, name),
+            "xhtml" | "html" | "htm" => self.count_xhtml(archive, name),
+            "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" => self.images += 1,
+            "ttf" | "otf" | "woff" | "woff2" => self.fonts += 1,
             _ => {}
         }
     }
+
+    fn count_css(&mut self, archive: &EpubArchive, name: &str) {
+        self.css_files += 1;
+        let Some(data) = archive.read(name) else {
+            return;
+        };
+        if !css_compat::is_valid_utf8(&data) {
+            self.non_utf8 += 1;
+        }
+        let text = css_compat::decode_text(&data);
+        if !text.contains("-epub-") {
+            return;
+        }
+        self.legacy_css += 1;
+        for change in css_compat::rewrite(&text).changes {
+            let key = format!("{}→{}", change.from, change.to);
+            self.changes
+                .entry(key)
+                .and_modify(|existing| existing.count += change.count)
+                .or_insert(change);
+        }
+    }
+
+    fn count_xhtml(&mut self, archive: &EpubArchive, name: &str) {
+        self.xhtml += 1;
+        // 読めない章と、XML として壊れている章は、同じ「開けない」として数える。
+        let broken = match archive.read_text(name) {
+            Some(text) => !xml::is_well_formed(&css_compat::rewrite_xhtml(&text).css),
+            None => true,
+        };
+        if broken {
+            self.malformed += 1;
+        }
+    }
+
+    /// 出力の並びは辞書順に揃える（conformance/CONTRACT.md）。
+    fn sorted_changes(&self) -> Vec<Change> {
+        let mut changes: Vec<Change> = self.changes.values().cloned().collect();
+        changes.sort_by(|a, b| a.from.cmp(&b.from).then(a.to.cmp(&b.to)));
+        changes
+    }
+}
+
+pub fn make(archive: &EpubArchive, publication: &Publication) -> BookReport {
+    let tally = Tally::of(archive);
+    let css_changes = tally.sorted_changes();
+    let mut missing_resources: Vec<String> = Vec::new();
+    let mut missing_spine: Vec<String> = Vec::new();
 
     for link in &publication.reading_order {
         if !archive.contains(&link.href) {
@@ -152,11 +178,11 @@ pub fn make(archive: &EpubArchive, publication: &Publication) -> BookReport {
 
     // 章から参照されている画像や CSS のうち、実体が無いものを拾う。
     for link in &publication.reading_order {
-        let Some(data) = archive.read(&link.href) else {
+        let Some(source) = archive.read_text(&link.href) else {
             continue;
         };
         let base = paths::directory_of(&link.href);
-        for reference in references(&css_compat::decode_text(&data)) {
+        for reference in references(&source) {
             let resolved = paths::resolve(base, &reference);
             if !resolved.is_empty()
                 && !archive.contains(&resolved)
@@ -172,9 +198,6 @@ pub fn make(archive: &EpubArchive, publication: &Publication) -> BookReport {
     toc_targets.sort();
     toc_targets.dedup();
 
-    let mut css_changes: Vec<Change> = change_totals.into_values().collect();
-    css_changes.sort_by(|a, b| a.from.cmp(&b.from).then(a.to.cmp(&b.to)));
-
     BookReport {
         format: publication.format_name(),
         layout: publication.layout_name(),
@@ -186,16 +209,16 @@ pub fn make(archive: &EpubArchive, publication: &Publication) -> BookReport {
         missing_resources,
         missing_toc_targets: toc_targets,
         missing_spine_items: missing_spine,
-        css_file_count: css_files,
-        non_utf8_css_count: non_utf8,
-        legacy_css_file_count: legacy_css,
+        css_file_count: tally.css_files,
+        non_utf8_css_count: tally.non_utf8,
+        legacy_css_file_count: tally.legacy_css,
         css_changes,
-        xhtml_count: xhtml,
-        malformed_xhtml_count: malformed,
-        image_count: images,
-        font_count: fonts,
-        stored_entry_count: stored,
-        deflated_entry_count: deflated,
+        xhtml_count: tally.xhtml,
+        malformed_xhtml_count: tally.malformed,
+        image_count: tally.images,
+        font_count: tally.fonts,
+        stored_entry_count: tally.stored,
+        deflated_entry_count: tally.deflated,
         has_encryption_metadata: archive.contains("META-INF/encryption.xml"),
     }
 }
