@@ -176,7 +176,10 @@ struct LibraryView: View {
     }
 
     private func openHit(_ hit: LibraryHit, in book: LibraryBookHits) {
-        openWindow(value: BookRoute(path: book.path, locator: hit.result.locator, query: nil))
+        // 開いた先でも、押した当たりを囲む。どれが引っ掛かった語かを探し直さずに済ませる。
+        let mark = SearchMark(query: search.query, nth: hit.result.nth, target: hit.result.locator)
+        openWindow(value: BookRoute(path: book.path, locator: hit.result.locator,
+                                    query: nil, mark: mark))
     }
 
     /// その本を開き、同じ語句で引いた一覧を出す。件数の上限は章内検索のもの（400 件）に上がる。

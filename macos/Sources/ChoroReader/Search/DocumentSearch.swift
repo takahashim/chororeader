@@ -9,6 +9,19 @@ struct SearchResult: Identifiable, Hashable {
     var match: String
     var after: String
     var isCode: Bool
+    /// その章の中で何番目の当たりか。同じ語が何度も出る章で、押したものを選び直すために使う。
+    var nth: Int = 0
+}
+
+/// 検索結果から飛んだ先で強調する当たり。
+///
+/// 一覧に前後の文脈が出ていても、着いた章やページのどこに当たったのかは分からない。
+/// 飛んだ先で目当ての語を探し直さずに済ませるための印である（spec.md 10.4）。
+struct SearchMark: Codable, Hashable {
+    var query: String
+    var nth: Int
+    /// 当たりのあった場所。ほかの章やページへ移ったら囲まない。
+    var target: Locator
 }
 
 /// 章の HTML から本文とコードを取り出す。
@@ -146,6 +159,8 @@ enum DocumentSearch {
             guard !text.isEmpty else { continue }
             let chars = Array(text)
 
+            // 章ごとに当たりの通し番号を振る。走査は読み順なので、章の頭で数え直せばよい。
+            var nth = 0
             var searchStart = text.startIndex
             while let range = text.range(of: query, options: options, range: searchStart ..< text.endIndex) {
                 let offset = text.distance(from: text.startIndex, to: range.lowerBound)
@@ -162,8 +177,10 @@ enum DocumentSearch {
                     before: before.trimmingCharacters(in: .whitespaces),
                     match: String(text[range]),
                     after: after.trimmingCharacters(in: .whitespaces),
-                    isCode: extracted.isCode(at: offset)
+                    isCode: extracted.isCode(at: offset),
+                    nth: nth
                 ))
+                nth += 1
 
                 if results.count >= limit { truncated = true; break outer }
                 searchStart = range.upperBound

@@ -39,12 +39,17 @@ final class ReaderSession: ObservableObject {
     @Published var sidebarTab: SidebarTab = .toc
     @Published var searchQuery = ""
     @Published var searchResults: [SearchResult] = []
+    /// 検索結果から飛んだ先で強調する当たり。引き直すか、検索をやめると消える。
+    @Published var mark: SearchMark? { didSet { web?.mark = mark; pdf?.mark = mark } }
+    /// いまの一覧を出した語。欄の文字は引いたあとにも書き換わるので、別に覚えておく。
+    private(set) var searchedQuery = ""
     @Published var isSearching = false
     @Published var searchTruncated = false
     @Published var status: String?
 
     /// ⌘クリックなどで別ウィンドウを開く要求。ビュー側で openWindow に繋ぐ。
-    var openInNewWindow: ((Locator) -> Void)?
+    /// 検索結果から開くときは、開いた先でも同じ当たりを囲めるように印を添える。
+    var openInNewWindow: ((Locator, SearchMark?) -> Void)?
 
     /// ページのサムネイル。画像ページの書籍と PDF でだけ用意する。
     private(set) lazy var thumbnails: ThumbnailProvider? = ThumbnailProvider.make(for: self)
@@ -92,9 +97,9 @@ final class ReaderSession: ObservableObject {
         web?.onNavigated = { [weak self] from in self?.pushHistory(from) }
         pdf?.onNavigated = { [weak self] from in self?.pushHistory(from) }
         fixed?.onNavigated = { [weak self] from in self?.pushHistory(from) }
-        web?.onOpenInNewWindow = { [weak self] target in self?.openInNewWindow?(target) }
-        pdf?.onOpenInNewWindow = { [weak self] target in self?.openInNewWindow?(target) }
-        fixed?.onOpenInNewWindow = { [weak self] target in self?.openInNewWindow?(target) }
+        web?.onOpenInNewWindow = { [weak self] target in self?.openInNewWindow?(target, nil) }
+        pdf?.onOpenInNewWindow = { [weak self] target in self?.openInNewWindow?(target, nil) }
+        fixed?.onOpenInNewWindow = { [weak self] target in self?.openInNewWindow?(target, nil) }
         web?.onStatus = { [weak self] message in self?.showStatus(message) }
         pdf?.onStatus = { [weak self] message in self?.showStatus(message) }
         fixed?.onStatus = { [weak self] message in self?.showStatus(message) }
@@ -143,8 +148,23 @@ final class ReaderSession: ObservableObject {
         }
     }
 
+    /// 検索結果へ飛ぶ。動くより先に、飛んだ先で囲むものを決めておく。
+    func go(to result: SearchResult) {
+        mark = markFor(result)
+        go(to: result.locator)
+    }
+
     func openInNewWindow(_ target: Locator) {
-        openInNewWindow?(target)
+        openInNewWindow?(target, nil)
+    }
+
+    /// 検索結果を別のウィンドウで開く。開いた先でも、押した当たりを囲む。
+    func openInNewWindow(_ result: SearchResult) {
+        openInNewWindow?(result.locator, markFor(result))
+    }
+
+    private func markFor(_ result: SearchResult) -> SearchMark {
+        SearchMark(query: searchedQuery, nth: result.nth, target: result.locator)
     }
 
     private func pushHistory(_ from: Locator) {
@@ -188,6 +208,9 @@ final class ReaderSession: ObservableObject {
 
     func runSearch() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 引き直したら、前の語の強調は用済みになる。
+        mark = nil
+        searchedQuery = query
         guard query.count >= 1 else {
             searchResults = []
             searchTruncated = false
@@ -214,6 +237,15 @@ final class ReaderSession: ObservableObject {
         } else {
             isSearching = false
         }
+    }
+
+    /// 検索をやめる。当たりの強調もここで消える。
+    func clearSearch() {
+        searchQuery = ""
+        searchedQuery = ""
+        searchResults = []
+        searchTruncated = false
+        mark = nil
     }
 
     var searchAvailable: Bool {

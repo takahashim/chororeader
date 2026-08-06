@@ -24,6 +24,18 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
     /// リンク先を移動せずに見せるための要求。ビュー側でポップオーバーとして出す。
     @Published var preview: PreviewRequest?
 
+    /// いま強調している当たり。章を読み込むたびに当て直し、検索をやめると消える。
+    var mark: SearchMark? {
+        didSet {
+            // 押した直後の 1 回だけ、囲んだところまで送る。
+            // あとで通りかかったときは囲むだけにする。
+            markApproach = mark != nil && mark != oldValue
+            // 当てるのは章が入ってから。消すのはその場でよい。
+            if mark == nil { applyMark() }
+        }
+    }
+    private var markApproach = false
+
     private var pendingRestore: Locator?
     private var settingsObserver: AnyCancellable?
     private var previewWebView: WKWebView?
@@ -87,7 +99,9 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
             locator.progression = target.progression
             locator.fragment = target.fragment
             locator.text = target.text
-            restore(target)
+            // 当たりへ飛んだときは、囲んだところへ送るのが位置の復元より正確なので、そちらに譲る。
+            if !(markApproach && marksHere) { restore(target) }
+            applyMark()
         } else {
             load(locator: target)
         }
@@ -233,8 +247,29 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         showChapterEndAffordance()
         if let target = pendingRestore {
             pendingRestore = nil
-            restore(target)
+            // 当たりへ飛んだときは、囲んだところへ送るのが位置の復元より正確なので、そちらに譲る。
+            if !(markApproach && marksHere) { restore(target) }
         }
+        applyMark()
+    }
+
+    // MARK: - 当たりの強調
+
+    /// この章に当たりがあるか。ほかの章では、目当ての語が出ていても囲まない。
+    private var marksHere: Bool {
+        guard let mark else { return false }
+        return mark.target.href == locator.href
+    }
+
+    private func applyMark() {
+        guard let mark, marksHere, !mark.query.isEmpty else {
+            webView.evaluateJavaScript("window.choroClearMarks && window.choroClearMarks()")
+            return
+        }
+        let scroll = markApproach
+        markApproach = false
+        webView.evaluateJavaScript(
+            "window.choroMark && window.choroMark(\(ReaderScripts.quote(mark.query)), \(mark.nth), \(scroll))")
     }
 
     /// 章末に次の章への行き先を出す。最後の章では何も出さない。

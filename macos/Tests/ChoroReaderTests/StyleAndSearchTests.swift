@@ -117,6 +117,24 @@ final class SearchTests: XCTestCase {
         XCTAssertTrue(results.contains { $0.isCode }, "コード内の一致が 1 件も検出されていない")
     }
 
+    /// 当たりには章ごとの通し番号が付く。
+    /// 飛んだ先で「押したのはこの語のどれか」を選び直すための番号なので、
+    /// 章が変われば 0 から数え直し、章の中では飛ばさずに並ぶ必要がある。
+    func test当たりの通し番号は章ごとに0から並ぶ() throws {
+        let archive = try ZipArchive(url: TestPaths.fixture("epub3-basic.epub"))
+        let publication = try EPUBParser.parse(archive)
+        let outcome = DocumentSearch.scanEPUB(resources: archive, publication: publication, query: "e")
+
+        XCTAssertFalse(outcome.results.isEmpty, "「e」が 1 件も見つからない")
+        var expected: [String: Int] = [:]
+        for result in outcome.results {
+            let href = result.locator.href ?? ""
+            let next = expected[href, default: 0]
+            XCTAssertEqual(result.nth, next, "\(href) の通し番号が飛んでいる")
+            expected[href] = next + 1
+        }
+    }
+
     func testWidthInsensitiveMatching() throws {
         let archive = try Fixtures.archive(Fixtures.review)
         let publication = try EPUBParser.parse(archive)
