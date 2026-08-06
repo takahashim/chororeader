@@ -139,6 +139,7 @@ struct ErrorView: View {
 
 struct AppCommands: Commands {
     @FocusedValue(\.readerSession) private var session
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -146,6 +147,19 @@ struct AppCommands: Commands {
                 for url in FileOpener.runOpenPanel() { OpenRequests.shared.request(url) }
             }
             .keyboardShortcut("o", modifiers: .command)
+
+            // 離れた 2 か所を並べて読むための最短経路。
+            // 目次や検索から開くのではなく、いま見ている場所をそのまま複製する。
+            Button("この場所を新しいウィンドウで開く") {
+                if let session { session.openInNewWindow(session.locator) }
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .disabled(session == nil)
+
+            Divider()
+
+            Button("書棚") { openWindow(id: "library") }
+                .keyboardShortcut("l", modifiers: .command)
         }
 
         CommandGroup(replacing: .textEditing) {
