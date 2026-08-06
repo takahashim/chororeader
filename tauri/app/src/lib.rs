@@ -264,9 +264,18 @@ fn open_shelf(app: tauri::AppHandle) -> Result<(), String> {
 static NEXT_WINDOW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
 
 #[tauri::command]
-fn open_in_new_window(app: tauri::AppHandle, path: String, href: String) -> Result<(), String> {
+fn open_in_new_window(
+    app: tauri::AppHandle,
+    path: String,
+    href: String,
+    fragment: Option<String>,
+) -> Result<(), String> {
     let n = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let query = format!("?path={}&href={}", urlencode(&path), urlencode(&href));
+    let mut query = format!("?path={}&href={}", urlencode(&path), urlencode(&href));
+    // 節への参照は、開いた先でもその位置に着きたい。
+    if let Some(fragment) = fragment.filter(|f| !f.is_empty()) {
+        query.push_str(&format!("&frag={}", urlencode(&fragment)));
+    }
     open_window(&app, &format!("book-{n}"), &query).map_err(|e| e.to_string())
 }
 

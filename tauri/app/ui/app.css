@@ -328,6 +328,32 @@ body {
 #settings input[type="range"] { width: 150px; }
 #settings label span { width: 4ch; color: var(--dim); text-align: right; }
 
+#menu {
+  position: absolute;
+  z-index: 50;
+  min-width: 200px;
+  padding: 4px;
+  background: var(--bar);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.26);
+}
+
+#menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+#menu button:hover { background: var(--accent); color: #fff; }
+
 #popover {
   position: absolute;
   z-index: 30;

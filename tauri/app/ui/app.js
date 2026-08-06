@@ -79,7 +79,7 @@ function toast(message) {
 
 // ---- 書籍を開く ---------------------------------------------------------
 
-async function openPath(path, href) {
+async function openPath(path, href, fragment) {
   try {
     state.book = await invoke("open_book", { path });
   } catch (error) {
@@ -114,7 +114,7 @@ async function openPath(path, href) {
     const target = href || saved.position.href;
     const index = Math.max(0, state.book.chapters.findIndex((c) => c.href === target));
     state.restoring = href ? null : saved.position.progression;
-    await showChapter(index);
+    await showChapter(index, fragment || null);
   }
 
   if (state.book.format === "pdf" && !state.book.hasTextLayer) {
@@ -156,10 +156,56 @@ function markCurrentToc() {
 $("toc").addEventListener("click", (event) => {
   const a = event.target.closest("a");
   if (!a || !a.dataset.href) return;
-  if (state.book.format === "pdf") return showPdf(Number(a.dataset.href));
-  const index = state.book.chapters.findIndex((c) => c.href === a.dataset.href);
-  if (index >= 0) showChapter(index, a.dataset.fragment || null);
+  // 離れた 2 か所を並べて読むための道具なので、別窓へ回す道は目次にも要る。
+  if (event.metaKey || event.ctrlKey) return openTarget(a, true);
+  openTarget(a, false);
 });
+
+$("toc").addEventListener("contextmenu", (event) => {
+  const a = event.target.closest("a");
+  if (!a || !a.dataset.href) return;
+  event.preventDefault();
+  showMenu(event, [
+    ["新しいウィンドウで開く", () => openTarget(a, true)],
+    ["ここへ移動", () => openTarget(a, false)],
+  ]);
+});
+
+/// 目次の項目を開く。PDF はページ番号、EPUB は章の経路を持っている。
+function openTarget(a, newWindow) {
+  const href = a.dataset.href;
+  const fragment = a.dataset.fragment || "";
+  if (newWindow) {
+    return invoke("open_in_new_window", { path: state.book.path, href, fragment });
+  }
+  if (state.book.format === "pdf") return showPdf(Number(href));
+  const index = state.book.chapters.findIndex((c) => c.href === href);
+  if (index >= 0) showChapter(index, fragment || null);
+}
+
+// ---- 右クリックの献立 ---------------------------------------------------
+
+/// 献立を出す。WebView 既定の献立は目次と検索結果では邪魔になるので抑える。
+function showMenu(event, items) {
+  const menu = $("menu");
+  menu.textContent = "";
+  for (const [label, action] of items) {
+    const button = document.createElement("button");
+    button.textContent = label;
+    button.addEventListener("click", () => { hideMenu(); action(); });
+    menu.appendChild(button);
+  }
+  menu.hidden = false;
+  // 画面の外へはみ出さないところへ置く。
+  const left = Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8);
+  const top = Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8);
+  menu.style.left = Math.max(4, left) + "px";
+  menu.style.top = Math.max(4, top) + "px";
+}
+
+function hideMenu() {
+  $("menu").hidden = true;
+}
 
 // ---- 本文（EPUB） -------------------------------------------------------
 
@@ -436,6 +482,7 @@ function hidePopover() {
 }
 
 document.addEventListener("click", (event) => {
+  if (!$("menu").hidden && !event.target.closest("#menu")) hideMenu();
   if (!$("popover").hidden && !event.target.closest("#popover")) hidePopover();
   if (!$("settings").hidden && !event.target.closest("#settings, #settings-button")) {
     $("settings").hidden = true;
@@ -663,9 +710,31 @@ async function runSearch() {
     excerpt.className = "excerpt";
     excerpt.textContent = hit.excerpt;
     a.append(where, excerpt);
+    const openHit = (newWindow) => {
+      if (newWindow) {
+        return invoke("open_in_new_window", {
+          path: state.book.path,
+          href: state.book.format === "pdf" ? String(hit.page) : hit.href,
+          fragment: "",
+        });
+      }
+      if (state.book.format === "pdf") return showPdf(hit.page);
+      const index = state.book.chapters.findIndex((c) => c.href === hit.href);
+      if (index >= 0) {
+        state.restoring = hit.progression;
+        showChapter(index);
+      }
+    };
+    a.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      showMenu(event, [
+        ["新しいウィンドウで開く", () => openHit(true)],
+        ["ここへ移動", () => openHit(false)],
+      ]);
+    });
     a.addEventListener("click", (event) => {
       if (event.metaKey || event.ctrlKey) {
-        return invoke("open_in_new_window", { path: state.book.path, href: hit.href });
+        return openHit(true);
       }
       if (state.book.format === "pdf") return showPdf(hit.page);
       const index = state.book.chapters.findIndex((c) => c.href === hit.href);
@@ -951,6 +1020,7 @@ function onKeyDown(event) {
   if (command && event.key === "-") { event.preventDefault(); return zoomBy(1 / 1.25); }
   if (command && event.key === "0") { event.preventDefault(); return resetZoom(); }
   if (event.key === "Escape") {
+    hideMenu();
     hidePopover();
     return;
   }
@@ -1091,7 +1161,7 @@ async function main() {
 
   $("shelf").hidden = true;
   const path = PARAMS.get("path");
-  if (path) return openPath(path, PARAMS.get("href"));
+  if (path) return openPath(path, PARAMS.get("href"), PARAMS.get("frag"));
 
   // 書籍を持たない読書の窓は作らない。ここへ来たら書棚へ回す。
   invoke("open_shelf");
