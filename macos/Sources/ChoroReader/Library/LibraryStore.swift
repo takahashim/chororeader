@@ -28,15 +28,8 @@ final class LibraryStore: ObservableObject {
     private var saveWorkItem: DispatchWorkItem?
 
     init() {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let base = support.appendingPathComponent("ChoroReader", isDirectory: true)
-        // 名前を変える前の置き場所から引き継ぐ。
-        // しおりと読書位置と表紙が消えるのは、名前を変えただけの代償として大きすぎる。
-        let previous = support.appendingPathComponent("TZReader", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: base.path),
-           FileManager.default.fileExists(atPath: previous.path) {
-            try? FileManager.default.moveItem(at: previous, to: base)
-        }
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ChoroReader", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         fileURL = base.appendingPathComponent("library.json")
         load()
