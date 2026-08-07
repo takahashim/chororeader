@@ -125,13 +125,19 @@ async function openPath(path, href, fragment, carried = {}) {
   // 形式を見るのはここだけ。以降の振る舞いの違いは nav の中に閉じる。
   nav = isPaged() ? readers.paged : readers.reflowable;
 
-  const saved = await invoke("book_state", { path });
-  dressChrome(saved);
-  aimFromCarried(carried, href);
+  // 開いた後の支度で転んでも、呼んだ側は待っていないことがある（献立、道具帯）。
+  // 受け手がいないと「応答が返りませんでした」だけが残る。ここでまとめて受ける。
+  try {
+    const saved = await invoke("book_state", { path });
+    dressChrome(saved);
+    aimFromCarried(carried, href);
 
-  await nav.prepare(saved, href, fragment);
-  await followCarried(carried);
-  warnIfUnsearchable();
+    await nav.prepare(saved, href, fragment);
+    await followCarried(carried);
+    warnIfUnsearchable();
+  } catch (error) {
+    showFailure("書籍を開いたあとの支度で転びました", error);
+  }
 }
 
 /// 書籍に合わせて窓の飾りを整える。題名、しおり、目次、使えないタブ。

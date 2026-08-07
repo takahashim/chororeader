@@ -150,6 +150,38 @@ export const automatic = [
       return { ok: books.length > 0, detail: `${books.length} 冊` };
     },
   },
+  {
+    name: "読み込み中に重ねた送りも届く",
+    run: async () => {
+      // 章が入り終わる前にもう一度送る。待たせた分は着いてからまとめて動く。
+      // 1 回ずつ送っているうちは、送りを取っておく道（queuedSteps）を一度も通らない。
+      const delta = atEnd() ? -1 : 1;
+      const before = place();
+      window.choro.step(delta);
+      window.choro.step(delta);
+      const settled = await until(() => !window.choro.nav.loading() && place() !== before, 8000);
+      const after = place();
+      if (settled) {
+        window.choro.step(-delta);
+        await until(() => !window.choro.nav.loading());
+        window.choro.step(-delta);
+        await until(() => !window.choro.nav.loading());
+      }
+      return { ok: settled, detail: `${before} → ${after}` };
+    },
+    only: "reflowable",
+  },
+  {
+    name: "取りこぼした出来事が無い",
+    run: () => {
+      // 誰も受けなかった例外や約束は、chrome.js が枠に書き出す。
+      // 枠があるということは、ここまでの検査のどこかが黙って転んでいる。
+      // 個々の検査は自分の判定しか見ないので、最後にまとめて見る。
+      const box = document.getElementById("boot-failure-text");
+      const written = box ? box.textContent.trim() : "";
+      return { ok: !written, detail: written || "取りこぼしなし" };
+    },
+  },
 ];
 
 /// 書棚の窓で確かめるもの。本文が無いぶん、土台とつながっているかを重点的に見る。

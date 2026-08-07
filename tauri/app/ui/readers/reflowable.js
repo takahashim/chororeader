@@ -7,7 +7,7 @@
 // 読書の窓（reader.js）とは `nav` の形で話す。あちらは形式を意識しない。
 // 動いたことは departing / moved で知らせるだけで、履歴や読書位置には手を出さない。
 
-import { $, invoke, showMenu, toast } from "../chrome.js";
+import { $, invoke, showFailure, showMenu, toast } from "../chrome.js";
 import { chapterOfHref as chapterOfHrefIn } from "../lib/layout.js";
 import { scrollToMark, unwrapMarks } from "../lib/mark.js";
 import { overlays } from "./overlays.js";
@@ -42,8 +42,22 @@ export function reflowableReader(shared) {
   const isLoading = () => arriving !== null;
 
 
-  /// 章を出す。`goTo` は着いたときに送る先で、割合の数値か、位置の対象を渡す。
+  /// 章を出す。転んだら知らせる。呼ぶ側は着くのを待たないので、ここで受け止める。
+  ///
+  /// 待たない相手へ投げると、誰も受けずに「応答が返りませんでした」だけが残る。
+  /// 待ち切れなかっただけならその場に短く出し、それ以外は原因が要るので画面に残す。
   async function showChapter(index, fragment, goTo = null) {
+    try {
+      await openChapter(index, fragment, goTo);
+    } catch (error) {
+      arriving = null;
+      if (error && error.name === "Timeout") toast(error.message);
+      else showFailure("本文を出せませんでした", error);
+    }
+  }
+
+  /// `goTo` は着いたときに送る先で、割合の数値か、位置の対象を渡す。
+  async function openChapter(index, fragment, goTo) {
     const chapter = state.book.chapters[index];
     if (!chapter) return;
     const token = ++loadTokens;
@@ -60,13 +74,9 @@ export function reflowableReader(shared) {
     let doc;
     try {
       doc = await loadInto(frame, url);
-    } catch (error) {
+    } finally {
       stopWatching();
-      arriving = null;
-      toast(String(error.message || error));
-      return;
     }
-    stopWatching();
     // 後から押された分に追い越されていたら、こちらの後始末はしない。
     // 新しい読み込みが `arriving` を持っているので、こちらは触らずに降りる。
     if (!arriving || arriving.token !== token) return;
@@ -93,7 +103,8 @@ export function reflowableReader(shared) {
     arriving = null;
     moved();
     // 待たせた送りは、着いてからまとめて動かす。
-    if (queued !== 0) step(queued);
+    // 窓へ上げずにここで送る。待たせたのはこちらの都合で、窓は何も知らない。
+    if (queued !== 0) nav.step(queued);
   }
 
 
@@ -343,7 +354,12 @@ export function reflowableReader(shared) {
         let value = null;
         try { value = check(); } catch (_) { /* 生成元が違えば例外 */ }
         if (value) return resolve(value);
-        if (performance.now() - started > timeout) return reject(new Error(what + " を待って時間切れ"));
+        if (performance.now() - started > timeout) {
+          // 待ち切れなかっただけか、思わぬ躓きか。受ける側が見分けられるようにする。
+          const error = new Error(what + " を待って時間切れ");
+          error.name = "Timeout";
+          return reject(error);
+        }
         requestAnimationFrame(tick);
       };
       tick();

@@ -108,19 +108,55 @@ export function listenToMenu(actions) {
 //
 // 何かの拍子に土台へ届かなくなると、窓は出るのに何を押しても反応しない状態になる。
 // 手元と違う OS では原因が見えないので、起きたことをその場に書き出す。
+// 目で見るだけでは書き写せない（診断と同じ）。溜めておいて、押されたら全部を写す。
+const failures = [];
+
 export function showFailure(what, error) {
   const detail = String((error && (error.stack || error.message)) || error || "");
-  let box = document.getElementById("boot-failure");
-  if (!box) {
-    box = document.createElement("div");
-    box.id = "boot-failure";
-    box.setAttribute("style",
-      "position:fixed;left:0;right:0;top:0;z-index:99;padding:10px 14px;" +
-      "background:#7a1c1c;color:#fff;font:12px/1.6 ui-monospace,Menlo,monospace;" +
-      "white-space:pre-wrap;max-height:50vh;overflow:auto");
-    document.body.appendChild(box);
-  }
-  box.textContent += `${what}\n${detail}\n\n`;
+  failures.push(`${what}\n${detail}`);
+  failureBox().textContent = failures.join("\n\n");
+}
+
+/// 起きたことを書き出す枠。溜めた文だけを持ち、写す釦は外に出しておく。
+function failureBox() {
+  const found = document.getElementById("boot-failure-text");
+  if (found) return found;
+
+  const box = document.createElement("div");
+  box.id = "boot-failure";
+  box.setAttribute("style",
+    "position:fixed;left:0;right:0;top:0;z-index:99;padding:10px 14px;" +
+    "background:#7a1c1c;color:#fff;font:12px/1.6 ui-monospace,Menlo,monospace;" +
+    "max-height:50vh;overflow:auto;user-select:text;-webkit-user-select:text");
+
+  const written = document.createElement("div");
+  written.id = "boot-failure-text";
+  written.setAttribute("style", "white-space:pre-wrap");
+
+  const copy = document.createElement("button");
+  copy.textContent = "コピー";
+  copy.setAttribute("style",
+    "float:right;font:inherit;padding:2px 10px;border-radius:5px;cursor:pointer;" +
+    "border:1px solid #fff6;background:#0003;color:#fff");
+  copy.addEventListener("click", () => {
+    navigator.clipboard.writeText(failures.join("\n\n")).then(
+      () => { copy.textContent = "コピーしました"; },
+      // 写せない設定のこともある。せめて選んでおけば、あとは手で写せる。
+      () => { selectAll(written); copy.textContent = "選びました"; });
+  });
+
+  box.appendChild(copy);
+  box.appendChild(written);
+  document.body.appendChild(box);
+  return written;
+}
+
+function selectAll(element) {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 /// 出来事の取りこぼしを画面へ出す。窓の種類によらず同じ扱いにする。

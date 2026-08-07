@@ -113,7 +113,7 @@ export function pagedReader(shared) {
   }
 
 
-  async function showFixed(page) {
+  function showFixed(page) {
     shownPage = Math.max(0, Math.min(state.book.pages.length - 1, page));
     buildFixed();
     refreshMarkedPage();
@@ -161,7 +161,7 @@ export function pagedReader(shared) {
   }
 
 
-  async function showPdf(page) {
+  function showPdf(page) {
     shownPage = Math.max(0, Math.min(state.book.pageCount - 1, page));
     buildPdf();
     const box = $("pdf");
@@ -274,8 +274,12 @@ export function pagedReader(shared) {
 
 
   /// 紙面のページ番号へ移す。中身の作り方だけが形式で違う。
+  ///
+  /// どちらも待つものを持たない。ここを async にすると、送りや目次から呼ばれたときに
+  /// 誰も待たない約束ができ、転んでも「応答が返りませんでした」しか残らなくなる。
   function showPage(page) {
-    return isFixed() ? showFixed(page) : showPdf(page);
+    if (isFixed()) showFixed(page);
+    else showPdf(page);
   }
 
 
@@ -379,18 +383,18 @@ export function pagedReader(shared) {
       return isFixed() ? this.prepareFixed(saved, href) : this.preparePdf(saved, href);
     },
 
-    async prepareFixed(saved, href) {
+    prepareFixed(saved, href) {
       // 寸法は meta viewport から来る。名乗っていない書籍のために当てを置く。
       shownSize = state.book.pageSize || [800, 1130];
       this.fitFirst(state.settings.zoom || 1);
-      await showFixed(href ? Number(href) : saved.position.page || 0);
+      showFixed(href ? Number(href) : saved.position.page || 0);
     },
 
     async preparePdf(saved, href) {
       // 合わせ方を計算するにはページの大きさが要る。1 ページ目で代表させる。
       shownSize = await invoke("page_size", { id: state.book.id, page: 0 }).catch(() => null);
       this.fitFirst(state.settings.zoom);
-      await showPdf(href ? Number(href) : saved.position.page || 0);
+      showPdf(href ? Number(href) : saved.position.page || 0);
     },
 
     fitFirst(fallback) {
