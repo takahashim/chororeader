@@ -35,7 +35,7 @@ enum SearchIndexStore {
         if let (size, modified) = stamp(of: url) {
             memory.setObject(Box(index: index, size: size, modified: modified),
                              forKey: url.standardizedFileURL.path as NSString,
-                             cost: index.encoded().count)
+                             cost: cost(ofEncoded: index.encoded().count))
         }
         return index
     }
@@ -58,7 +58,7 @@ enum SearchIndexStore {
               let index = SearchIndex(decoding: payload) else { return nil }
 
         memory.setObject(Box(index: index, size: size, modified: modified),
-                         forKey: key, cost: payload.count)
+                         forKey: key, cost: cost(ofEncoded: payload.count))
         return index
     }
 
@@ -88,11 +88,17 @@ enum SearchIndexStore {
     }
 
     /// ほどいた索引は元の 3 倍ほどの場所を取る。蔵書が増えても際限なく抱えないよう頭を打つ。
+    ///
+    /// 頭は**ほどいた側の大きさ**で打つ。置いてあるファイルの大きさで数えると、
+    /// 上限が名乗った値の 3 倍の意味になり、書いてある数と実際が食い違う。
     private static let memory: NSCache<NSString, Box> = {
         let cache = NSCache<NSString, Box>()
-        cache.totalCostLimit = 32 * 1024 * 1024
+        cache.totalCostLimit = 96 * 1024 * 1024
         return cache
     }()
+
+    /// ほどいた索引が占める場所のおおよそ。書き出した形の 3 倍で見る。
+    private static func cost(ofEncoded bytes: Int) -> Int { bytes * 3 }
 
     static func hasIndex(for url: URL) -> Bool {
         cached(for: url) != nil

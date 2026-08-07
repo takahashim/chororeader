@@ -87,4 +87,22 @@ final class SchemeHandlerTests: XCTestCase {
         """
         XCTAssertEqual(try mimeType(path: "OEBPS/broken.xhtml", content: broken), "text/html")
     }
+
+    /// 覚える量に頭が打たれること。
+    ///
+    /// 章と CSS は文字なので 1 つは小さいが、際限は無い。読み進めれば章が積み上がり、
+    /// 同じ章でも印の付き方ごとに別の 1 つになる。当たりを次々に押すとその分だけ増え、
+    /// 窓が開いているあいだ捨てられない。
+    func test_覚える量に頭が打たれる() {
+        let handler = ResourceSchemeHandler(resources: Stub())
+        let chunk = String(repeating: "あ", count: 200_000) // UTF-8 で 600 KB ほど
+
+        for at in 0..<40 {
+            handler.provideSynthetic(path: "OEBPS/text/ch\(at).xhtml", html: chunk)
+        }
+
+        XCTAssertGreaterThan(handler.cachedByteCount, 0, "何も覚えていない")
+        XCTAssertLessThanOrEqual(handler.cachedByteCount, ResourceSchemeHandler.cacheLimit,
+                                 "頭を越えて抱え込んでいる")
+    }
 }

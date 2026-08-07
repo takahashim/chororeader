@@ -59,7 +59,8 @@ final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNaviga
         config.setURLSchemeHandler(schemeHandler, forURLScheme: ResourceSchemeHandler.scheme)
         config.defaultWebpagePreferences.allowsContentJavaScript = false
         let controller = WKUserContentController()
-        controller.add(self, name: "choro")
+        // 受け手は強く持たれる。輪にしないため弱い中継を挟む（WeakScriptMessageHandler）。
+        controller.add(WeakScriptMessageHandler(self), name: "choro")
         // 左右キーは「次の単位へ」。並べ方によらず意味を変えない。
         controller.addUserScript(WKUserScript(source: Self.keyScript,
                                               injectionTime: .atDocumentEnd, forMainFrameOnly: true))

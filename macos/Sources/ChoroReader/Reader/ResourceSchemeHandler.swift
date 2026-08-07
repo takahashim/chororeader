@@ -9,11 +9,20 @@ final class ResourceSchemeHandler: NSObject, WKURLSchemeHandler {
     private let resources: ResourceProvider
     private let lock = NSLock()
     private var contentCache: [String: (data: Data, mime: String)] = [:]
+    /// 入れた順。頭を打つときに、古いものから捨てるために持つ。
+    private var cacheOrder: [String] = []
+    private var cacheBytes = 0
     private var changeLog: [String] = []
     private var markRequest: (query: String, nth: Int)?
 
     init(resources: ResourceProvider) {
         self.resources = resources
+    }
+
+    /// いま覚えている総量。頭が効いているかを検査が見る。
+    var cachedByteCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return cacheBytes
     }
 
     var cssChangeLog: [String] {
@@ -122,7 +131,7 @@ final class ResourceSchemeHandler: NSObject, WKURLSchemeHandler {
     func provideSynthetic(path: String, html: String) {
         lock.lock(); defer { lock.unlock() }
         // 書籍から切り出した断片は名前空間が欠けていることがある。寛容な HTML パーサへ渡す。
-        contentCache[path] = (Data(html.utf8), "text/html")
+        remember(path, data: Data(html.utf8), mime: "text/html")
     }
 
     /// 覚えておく鍵。同じ章でも、印の有無で中身が変わる。
@@ -136,12 +145,38 @@ final class ResourceSchemeHandler: NSObject, WKURLSchemeHandler {
         return contentCache[href]
     }
 
+    /// 覚えておける総量。
+    ///
+    /// 章と CSS は文字なので 1 つは小さいが、際限は無い。読み進めれば章が積み上がり、
+    /// 同じ章でも印の付き方ごとに別の 1 つになる（cacheKey）。当たりを次々に押していくと
+    /// その分だけ増える。窓が開いているあいだ捨てないので、頭を打っておく。
+    static let cacheLimit = 8 * 1024 * 1024
+
     private func store(_ href: String, data: Data, mime: String) {
         // 章と CSS だけを保持する。画像を溜め込むとメモリを圧迫するため対象外にする。
         let ext = (href as NSString).pathExtension.lowercased()
         guard ["css", "xhtml", "html", "htm"].contains(ext) else { return }
         lock.lock(); defer { lock.unlock() }
-        contentCache[href] = (data, mime)
+        remember(href, data: data, mime: mime)
+    }
+
+    /// 覚える。総量が頭を越えたら、古いものから捨てる。
+    /// 呼ぶ側が lock を持っていること。
+    private func remember(_ key: String, data: Data, mime: String) {
+        if let old = contentCache[key] {
+            cacheBytes -= old.data.count
+            cacheOrder.removeAll { $0 == key }
+        }
+        contentCache[key] = (data, mime)
+        cacheOrder.append(key)
+        cacheBytes += data.count
+
+        while cacheBytes > Self.cacheLimit, let oldest = cacheOrder.first {
+            cacheOrder.removeFirst()
+            if let dropped = contentCache.removeValue(forKey: oldest) {
+                cacheBytes -= dropped.data.count
+            }
+        }
     }
 
     private func record(_ changes: [CSSCompat.Change], path: String) {

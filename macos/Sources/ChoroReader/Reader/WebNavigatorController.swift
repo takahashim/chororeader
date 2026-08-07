@@ -65,7 +65,8 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         config.defaultWebpagePreferences.allowsContentJavaScript = false
 
         let controller = WKUserContentController()
-        controller.add(self, name: "choro")
+        // 受け手は強く持たれる。輪にしないため弱い中継を挟む（WeakScriptMessageHandler）。
+        controller.add(WeakScriptMessageHandler(self), name: "choro")
         config.userContentController = controller
 
         webView = WKWebView(frame: .zero, configuration: config)

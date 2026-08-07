@@ -18,7 +18,16 @@ final class ThumbnailProvider {
 
     init(source: Source) {
         self.source = source
+        // 枚数だけで頭を打つと、1 枚の大きさ次第で総量が読めない。
+        // 320 ピクセルの縮小画は 1 枚 0.5 メガほどあり、240 枚で 130 メガを超える。
+        // 総量でも打っておく。NSCache は費用を渡さないと totalCostLimit が効かない。
         cache.countLimit = 240
+        cache.totalCostLimit = 48 * 1024 * 1024
+    }
+
+    /// その画が占める場所。おおよそでよい。
+    private static func cost(of image: NSImage) -> Int {
+        Int(image.size.width * image.size.height) * 4
     }
 
     var pageCount: Int {
@@ -64,7 +73,9 @@ final class ThumbnailProvider {
             queue.async { [weak self] in
                 let image = (try? resources.read(href)).flatMap { Self.thumbnail(from: $0, maxPixel: maxPixel) }
                 DispatchQueue.main.async {
-                    if let image { self?.cache.setObject(image, forKey: NSNumber(value: index)) }
+                    if let image {
+                        self?.cache.setObject(image, forKey: NSNumber(value: index), cost: Self.cost(of: image))
+                    }
                     completion(image)
                 }
             }
@@ -80,7 +91,7 @@ final class ThumbnailProvider {
                 let scale = CGFloat(maxPixel) / max(box.width, box.height, 1)
                 let size = CGSize(width: box.width * scale, height: box.height * scale)
                 let image = page.thumbnail(of: size, for: .mediaBox)
-                self?.cache.setObject(image, forKey: NSNumber(value: index))
+                self?.cache.setObject(image, forKey: NSNumber(value: index), cost: Self.cost(of: image))
                 completion(image)
             }
         }
