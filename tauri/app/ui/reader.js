@@ -81,6 +81,169 @@ function pageElement(box, page) {
   return pageParts(box).find((el) => Number(el.dataset.page) === page);
 }
 
+// ---- 形式ごとの振る舞い ---------------------------------------------------
+//
+// spec.md 367 の取り決め：ナビゲータは目次・検索・位置表現を形式共通の形で提供し、
+// サイドバー・履歴・書棚は形式を意識しない。新しい形式を足す費用が、ここに閉じる。
+//
+// リフロー（本文を iframe に入れる）と紙面（PDF と固定レイアウト EPUB）で振る舞いが変わる。
+// 違いはこの 2 つの中だけに書き、外は `nav` を通してしか触らない。
+
+/// リフローする本文。章を 1 つずつ iframe に入れる。
+const reflowableReader = {
+  paged: false,
+  /// 倍率を覚える先。紙面と本文では合う倍率が違う。
+  zoomSetting: "epubZoom",
+  defaultFit: "custom",
+
+  /// 行き先（章の番号）。目次や当たりは経路で言ってくる。
+  locate: (href) => chapterOfHref(href),
+  show: (index, options = {}) => showChapter(index, options.fragment || null, options.goTo || null),
+  currentHref: () => (state.book.chapters[state.index] || {}).href,
+
+  position() {
+    const doc = $("page").contentDocument;
+    const el = doc && (doc.scrollingElement || doc.documentElement);
+    const progression = el && el.scrollHeight > 0 ? el.scrollTop / el.scrollHeight : 0;
+    return {
+      href: this.currentHref() || "",
+      progression,
+      page: 0,
+      fragment: "",
+      // 割合だけだと、文字サイズや本文幅を変えたときに見失う。
+      // いま画面の上端に来ている文字を覚えておき、次はそれを手掛かりに戻す。
+      text: doc ? topText(doc) : "",
+    };
+  },
+
+  reveal(position) {
+    const index = this.locate(position.href);
+    if (index != null) showChapter(index, null, position);
+  },
+
+  step(delta) {
+    // 読み込み中の分は取っておき、着いてからまとめて動かす。
+    if (arriving) { arriving.queuedSteps += delta; return; }
+    const index = state.index + delta;
+    if (index < 0 || index >= state.book.chapters.length) return;
+    jump(() => showChapter(index));
+  },
+
+  scrollBy(amount, byScreen) {
+    const doc = $("page").contentDocument;
+    const el = doc && (doc.scrollingElement || doc.documentElement);
+    if (!el) return;
+    el.scrollTop += byScreen ? amount * doc.defaultView.innerHeight : amount;
+  },
+
+  applyZoom() {
+    // リフローする本文は、文字も図も一緒に拡大する。
+    const doc = $("page").contentDocument;
+    if (doc && doc.documentElement) doc.documentElement.style.zoom = state.zoom;
+  },
+
+  /// 当たりの目当て。リフローは章の経路で指す。
+  markTarget: (href) => ({ href: href || "", page: 0 }),
+  /// 検索の当たりの行き先。
+  hitTarget: (hit) => chapterOfHref(hit.href),
+  /// しおりに付ける名前。
+  label: () => (state.book.chapters[state.index] || {}).title || "",
+  /// いま読んでいるところを、別の窓で開くときの言い方。
+  hereHref: () => (state.book.chapters[state.index] || {}).href || "",
+  /// 別の窓で開いたときの枠。リフローは印が本文に入って配られるので、何も要らない。
+  paintMark: async () => {},
+
+  prepare(saved, href, fragment) {
+    $("pdf").hidden = true;
+    $("page").hidden = false;
+    $("fit").hidden = true;
+    $("layout").hidden = true;
+    state.pageSize = null;
+    state.zoom = state.settings.epubZoom || 1;
+    $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
+    const index = this.locate(href || saved.position.href) ?? 0;
+    // 章を名指しで開くときは、覚えていた場所ではなく、指された場所へ着く。
+    return showChapter(index, fragment || null, href ? null : saved.position);
+  },
+};
+
+/// 紙面。PDF と固定レイアウト EPUB は、綴じ方向も拡大も送り方も同じに振る舞う。
+const pagedReader = {
+  paged: true,
+  zoomSetting: "zoom",
+  defaultFit: "width",
+
+  locate: (href) => pageOfHref(href),
+  show: (page) => showPage(page),
+  currentHref: () =>
+    (isFixed() ? (state.book.pages[state.page] || {}).href : String(state.page)),
+
+  position: () => ({ href: "", progression: 0, page: state.page, fragment: "", text: "" }),
+  reveal: (position) => showPage(position.page),
+
+  step(delta) {
+    jump(() => showPage(pageAfterStep(state.settings.pageLayout, state.page, delta, state.book.spreads)));
+  },
+
+  scrollBy(amount, byScreen) {
+    const box = $("pdf");
+    box.scrollTop += byScreen ? amount * box.clientHeight : amount;
+  },
+
+  applyZoom() {
+    layoutPdf();
+    // 固定レイアウトは元の紙面をそのまま置くので、描き直しが要らない。
+    if (!isFixed()) renderPdf();
+  },
+
+  /// 当たりの目当て。紙面はページ番号で指す。
+  markTarget: (href) => ({ href: "", page: Number(href) || 0 }),
+  hitTarget: (hit) => (isFixed() ? pageOfHref(hit.href) : hit.page),
+  label: () => `p.${state.page + 1}`,
+  hereHref: () => String(state.page),
+
+  /// 紙面の当たりは絵の上に重ねるので、開いてから土台に枠を尋ね直す。
+  /// 固定レイアウトは本文が HTML なので、印は配られたものがそのまま入っている。
+  async paintMark(query) {
+    if (isFixed()) return;
+    state.mark.rects = await invoke("page_marks", {
+      id: state.book.id, page: state.page, query,
+    }).catch(() => []);
+    layoutMarks();
+  },
+
+  prepare(saved, href) {
+    $("page").hidden = true;
+    $("pdf").hidden = false;
+    $("fit").hidden = false;
+    $("layout").hidden = false;
+    $("layout").value = state.settings.pageLayout;
+    return isFixed() ? this.prepareFixed(saved, href) : this.preparePdf(saved, href);
+  },
+
+  async prepareFixed(saved, href) {
+    // 寸法は meta viewport から来る。名乗っていない書籍のために当てを置く。
+    state.pageSize = state.book.pageSize || [800, 1130];
+    this.fitFirst(state.settings.zoom || 1);
+    await showFixed(href ? Number(href) : saved.position.page || 0);
+  },
+
+  async preparePdf(saved, href) {
+    // 合わせ方を計算するにはページの大きさが要る。1 ページ目で代表させる。
+    state.pageSize = await invoke("page_size", { id: state.book.id, page: 0 }).catch(() => null);
+    this.fitFirst(state.settings.zoom);
+    await showPdf(href ? Number(href) : saved.position.page || 0);
+  },
+
+  fitFirst(fallback) {
+    const fitted = zoomForFit(state.settings.fit);
+    setZoom(fitted == null ? fallback : fitted, state.settings.fit);
+  },
+};
+
+/// いま使っている振る舞い。書籍を開くときに選ぶ。
+let nav = reflowableReader;
+
 // ---- 書籍を開く ---------------------------------------------------------
 
 /// 書籍を開く。`carried` は検索から渡ってきたもので、
@@ -92,85 +255,60 @@ async function openPath(path, href, fragment, carried = {}) {
     toast("開けませんでした: " + error);
     return;
   }
+  // 形式を見るのはここだけ。以降の振る舞いの違いは nav の中に閉じる。
+  nav = isPaged() ? pagedReader : reflowableReader;
 
+  const saved = await invoke("book_state", { path });
+  dressChrome(saved);
+  aimFromCarried(carried, href);
+
+  await nav.prepare(saved, href, fragment);
+  await followCarried(carried);
+  warnIfUnsearchable();
+}
+
+/// 書籍に合わせて窓の飾りを整える。題名、しおり、目次、使えないタブ。
+function dressChrome(saved) {
   document.title = state.book.title;
   $("book-title").textContent = state.book.title;
   // ページの一覧は紙面の書籍にしか意味がない。
-  $("sidebar-tabs").querySelector('[data-pane="thumbs"]').hidden =
-    !(state.book.format === "pdf" || state.book.format === "fixedEPUB");
+  $("sidebar-tabs").querySelector('[data-pane="thumbs"]').hidden = !nav.paged;
 
-  const saved = await invoke("book_state", { path });
   state.bookmarks = saved.bookmarks || [];
   renderBookmarks();
   renderToc();
+}
 
-  // 検索の当たりから渡ってきたときは、本文を配ってもらう前に目当てを決めておく。
-  // 印は配信時に入るので、開いてから決めたのでは間に合わない。
-  if (carried.query && !carried.list) {
-    state.mark = {
-      query: carried.query,
-      nth: Number(carried.nth) || 0,
-      href: isPaged() ? "" : href || "",
-      page: isPaged() ? Number(href) || 0 : 0,
-      rects: [],
-      approach: true,
-    };
+/// 検索の当たりから渡ってきた目当てを、本文を配ってもらう前に決めておく。
+/// 印は配信時に入るので、開いてから決めたのでは間に合わない。
+function aimFromCarried(carried, href) {
+  if (!carried.query || carried.list) return;
+  state.mark = {
+    query: carried.query,
+    nth: Number(carried.nth) || 0,
+    ...nav.markTarget(href),
+    rects: [],
+    approach: true,
+  };
+}
+
+/// 本文が出たあとに、渡されたものの残りを当てる。
+async function followCarried(carried) {
+  if (!carried.query) return;
+  if (carried.list) {
+    // 全件を見に来た。同じ語句をこの本で引き直す。
+    // 1 冊から拾う上限が上がるので、書棚で打ち切られた続きがここで見える。
+    $("search-input").value = carried.query;
+    await runSearch();
+    return;
   }
+  await nav.paintMark(carried.query);
+}
 
-  if (state.book.format === "fixedEPUB") {
-    $("page").hidden = true;
-    $("pdf").hidden = false;
-    $("fit").hidden = false;
-    $("layout").hidden = false;
-    $("layout").value = state.settings.pageLayout;
-    // 寸法は meta viewport から来る。名乗っていない書籍のために当てを置く。
-    state.pageSize = state.book.pageSize || [800, 1130];
-    const fitted = zoomForFit(state.settings.fit);
-    setZoom(fitted == null ? state.settings.zoom || 1 : fitted, state.settings.fit);
-    await showFixed(href ? Number(href) : saved.position.page || 0);
-  } else if (state.book.format === "pdf") {
-    $("page").hidden = true;
-    $("pdf").hidden = false;
-    $("fit").hidden = false;
-    $("layout").hidden = false;
-    $("layout").value = state.settings.pageLayout;
-    // 合わせ方を計算するにはページの大きさが要る。1 ページ目で代表させる。
-    state.pageSize = await invoke("page_size", { id: state.book.id, page: 0 }).catch(() => null);
-    const fitted = zoomForFit(state.settings.fit);
-    setZoom(fitted == null ? state.settings.zoom : fitted, state.settings.fit);
-    await showPdf(href ? Number(href) : saved.position.page || 0);
-  } else {
-    $("pdf").hidden = true;
-    $("page").hidden = false;
-    $("fit").hidden = true;
-    $("layout").hidden = true;
-    state.pageSize = null;
-    state.zoom = state.settings.epubZoom || 1;
-    $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
-    const target = href || saved.position.href;
-    const index = chapterOfHref(target) ?? 0;
-    // 章を名指しで開くときは、覚えていた場所ではなく、指された場所へ着く。
-    await showChapter(index, fragment || null, href ? null : saved.position);
-  }
-
-  if (carried.query) {
-    if (carried.list) {
-      // 全件を見に来た。同じ語句をこの本で引き直す。
-      // 1 冊から拾う上限が上がるので、書棚で打ち切られた続きがここで見える。
-      $("search-input").value = carried.query;
-      await runSearch();
-    } else if (isPaged() && !isFixed()) {
-      // 紙面の枠は絵の上に重ねるので、開いてから土台に尋ね直す。
-      state.mark.rects = await invoke("page_marks", {
-        id: state.book.id, page: state.page, query: carried.query,
-      }).catch(() => []);
-      layoutMarks();
-    }
-  }
-
+/// 入稿用にフォントをアウトライン化した PDF は、見た目が鮮明でも文字を持たない。
+/// 検索が黙って 0 件になるより、開いた時点で伝えるほうがよい。
+function warnIfUnsearchable() {
   if (state.book.format === "pdf" && !state.book.hasTextLayer) {
-    // 入稿用にフォントをアウトライン化した PDF は、見た目が鮮明でも文字を持たない。
-    // 検索が黙って 0 件になるより、開いた時点で伝えるほうがよい。
     toast("この PDF はテキスト層を持たないため検索できません");
   }
 }
@@ -197,9 +335,7 @@ function renderToc() {
 }
 
 function markCurrentToc() {
-  const current = isPaged()
-    ? (isFixed() ? (state.book.pages[state.page] || {}).href : String(state.page))
-    : (state.book.chapters[state.index] || {}).href;
+  const current = nav.currentHref();
   for (const a of $("toc").children) {
     a.classList.toggle("current", a.dataset.href === current);
   }
@@ -230,9 +366,8 @@ function openTarget(a, newWindow) {
   if (newWindow) {
     return invoke("open_in_new_window", { path: state.book.path, href, fragment });
   }
-  if (isPaged()) return jump(() => showPage(pageOfHref(href)));
-  const index = chapterOfHref(href);
-  if (index != null) jump(() => showChapter(index, fragment || null));
+  const target = nav.locate(href);
+  if (target != null) jump(() => nav.show(target, { fragment }));
 }
 
 
@@ -727,12 +862,8 @@ function zoomForFit(fit) {
 function setZoom(value, fit) {
   state.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, value));
   // PDF と本文では合う倍率が違うので、別々に覚える。
-  if (isPaged()) {
-    state.settings.zoom = state.zoom;
-    if (fit) state.settings.fit = fit;
-  } else {
-    state.settings.epubZoom = state.zoom;
-  }
+  state.settings[nav.zoomSetting] = state.zoom;
+  if (fit && nav.paged) state.settings.fit = fit;
   saveSettingsSoon(state.settings);
   $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
   $("fit").value = state.settings.fit;
@@ -740,15 +871,7 @@ function setZoom(value, fit) {
 }
 
 function applyZoom() {
-  if (!state.book) return;
-  if (isPaged()) {
-    layoutPdf();
-    if (!isFixed()) renderPdf();
-    return;
-  }
-  // リフローする本文は、文字も図も一緒に拡大する。
-  const doc = $("page").contentDocument;
-  if (doc && doc.documentElement) doc.documentElement.style.zoom = state.zoom;
+  if (state.book) nav.applyZoom();
 }
 
 function zoomBy(step) {
@@ -760,8 +883,8 @@ function zoomBy(step) {
 
 function resetZoom() {
   if (!state.book) return;
-  const fit = isPaged() ? "width" : "custom";
-  const value = isPaged() ? (zoomForFit("width") || 1) : 1;
+  const fit = nav.defaultFit;
+  const value = nav.paged ? (zoomForFit("width") || 1) : 1;
   setZoom(value, fit);
   toast("拡大 " + Math.round(state.zoom * 100) + "%");
 }
@@ -894,20 +1017,19 @@ async function runSearch() {
   }
   for (const hit of hits) {
     const openHit = (newWindow) => {
+      const target = nav.hitTarget(hit);
       if (newWindow) {
         // 紙面はページ番号で、リフローは章の経路で行き先を言う。
         return invoke("open_in_new_window", {
           path: state.book.path,
-          href: isPaged() ? String(isFixed() ? pageOfHref(hit.href) : hit.page) : hit.href,
+          href: nav.paged ? String(target) : hit.href,
           fragment: "",
           query,
           nth: hit.nth,
         });
       }
       aimAt(query, hit);
-      if (isPaged()) return jump(() => showPage(isFixed() ? pageOfHref(hit.href) : hit.page));
-      const index = chapterOfHref(hit.href);
-      if (index != null) jump(() => showChapter(index, null, hit.progression));
+      if (target != null) jump(() => nav.show(target, { goTo: hit.progression }));
     };
     box.appendChild(hitRow(document, hit, {
       open: openHit,
@@ -937,13 +1059,15 @@ function aimAt(query, hit) {
     query,
     /// その章の中で何番目の当たりか。同じ語が何度も出る章で、押したものを選び直す。
     nth: hit.nth || 0,
-    href: isPaged() ? "" : hit.href || "",
-    page: isFixed() ? pageOfHref(hit.href) : hit.page || 0,
+    href: nav.paged ? "" : hit.href || "",
+    page: nav.paged ? nav.hitTarget(hit) : 0,
     rects: hit.rects || [],
     /// 押した直後の 1 回だけ、その場所まで送る。あとで通りかかったときは囲むだけにする。
     approach: true,
   };
 }
+
+
 
 function forgetMark() {
   state.mark = null;
@@ -1034,23 +1158,7 @@ function rememberSoon() {
   }, 700);
 }
 
-function currentPosition() {
-  if (isPaged()) {
-    return { href: "", progression: 0, page: state.page, fragment: "", text: "" };
-  }
-  const doc = $("page").contentDocument;
-  const el = doc && (doc.scrollingElement || doc.documentElement);
-  const progression = el && el.scrollHeight > 0 ? el.scrollTop / el.scrollHeight : 0;
-  return {
-    href: (state.book.chapters[state.index] || {}).href || "",
-    progression,
-    page: 0,
-    fragment: "",
-    // 割合だけだと、文字サイズや本文幅を変えたときに見失う。
-    // いま画面の上端に来ている文字を覚えておき、次はそれを手掛かりに戻す。
-    text: doc ? topText(doc) : "",
-  };
-}
+const currentPosition = () => nav.position();
 
 /// 画面の上端にある段落の書き出し。長すぎると当たらなくなるので短く取る。
 function topText(doc) {
@@ -1092,9 +1200,7 @@ function scrollToText(doc, text) {
 async function toggleBookmark() {
   if (!state.book) return;
   const position = currentPosition();
-  const label = isPaged()
-    ? `p.${state.page + 1}`
-    : (state.book.chapters[state.index] || {}).title || "";
+  const label = nav.label();
   state.bookmarks = await invoke("toggle_bookmark", {
     path: state.book.path,
     bookmark: { ...position, label },
@@ -1110,9 +1216,7 @@ function renderBookmarks() {
     const a = document.createElement("a");
     a.textContent = bookmark.label || bookmark.href;
     a.addEventListener("click", () => {
-      if (isPaged()) return jump(() => showPage(bookmark.page));
-      const index = chapterOfHref(bookmark.href);
-      if (index != null) jump(() => showChapter(index, null, bookmark));
+      jump(() => nav.reveal(bookmark));
     });
     box.appendChild(a);
   }
@@ -1258,17 +1362,7 @@ function focusSearch() {
 }
 
 /// 本文を送る。割合で渡されたときは 1 画面ぶんとして扱う。
-function scrollContent(amount, byScreen) {
-  if (isPaged()) {
-    const box = $("pdf");
-    box.scrollTop += byScreen ? amount * box.clientHeight : amount;
-    return;
-  }
-  const doc = $("page").contentDocument;
-  const el = doc && (doc.scrollingElement || doc.documentElement);
-  if (!el) return;
-  el.scrollTop += byScreen ? amount * doc.defaultView.innerHeight : amount;
-}
+const scrollContent = (amount, byScreen) => nav.scrollBy(amount, byScreen);
 
 
 // ---- 履歴 ---------------------------------------------------------------
@@ -1304,32 +1398,20 @@ function goForward() {
 }
 
 /// 覚えておいた場所へ戻す。ここでは履歴を積まない。
-function reveal(position) {
-  if (isPaged()) return showPage(position.page);
-  const index = chapterOfHref(position.href);
-  if (index == null) return;
-  // 履歴から戻すときも、割合だけでなく書き出しを手掛かりにする。
-  showChapter(index, null, position);
-}
+/// 覚えておいた場所へ戻す。ここでは履歴を積まない。
+/// 割合だけでなく書き出しも手掛かりにするので、形式ごとの戻し方は nav が持つ。
+const reveal = (position) => nav.reveal(position);
 
 function updateHistoryButtons() {
   $("go-back").disabled = state.back.length === 0;
   $("go-forward").disabled = state.forward.length === 0;
 }
 
+/// 1 つ送る。紙面の送りも履歴に載せる。
+/// 目次から飛んだあと、元のページへ帰れるようにするため。
 function step(delta) {
   trace(`step(${delta}) loading=${isLoading()} index=${state.index}`);
-  // 紙面の送りも履歴に載せる。目次から飛んだあと元のページへ帰れるようにするため。
-  //
-  // 見開きでは 2 枚ずつ動く。並べ方が変わっても「次の単位へ」という意味は変えない。
-  if (isPaged()) {
-    return jump(() => showPage(pageAfterStep(state.settings.pageLayout, state.page, delta, state.book.spreads)));
-  }
-  // 読み込み中の分は取っておき、終わってからまとめて動かす。
-  if (arriving) { arriving.queuedSteps += delta; return; }
-  const index = state.index + delta;
-  if (index < 0 || index >= state.book.chapters.length) return;
-  jump(() => showChapter(index));
+  nav.step(delta);
 }
 
 // ---- 道具帯とサイドバー -------------------------------------------------
@@ -1367,10 +1449,7 @@ $("sidebar-tabs").addEventListener("click", (event) => {
 /// 同じ書籍でも構わない。離れた 2 か所を並べて見るための道具である。
 function openHere() {
   if (!state.book) return;
-  const href = isPaged()
-    ? String(state.page)
-    : (state.book.chapters[state.index] || {}).href || "";
-  invoke("open_in_new_window", { path: state.book.path, href });
+  invoke("open_in_new_window", { path: state.book.path, href: nav.hereHref() });
 }
 
 async function pick() {
