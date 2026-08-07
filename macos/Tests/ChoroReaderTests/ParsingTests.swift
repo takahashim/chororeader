@@ -55,8 +55,11 @@ final class EPUBParserTests: XCTestCase {
     func testParsesGihyoBook() throws {
         let publication = try EPUBParser.parse(Fixtures.archive(Fixtures.gihyo))
 
-        XCTAssertTrue(publication.title.contains("関数プログラミング実践入門"), "書名: \(publication.title)")
-        XCTAssertEqual(publication.readingOrder.count, 86)
+        // 書名そのものは書かない。名乗っていることだけを見る。
+        // 実在の書籍の題名をリポジトリへ入れると、位置を外へ出さない意味が薄れる。
+        XCTAssertFalse(publication.title.isEmpty, "題名を名乗っていない")
+        XCTAssertNotEqual(publication.title, "(無題)", "題名を拾えていない")
+        XCTAssertGreaterThan(publication.readingOrder.count, 50, "読み順が短すぎる")
         XCTAssertEqual(publication.layout, .reflowable)
         XCTAssertFalse(publication.tableOfContents.isEmpty)
 

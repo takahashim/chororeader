@@ -12,12 +12,12 @@ final class DisplayTitleTests: XCTestCase {
     }
 
     func test_まともな題名はそのまま出す() {
-        XCTAssertEqual(name("関数プログラミング実践入門", "/蔵書/wdpress.epub"),
-                       "関数プログラミング実践入門")
+        XCTAssertEqual(name("架空プログラミング実践入門", "/蔵書/kakuu.epub"),
+                       "架空プログラミング実践入門")
     }
 
     func test_題名が無ければファイル名で代える() {
-        XCTAssertEqual(name("", "/蔵書/n月刊ラムダノート 4-3.pdf"), "n月刊ラムダノート 4-3")
+        XCTAssertEqual(name("", "/蔵書/架空季刊誌 4-3.pdf"), "架空季刊誌 4-3")
         XCTAssertEqual(name("   ", "/蔵書/あの本.pdf"), "あの本")
     }
 

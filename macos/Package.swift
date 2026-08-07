@@ -19,6 +19,8 @@ let package = Package(
             name: "ChoroReaderTests",
             dependencies: ["ChoroReader"],
             path: "Tests/ChoroReaderTests",
+            // 期待値は道筋で読む（TestPaths）。束ねる必要は無いので、資源にはしない。
+            exclude: ["Fixtures"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
