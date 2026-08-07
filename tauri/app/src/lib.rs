@@ -96,6 +96,7 @@ pub fn run() {
             toggle_bookmark,
             open_external,
             focus_webview,
+            focus_calls,
             ui_log,
         ])
         .on_window_event(|window, event| {
@@ -374,6 +375,7 @@ fn selftest_report(app: tauri::AppHandle, results: serde_json::Value) {
         }
         Err(_) => print!("{report}"),
     }
+
     app.exit(if failed == 0 { 0 } else { 1 });
 }
 
@@ -591,7 +593,20 @@ fn toggle_bookmark(
 /// 窓の処理なので、ワーカースレッドへは逃がさない。
 #[tauri::command]
 fn focus_webview(webview: tauri::Webview) -> Result<(), String> {
+    FOCUS_CALLS.fetch_add(1, Ordering::Relaxed);
     webview.set_focus().map_err(|e| e.to_string())
+}
+
+/// 受け手を戻した回数。
+///
+/// `set_focus` は焦点の知らせを呼び返す。その知らせに応じてまた戻すと輪になり、
+/// 毎秒何百回と回って催しの列が詰まる（窓が閉じられなくなる）。この輪は
+/// 2 度踏んでいる。人が押さないと分からない領域だが、**回った回数なら数えられる。**
+static FOCUS_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+#[tauri::command]
+fn focus_calls() -> usize {
+    FOCUS_CALLS.load(Ordering::Relaxed)
 }
 
 #[tauri::command(async)]

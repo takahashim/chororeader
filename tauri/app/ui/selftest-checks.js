@@ -272,6 +272,19 @@ export const automatic = [
     only: "reflowable",
   },
   {
+    name: "焦点の輪が回っていない",
+    run: async () => {
+      // 受け手を戻すと焦点の知らせが呼び返る。その知らせでまた戻すと輪になり、
+      // 催しの列が詰まって窓が閉じられなくなる（本文の焦点枠がその速さで明滅する）。
+      // 焦点そのものは人が押さないと確かめられないが、回った回数なら数えられる。
+      // 実際に回っていたときは毎秒 265 回だった。何もしていなければ増えない。
+      const before = await invoke("focus_calls");
+      await sleep(1000);
+      const turned = (await invoke("focus_calls")) - before;
+      return { ok: turned <= 5, detail: `放っておいた 1 秒で ${turned} 回` };
+    },
+  },
+  {
     // 窓を増やす検査は後ろに置く。焦点が移るので、鍵盤を見る検査と並べない。
     name: "書棚を開ける",
     run: () => opensAWindow(() => invoke("open_shelf")),
