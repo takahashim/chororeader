@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  isFixedBook, isPagedBook, pageAfterStep, pageCountOf, pageOfHref, pagesToShow, spreadWith,
+  chapterOfHref, isFixedBook, isPagedBook, pageAfterStep, pageCountOf, pageOfHref,
+  pagesToShow, spreadWith,
 } from "../lib/layout.js";
 
 // 組み方は core が決めて `spreads` として降ってくる。試験では降ってきたつもりの値を渡す。
@@ -75,4 +76,16 @@ test("PDF では目次が持つ番号をそのまま使う", () => {
 test("紙面の総数は形式ごとの数え方に従う", () => {
   assert.equal(pageCountOf({ format: "pdf", pageCount: 12 }), 12);
   assert.equal(pageCountOf({ format: "fixedEPUB", pages: [1, 2, 3] }), 3);
+});
+
+test("経路から章の番号を引く", () => {
+  const book = { chapters: [{ href: "a.xhtml" }, { href: "b.xhtml" }] };
+  assert.equal(chapterOfHref(book, "b.xhtml"), 1);
+});
+
+test("見つからない章は null で返す。0 章に落とさない", () => {
+  // 黙って先頭へ飛ぶと、別の版から来た位置で「なぜか 1 章に戻る」ことになる。
+  const book = { chapters: [{ href: "a.xhtml" }] };
+  assert.equal(chapterOfHref(book, "無い.xhtml"), null);
+  assert.equal(chapterOfHref({}, "a.xhtml"), null);
 });

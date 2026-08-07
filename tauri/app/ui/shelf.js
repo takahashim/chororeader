@@ -7,7 +7,8 @@ import {
   $, invoke, listenToMenu, loadSettings, saveSettings, applyTheme,
   ensureBackend, hideMenu, showFailure, showMenu, watchForFailures,
 } from "./chrome.js";
-import { hitCountLabel, libraryProgress as progressLabel, oneLine } from "./lib/format.js";
+import { hitCountLabel, libraryProgress as progressLabel } from "./lib/format.js";
+import { hitRow } from "./lib/hit-row.js";
 
 const state = {
   settings: {},
@@ -269,18 +270,6 @@ function foundBook(book) {
 }
 
 function foundHit(book, hit) {
-  const row = document.createElement("div");
-  row.className = "hit" + (hit.isCode ? " code" : "");
-  row.title = book.path;
-
-  const where = document.createElement("span");
-  where.className = "where";
-  where.textContent = oneLine(hit.title);
-  const excerpt = document.createElement("span");
-  excerpt.className = "excerpt";
-  excerpt.textContent = oneLine(hit.excerpt);
-  row.append(where, excerpt);
-
   // 書棚は本を配る側なので、当たりも読書の窓に開く。書棚はそのまま残る。
   const open = () => invoke("open_in_new_window", {
     path: book.path,
@@ -289,15 +278,14 @@ function foundHit(book, hit) {
     query: librarySearch.query,
     nth: hit.nth,
   });
-  row.addEventListener("click", open);
-  row.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    showMenu(event, [
+  return hitRow(document, hit, {
+    open,
+    title: book.path,
+    menu: (event) => showMenu(event, [
       ["新しいウィンドウで開く", open],
       ["この本の中をすべて見る", () => openAll(book)],
-    ]);
+    ]),
   });
-  return row;
 }
 
 /// その本を開き、同じ語句で引いた一覧を出す。件数の上限は書籍内検索のものに上がる。

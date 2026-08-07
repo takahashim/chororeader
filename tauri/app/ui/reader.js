@@ -12,9 +12,11 @@ import {
   listenToMenu, loadSettings, saveSettings, saveSettingsSoon, showFailure,
   showMenu, toast, trace, watchForFailures,
 } from "./chrome.js";
+import * as diagnosis from "./lib/diagnosis.js";
+import { hitRow } from "./lib/hit-row.js";
 import {
-  isFixedBook, isPagedBook, pageAfterStep, pageCountOf,
-  pageOfHref as pageOfHrefIn, pagesToShow,
+  chapterOfHref as chapterOfHrefIn, isFixedBook, isPagedBook, pageAfterStep,
+  pageCountOf, pageOfHref as pageOfHrefIn, pagesToShow,
 } from "./lib/layout.js";
 
 const state = {
@@ -59,6 +61,7 @@ const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 const isPaged = () => isPagedBook(state.book);
 const isFixed = () => isFixedBook(state.book);
 const pageOfHref = (href) => pageOfHrefIn(state.book, href);
+const chapterOfHref = (href) => chapterOfHrefIn(state.book, href);
 const visiblePages = (total) =>
   pagesToShow(state.settings.pageLayout, state.page, total, state.book.spreads);
 const isContinuous = () => state.settings.pageLayout === "continuousScroll";
@@ -145,7 +148,7 @@ async function openPath(path, href, fragment, carried = {}) {
     state.zoom = state.settings.epubZoom || 1;
     $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
     const target = href || saved.position.href;
-    const index = Math.max(0, state.book.chapters.findIndex((c) => c.href === target));
+    const index = chapterOfHref(target) ?? 0;
     // 章を名指しで開くときは、覚えていた場所ではなく、指された場所へ着く。
     await showChapter(index, fragment || null, href ? null : saved.position);
   }
@@ -228,8 +231,8 @@ function openTarget(a, newWindow) {
     return invoke("open_in_new_window", { path: state.book.path, href, fragment });
   }
   if (isPaged()) return jump(() => showPage(pageOfHref(href)));
-  const index = state.book.chapters.findIndex((c) => c.href === href);
-  if (index >= 0) jump(() => showChapter(index, fragment || null));
+  const index = chapterOfHref(href);
+  if (index != null) jump(() => showChapter(index, fragment || null));
 }
 
 
@@ -517,8 +520,8 @@ async function showPopover(anchor, href, fragment) {
   }
   go.addEventListener("click", () => {
     hidePopover();
-    const index = state.book.chapters.findIndex((c) => c.href === href);
-    if (index >= 0) jump(() => showChapter(index, fragment));
+    const index = chapterOfHref(href);
+    if (index != null) jump(() => showChapter(index, fragment));
   });
   newWindow.addEventListener("click", () => {
     hidePopover();
@@ -890,15 +893,6 @@ async function runSearch() {
     return;
   }
   for (const hit of hits) {
-    const a = document.createElement("a");
-    a.className = "hit" + (hit.isCode ? " code" : "");
-    const where = document.createElement("span");
-    where.className = "where";
-    where.textContent = hit.title;
-    const excerpt = document.createElement("span");
-    excerpt.className = "excerpt";
-    excerpt.textContent = hit.excerpt;
-    a.append(where, excerpt);
     const openHit = (newWindow) => {
       if (newWindow) {
         // 紙面はページ番号で、リフローは章の経路で行き先を言う。
@@ -912,20 +906,16 @@ async function runSearch() {
       }
       aimAt(query, hit);
       if (isPaged()) return jump(() => showPage(isFixed() ? pageOfHref(hit.href) : hit.page));
-      const index = state.book.chapters.findIndex((c) => c.href === hit.href);
-      if (index >= 0) {
-        jump(() => showChapter(index, null, hit.progression));
-      }
+      const index = chapterOfHref(hit.href);
+      if (index != null) jump(() => showChapter(index, null, hit.progression));
     };
-    a.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      showMenu(event, [
+    box.appendChild(hitRow(document, hit, {
+      open: openHit,
+      menu: (event) => showMenu(event, [
         ["新しいウィンドウで開く", () => openHit(true)],
         ["ここへ移動", () => openHit(false)],
-      ]);
-    });
-    a.addEventListener("click", (event) => openHit(event.metaKey || event.ctrlKey));
-    box.appendChild(a);
+      ]),
+    }));
   }
 }
 
@@ -1121,10 +1111,8 @@ function renderBookmarks() {
     a.textContent = bookmark.label || bookmark.href;
     a.addEventListener("click", () => {
       if (isPaged()) return jump(() => showPage(bookmark.page));
-      const index = state.book.chapters.findIndex((c) => c.href === bookmark.href);
-      if (index >= 0) {
-        jump(() => showChapter(index, null, bookmark));
-      }
+      const index = chapterOfHref(bookmark.href);
+      if (index != null) jump(() => showChapter(index, null, bookmark));
     });
     box.appendChild(a);
   }
@@ -1318,8 +1306,8 @@ function goForward() {
 /// 覚えておいた場所へ戻す。ここでは履歴を積まない。
 function reveal(position) {
   if (isPaged()) return showPage(position.page);
-  const index = state.book.chapters.findIndex((c) => c.href === position.href);
-  if (index < 0) return;
+  const index = chapterOfHref(position.href);
+  if (index == null) return;
   // 履歴から戻すときも、割合だけでなく書き出しを手掛かりにする。
   showChapter(index, null, position);
 }
@@ -1344,29 +1332,14 @@ function step(delta) {
   jump(() => showChapter(index));
 }
 
+// ---- 道具帯とサイドバー -------------------------------------------------
+
 async function diagnose() {
   if (!state.book || state.book.format === "pdf") return;
   const report = await invoke("diagnose", { id: state.book.id });
-  const lines = [
-    `章 ${report.spineCount} / 目次 ${report.tocEntryCount}（深さ ${report.tocMaxDepth}）`,
-    `CSS ${report.cssFileCount}（旧記法 ${report.legacyCSSFileCount}）`,
-    `XHTML ${report.xhtmlCount}（不正 ${report.malformedXHTMLCount}）`,
-    `画像 ${report.imageCount} / フォント ${report.fontCount}`,
-    `欠落: リソース ${report.missingResources.length} / 目次 ${report.missingTOCTargets.length} / 章 ${report.missingSpineItems.length}`,
-  ];
   // 目で見るだけでは書き写せない。押した時点で写しておく。
-  const detail = [
-    `書籍: ${state.book.title}`,
-    ...lines,
-    report.missingResources.length ? "欠落リソース:\n  " + report.missingResources.join("\n  ") : "",
-    report.missingTOCTargets.length ? "欠落した目次の参照先:\n  " + report.missingTOCTargets.join("\n  ") : "",
-    report.missingSpineItems.length ? "欠落した章:\n  " + report.missingSpineItems.join("\n  ") : "",
-    report.cssChanges.length
-      ? "CSS の変換:\n  " + report.cssChanges.map((c) => `${c.from} → ${c.to} (${c.count})`).join("\n  ")
-      : "",
-  ].filter(Boolean).join("\n");
-  await navigator.clipboard.writeText(detail).catch(() => {});
-  toast(lines.join("　") + "（診断をコピーしました）");
+  await navigator.clipboard.writeText(diagnosis.detail(state.book.title, report)).catch(() => {});
+  toast(diagnosis.summary(report).join("　") + "（診断をコピーしました）");
 }
 
 function toggleSidebar() {
@@ -1387,6 +1360,8 @@ function showPane(name) {
 $("sidebar-tabs").addEventListener("click", (event) => {
   if (event.target.dataset.pane) showPane(event.target.dataset.pane);
 });
+
+// ---- 束ね ---------------------------------------------------------------
 
 /// いま読んでいるところを、もう 1 つの窓で開く。
 /// 同じ書籍でも構わない。離れた 2 か所を並べて見るための道具である。

@@ -1,0 +1,256 @@
+/* 書棚の窓（shelf.html）。表紙と一覧、横断検索の当たり。 */
+
+/* 検索結果から飛んだ先で、当たりを囲む枠。紙面は絵なので上から重ねるしかない。 */
+.found-frame {
+  position: absolute;
+  background: rgba(255, 196, 0, 0.35);
+  outline: 1.5px solid rgba(224, 150, 0, 0.9);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* 書棚は独立した窓（shelf.html）の中身。読書の窓には入っていない。 */
+#shelf {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  overflow: auto;
+}
+
+#shelf-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px 8px;
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+#shelf-bar h1 { margin: 0; font-size: 17px; }
+#shelf-bar .spacer { flex: 1; }
+
+#shelf-bar button {
+  border: 1px solid var(--line);
+  background: var(--bar);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+
+#shelf-bar button:hover { border-color: var(--accent); }
+
+#shelf-search {
+  flex: 0 1 26ch;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bar);
+  color: var(--text);
+  font: inherit;
+}
+
+#shelf-progress { color: var(--dim); font-size: 11px; white-space: nowrap; }
+
+/* 横断検索の当たり。1 冊ぶんを 1 つのまとまりにし、1 件は 1 行に収める。 */
+#shelf-results { padding: 6px 20px 28px; }
+
+.found { margin-bottom: 16px; }
+
+.found-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 4px 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 3px;
+}
+
+.found-head .title { font-size: 13px; }
+.found-head .count { color: var(--dim); font-size: 11px; }
+
+.found .hit {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.found .hit:hover { background: rgba(127, 127, 127, 0.14); }
+
+.found .hit .where {
+  flex: 0 0 15ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.found .hit .excerpt { flex: 1; min-width: 0; }
+
+.found-all {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+
+#shelf-results .nothing {
+  padding: 60px 0;
+  text-align: center;
+  color: var(--dim);
+}
+
+#shelf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 20px 16px;
+  padding: 10px 20px 28px;
+  align-items: start;
+}
+
+.book {
+  cursor: pointer;
+  text-align: center;
+}
+
+.book .art {
+  height: 168px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  margin-bottom: 7px;
+}
+
+.book img,
+.book .blank {
+  max-width: 100%;
+  max-height: 168px;
+  border-radius: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  background: var(--bar);
+}
+
+.book .blank {
+  width: 118px;
+  height: 168px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
+  font-size: 11px;
+  border: 1px solid var(--line);
+}
+
+.book .name {
+  font-size: 12px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.book .by {
+  font-size: 11px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book .kind {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.book.missing { opacity: 0.45; }
+.book.missing .name { text-decoration: line-through; }
+
+.book:hover .name { color: var(--accent); }
+
+#shelf-empty {
+  padding: 0 20px;
+  color: var(--dim);
+}
+
+#shelf-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--dim);
+  line-height: 2;
+}
+
+#shelf-empty p { margin: 0; }
+
+#shelf-samples { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+
+#shelf-samples button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+
+#shelf-samples button:hover { border-color: var(--accent); color: var(--accent); }
+
+#shelf-modes { display: inline-flex; gap: 0; }
+
+#shelf-modes button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--dim);
+  padding: 3px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+
+#shelf-modes button:first-child { border-radius: 5px 0 0 5px; }
+#shelf-modes button:last-child { border-radius: 0 5px 5px 0; border-left: 0; }
+#shelf-modes button.on { color: var(--accent); border-color: var(--accent); }
+
+#shelf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+#shelf-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--dim);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+#shelf-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#shelf-table tbody tr:hover td { background: rgba(127, 127, 127, 0.12); }
+#shelf-table tbody tr.selected td { background: var(--accent); color: #fff; }
+#shelf-table tr.missing td { color: var(--dim); text-decoration: line-through; cursor: default; }
+
+#shelf-table td.thumb { width: 34px; padding: 3px 6px; }
+#shelf-table td.thumb img { display: block; width: 28px; height: 38px; object-fit: cover; border-radius: 2px; }

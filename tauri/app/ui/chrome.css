@@ -1,0 +1,76 @@
+/* 両方の窓が使う土台。色、押しボタン、献立、知らせ。 */
+
+/* アプリの外枠だけを整える。本文の見た目は chororeader-core が作る CSS に任せる。 */
+
+:root {
+  --bar: #f2f2f4;
+  --line: #d8d8dc;
+  --text: #1a1a1a;
+  --dim: #6b6b70;
+  --accent: #0b5cad;
+  --panel: #fbfbfc;
+}
+
+body.dark {
+  --bar: #232326;
+  --line: #3a3a3e;
+  --text: #d6d6d6;
+  --dim: #97979c;
+  --accent: #79b1ff;
+  --panel: #1c1c1e;
+}
+
+* { box-sizing: border-box; }
+
+/* id 指定の display は [hidden] の display:none より強い。まとめて押さえておく。 */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font: 13px/1.6 -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+  color: var(--text);
+  background: var(--panel);
+}
+
+#menu {
+  position: absolute;
+  z-index: 50;
+  min-width: 200px;
+  padding: 4px;
+  background: var(--bar);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.26);
+}
+
+#menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+#menu button:hover { background: var(--accent); color: #fff; }
+
+#toast {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 14px;
+  font-size: 12px;
+}

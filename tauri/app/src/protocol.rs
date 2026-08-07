@@ -32,16 +32,21 @@ pub fn app_url(page: &str, query: &str) -> String {
 const ASSETS: &[(&str, &str, &str)] = &[
     ("index.html", include_str!("../ui/index.html"), "text/html; charset=utf-8"),
     ("shelf.html", include_str!("../ui/shelf.html"), "text/html; charset=utf-8"),
-    ("app.css", include_str!("../ui/app.css"), "text/css; charset=utf-8"),
+    ("chrome.css", include_str!("../ui/chrome.css"), CSS),
+    ("reader.css", include_str!("../ui/reader.css"), CSS),
+    ("shelf.css", include_str!("../ui/shelf.css"), CSS),
     ("selftest.js", include_str!("../ui/selftest.js"), JS),
     ("reader.js", include_str!("../ui/reader.js"), JS),
     ("shelf.js", include_str!("../ui/shelf.js"), JS),
     ("chrome.js", include_str!("../ui/chrome.js"), JS),
     ("lib/layout.js", include_str!("../ui/lib/layout.js"), JS),
+    ("lib/hit-row.js", include_str!("../ui/lib/hit-row.js"), JS),
+    ("lib/diagnosis.js", include_str!("../ui/lib/diagnosis.js"), JS),
     ("lib/format.js", include_str!("../ui/lib/format.js"), JS),
 ];
 
 const JS: &str = "text/javascript; charset=utf-8";
+const CSS: &str = "text/css; charset=utf-8";
 
 pub fn serve(app: &tauri::AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let path = percent_decode(request.uri().path().trim_start_matches('/'));

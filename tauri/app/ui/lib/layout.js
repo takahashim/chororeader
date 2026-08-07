@@ -34,6 +34,16 @@ export function pageAfterStep(layout, page, delta, spreads) {
   return next < 0 ? 0 : next;
 }
 
+/// 経路からリフローの章番号を引く。見つからなければ null。
+///
+/// 見つからないことは普通に起きる（別の版の書籍から来た位置、消えた章）。
+/// 扱いを 1 つに決めておかないと、呼ぶ場所ごとに黙って 0 章へ飛んだり
+/// 何も起きなかったりと、振る舞いが分かれる。
+export function chapterOfHref(book, href) {
+  const index = (book.chapters || []).findIndex((chapter) => chapter.href === href);
+  return index >= 0 ? index : null;
+}
+
 /// 目次や別の窓は章の経路で行き先を言う。紙面ではページ番号へ読み替える。
 ///
 /// ページは読み順の 1 項目から 1 枚ずつ作られるので、読み順の何番目かがそのまま番号になる。
