@@ -6,15 +6,17 @@
       "href": "OEBPS/text/ch01.xhtml",
       "isCode": false,
       "match": "本文",
-      "progression": 0.371
+      "nth": 0,
+      "progression": 0.241
     },
     {
       "href": "OEBPS/text/ch02.xhtml",
       "isCode": false,
       "match": "本文",
-      "progression": 0.727
+      "nth": 0,
+      "progression": 0.625
     }
   ],
-  "schema": 1,
+  "schema": 2,
   "truncated": false
 }

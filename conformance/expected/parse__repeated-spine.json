@@ -1,0 +1,37 @@
+{
+  "authors": [],
+  "command": "parse",
+  "direction": "ltr",
+  "format": "reflowableEPUB",
+  "identifier": "urn:uuid:repeated",
+  "language": "ja",
+  "layout": "reflowable",
+  "readingOrder": [
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "mediaType": "application/xhtml+xml"
+    },
+    {
+      "href": "OEBPS/text/ch01.xhtml",
+      "mediaType": "application/xhtml+xml"
+    },
+    {
+      "href": "OEBPS/text/ch02.xhtml",
+      "mediaType": "application/xhtml+xml"
+    }
+  ],
+  "schema": 2,
+  "tableOfContents": [
+    {
+      "children": [],
+      "href": "OEBPS/text/ch01.xhtml",
+      "title": "第 1 章"
+    },
+    {
+      "children": [],
+      "href": "OEBPS/text/ch02.xhtml",
+      "title": "第 2 章"
+    }
+  ],
+  "title": "同じ章を二度置く書籍"
+}

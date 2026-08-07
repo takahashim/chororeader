@@ -4,197 +4,270 @@
 use std::collections::{BTreeSet, HashMap};
 
 use crate::archive::{EpubArchive, ResourceProvider};
-use crate::css_compat;
 use crate::paths;
 use crate::publication::{
     Direction, DocumentError, Layout, Link, Publication, Result, TocEntry,
 };
 use crate::xml::{self, Document};
 
-pub fn parse(archive: &EpubArchive) -> Result<Publication> {
-    let opf_path = rootfile_path(archive).ok_or_else(DocumentError::missing_container)?;
-    if !archive.contains(&opf_path) {
-        return Err(DocumentError::missing_opf(&opf_path));
+/// manifest に並ぶ資源。id で引くのと、書かれた順に辿るのと、両方が要る。
+struct Manifest {
+    by_id: HashMap<String, Link>,
+    order: Vec<String>,
+    /// 表紙として名指しされた項目の id。properties か、EPUB2 の meta から拾う。
+    cover_id: Option<String>,
+}
+
+impl Manifest {
+    fn get(&self, id: &str) -> Option<&Link> {
+        self.by_id.get(id)
     }
 
-    let opf_source = css_compat::decode_text(
-        &archive
-            .read(&opf_path)
-            .ok_or_else(|| DocumentError::missing_opf(&opf_path))?,
-    );
-    let opf = xml::parse(&opf_source)
-        .ok_or_else(|| DocumentError::cannot_parse_opf("OPF を XML として読めない"))?;
-    let Some(root) = root_index(&opf) else {
-        return Err(DocumentError::cannot_parse_opf("根の要素がない"));
-    };
+    /// 書かれた順に辿って、条件に合う最初のもの。
+    fn find(&self, matches: impl Fn(&Link) -> bool) -> Option<&Link> {
+        self.order
+            .iter()
+            .filter_map(|id| self.by_id.get(id))
+            .find(|link| matches(link))
+    }
+}
 
-    let opf_directory = paths::directory_of(&opf_path).to_string();
+pub fn parse(archive: &EpubArchive) -> Result<Publication> {
+    let opf_path = rootfile_path(archive).ok_or_else(DocumentError::missing_container)?;
+    let opf = Opf::read(archive, &opf_path)?;
 
-    // manifest
-    let mut manifest: HashMap<String, Link> = HashMap::new();
-    let mut manifest_order: Vec<String> = Vec::new();
-    let mut cover_id: Option<String> = None;
-    for section in opf.child_elements(root).filter(|i| opf.get(*i).name == "manifest") {
-        for item in opf.child_elements(section).filter(|i| opf.get(*i).name == "item") {
-            let element = opf.get(item);
-            let (Some(id), Some(raw_href)) = (element.attr("id"), element.attr("href")) else {
-                continue;
-            };
-            let href = paths::resolve(&opf_directory, paths::strip_fragment(raw_href).0);
-            let properties: BTreeSet<String> = element
-                .attr("properties")
-                .unwrap_or("")
-                .split(' ')
-                .filter(|p| !p.is_empty())
-                .map(str::to_string)
-                .collect();
-            if properties.contains("cover-image") {
-                cover_id = Some(id.to_string());
+    let manifest = opf.manifest(paths::directory_of(&opf_path));
+    let (reading_order, spine_properties) = opf.reading_order(&manifest);
+    if reading_order.is_empty() {
+        return Err(DocumentError::empty_spine());
+    }
+
+    let metadata = opf.metadata();
+    Ok(Publication {
+        title: metadata.first("title").unwrap_or_else(|| "(無題)".to_string()),
+        authors: metadata.all("creator"),
+        language: metadata.first("language"),
+        identifier: metadata.first("identifier"),
+        table_of_contents: opf.table_of_contents(archive, &manifest, &reading_order),
+        cover_href: opf.cover_href(&manifest),
+        layout: opf.layout(&spine_properties),
+        direction: opf.direction(),
+        reading_order,
+    })
+}
+
+/// 読み込んだ OPF。根と spine の位置はどの取り出しにも要るので、木と一緒に持つ。
+struct Opf {
+    document: Document,
+    root: usize,
+    spine: Option<usize>,
+}
+
+impl Opf {
+    fn read(archive: &EpubArchive, path: &str) -> Result<Opf> {
+        if !archive.contains(path) {
+            return Err(DocumentError::missing_opf(path));
+        }
+        let source = archive
+            .read_text(path)
+            .ok_or_else(|| DocumentError::missing_opf(path))?;
+        let document = xml::parse(&source)
+            .ok_or_else(|| DocumentError::cannot_parse_opf("OPF を XML として読めない"))?;
+        let Some(root) = root_index(&document) else {
+            return Err(DocumentError::cannot_parse_opf("根の要素がない"));
+        };
+        let spine = document.first_child_named(root, "spine");
+        Ok(Opf {
+            document,
+            root,
+            spine,
+        })
+    }
+}
+
+// MARK: OPF の各部
+
+impl Opf {
+    fn manifest(&self, directory: &str) -> Manifest {
+        let opf = &self.document;
+        let mut by_id: HashMap<String, Link> = HashMap::new();
+        let mut order: Vec<String> = Vec::new();
+        let mut cover_id = None;
+
+        for section in opf.children_named(self.root, "manifest") {
+            for item in opf.children_named(section, "item") {
+                let element = opf.get(item);
+                let (Some(id), Some(raw_href)) = (element.attr("id"), element.attr("href")) else {
+                    continue;
+                };
+                let properties: BTreeSet<String> = element
+                    .attr("properties")
+                    .unwrap_or("")
+                    .split(' ')
+                    .filter(|p| !p.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                if properties.contains("cover-image") {
+                    cover_id = Some(id.to_string());
+                }
+                if !by_id.contains_key(id) {
+                    order.push(id.to_string());
+                }
+                by_id.insert(
+                    id.to_string(),
+                    Link {
+                        href: paths::resolve(directory, paths::strip_fragment(raw_href).0),
+                        media_type: element.attr("media-type").unwrap_or("").to_string(),
+                        id: Some(id.to_string()),
+                        properties,
+                    },
+                );
             }
-            if !manifest.contains_key(id) {
-                manifest_order.push(id.to_string());
-            }
-            manifest.insert(
-                id.to_string(),
-                Link {
-                    href,
-                    media_type: element.attr("media-type").unwrap_or("").to_string(),
-                    id: Some(id.to_string()),
-                    properties,
-                },
-            );
+        }
+
+        Manifest {
+            by_id,
+            order,
+            cover_id,
         }
     }
 
-    // spine
-    let spine = opf
-        .child_elements(root)
-        .find(|i| opf.get(*i).name == "spine");
-    let mut reading_order: Vec<Link> = Vec::new();
-    let mut spine_properties: Vec<String> = Vec::new();
-    if let Some(spine) = spine {
-        for itemref in opf
-            .child_elements(spine)
-            .filter(|i| opf.get(*i).name == "itemref")
-        {
+    /// 読み順と、itemref に書かれた properties。properties はレイアウト種別の判定に要る。
+    fn reading_order(&self, manifest: &Manifest) -> (Vec<Link>, Vec<String>) {
+        let opf = &self.document;
+        let mut order: Vec<Link> = Vec::new();
+        let mut properties: Vec<String> = Vec::new();
+        let Some(spine) = self.spine else {
+            return (order, properties);
+        };
+
+        for itemref in opf.children_named(spine, "itemref") {
             let element = opf.get(itemref);
-            let Some(idref) = element.attr("idref") else {
-                continue;
-            };
-            let Some(link) = manifest.get(idref) else {
+            let Some(link) = element.attr("idref").and_then(|id| manifest.get(id)) else {
                 continue;
             };
             // linear="no" は本文の流れに入れない補助ページ。読み順からは外す。
             if element.attr("linear") == Some("no") {
                 continue;
             }
-            let properties = element.attr("properties").unwrap_or("").to_string();
+            let written = element.attr("properties").unwrap_or("").to_string();
             let mut merged = link.properties.clone();
-            for value in properties.split(' ').filter(|p| !p.is_empty()) {
+            for value in written.split(' ').filter(|p| !p.is_empty()) {
                 merged.insert(value.to_string());
             }
-            spine_properties.push(properties);
-            reading_order.push(Link {
+            properties.push(written);
+            order.push(Link {
                 properties: merged,
                 ..link.clone()
             });
         }
+        (order, properties)
     }
 
-    if reading_order.is_empty() {
-        return Err(DocumentError::empty_spine());
+    fn metadata(&self) -> Metadata<'_> {
+        Metadata {
+            opf: &self.document,
+            section: self.document.first_child_named(self.root, "metadata"),
+        }
     }
 
-    // 書誌情報
-    let metadata = opf
-        .child_elements(root)
-        .find(|i| opf.get(*i).name == "metadata");
-    let meta_values = |name: &str| -> Vec<String> {
-        let Some(metadata) = metadata else {
-            return Vec::new();
-        };
-        opf.child_elements(metadata)
-            .filter(|i| opf.get(*i).name == name)
-            .map(|i| opf.value(i).trim().to_string())
-            .filter(|v| !v.is_empty())
-            .collect()
-    };
-
-    let titles = meta_values("title");
-    let authors = meta_values("creator");
-    let languages = meta_values("language");
-    let identifiers = meta_values("identifier");
-
-    // レイアウト種別
-    let rendition_layout = opf
-        .descendants(root, "meta")
-        .find(|i| opf.get(*i).attr("property") == Some("rendition:layout"))
-        .map(|i| opf.value(i).trim().to_string());
-    let mut layout = if rendition_layout.as_deref() == Some("pre-paginated") {
-        Layout::Fixed
-    } else {
-        Layout::Reflowable
-    };
-    if layout == Layout::Reflowable
-        && spine_properties
+    /// レイアウト種別。書籍全体の宣言が無くても、spine の項目が名乗ることがある。
+    fn layout(&self, spine_properties: &[String]) -> Layout {
+        let opf = &self.document;
+        let declared = opf
+            .descendants(self.root, "meta")
+            .find(|i| opf.get(*i).attr("property") == Some("rendition:layout"))
+            .map(|i| opf.value(i).trim().to_string());
+        if declared.as_deref() == Some("pre-paginated") {
+            return Layout::Fixed;
+        }
+        if spine_properties
             .iter()
             .any(|p| p.contains("rendition:layout-pre-paginated"))
-    {
-        layout = Layout::Fixed;
+        {
+            return Layout::Fixed;
+        }
+        Layout::Reflowable
     }
 
-    let direction = match spine.and_then(|i| opf.get(i).attr("page-progression-direction")) {
-        Some("rtl") => Direction::Rtl,
-        _ => Direction::Ltr,
-    };
-
-    // 表紙
-    if cover_id.is_none() {
-        cover_id = opf
-            .descendants(root, "meta")
-            .find(|i| opf.get(*i).attr("name") == Some("cover"))
-            .and_then(|i| opf.get(i).attr("content").map(str::to_string));
-    }
-    let cover_href = cover_id
-        .as_deref()
-        .and_then(|id| manifest.get(id))
-        .map(|link| link.href.clone());
-
-    // 目次。EPUB3 の nav を優先し、無ければ EPUB2 の NCX を読む。
-    let mut toc: Vec<TocEntry> = Vec::new();
-    let nav_link = manifest_order
-        .iter()
-        .filter_map(|id| manifest.get(id))
-        .find(|link| link.properties.contains("nav"));
-    if let Some(nav_link) = nav_link {
-        if let Some(data) = archive.read(&nav_link.href) {
-            toc = parse_nav_document(
-                &css_compat::decode_text(&data),
-                paths::directory_of(&nav_link.href),
-            );
+    fn direction(&self) -> Direction {
+        let attr = self
+            .spine
+            .and_then(|i| self.document.get(i).attr("page-progression-direction"));
+        match attr {
+            Some("rtl") => Direction::Rtl,
+            _ => Direction::Ltr,
         }
     }
-    if toc.is_empty() {
-        let ncx_id = spine.and_then(|i| opf.get(i).attr("toc"));
-        let ncx_link = ncx_id
-            .and_then(|id| manifest.get(id))
-            .or_else(|| {
-                manifest_order
-                    .iter()
-                    .filter_map(|id| manifest.get(id))
-                    .find(|link| link.media_type == "application/x-dtbncx+xml")
-            });
-        if let Some(ncx_link) = ncx_link {
-            if let Some(data) = archive.read(&ncx_link.href) {
-                toc = parse_ncx(
-                    &css_compat::decode_text(&data),
-                    paths::directory_of(&ncx_link.href),
-                );
+}
+
+/// 書誌情報。同じ名前の要素が複数あることがあるので、並びのまま持つ。
+struct Metadata<'a> {
+    opf: &'a Document,
+    section: Option<usize>,
+}
+
+impl Metadata<'_> {
+    fn all(&self, name: &str) -> Vec<String> {
+        let Some(section) = self.section else {
+            return Vec::new();
+        };
+        self.opf
+            .children_named(section, name)
+            .map(|i| self.opf.value(i).trim().to_string())
+            .filter(|v| !v.is_empty())
+            .collect()
+    }
+
+    fn first(&self, name: &str) -> Option<String> {
+        self.all(name).into_iter().next()
+    }
+}
+
+impl Opf {
+    /// 表紙。EPUB3 の properties を優先し、無ければ EPUB2 の meta name="cover" を見る。
+    fn cover_href(&self, manifest: &Manifest) -> Option<String> {
+        let opf = &self.document;
+        let id = manifest.cover_id.clone().or_else(|| {
+            opf.descendants(self.root, "meta")
+                .find(|i| opf.get(*i).attr("name") == Some("cover"))
+                .and_then(|i| opf.get(i).attr("content").map(str::to_string))
+        })?;
+        manifest.get(&id).map(|link| link.href.clone())
+    }
+
+    /// 目次。EPUB3 の nav を優先し、無ければ EPUB2 の NCX、どちらも無ければ読み順で代える。
+    fn table_of_contents(
+        &self,
+        archive: &EpubArchive,
+        manifest: &Manifest,
+        reading_order: &[Link],
+    ) -> Vec<TocEntry> {
+        let nav = manifest.find(|link| link.properties.contains("nav"));
+        if let Some(nav) = nav {
+            if let Some(source) = archive.read_text(&nav.href) {
+                let entries = parse_nav_document(&source, paths::directory_of(&nav.href));
+                if !entries.is_empty() {
+                    return entries;
+                }
             }
         }
-    }
-    if toc.is_empty() {
-        toc = reading_order
+
+        let ncx = self
+            .spine
+            .and_then(|i| self.document.get(i).attr("toc"))
+            .and_then(|id| manifest.get(id))
+            .or_else(|| manifest.find(|link| link.media_type == "application/x-dtbncx+xml"));
+        if let Some(ncx) = ncx {
+            if let Some(source) = archive.read_text(&ncx.href) {
+                let entries = parse_ncx(&source, paths::directory_of(&ncx.href));
+                if !entries.is_empty() {
+                    return entries;
+                }
+            }
+        }
+
+        reading_order
             .iter()
             .map(|link| TocEntry {
                 title: paths::last_component(&link.href).to_string(),
@@ -202,20 +275,8 @@ pub fn parse(archive: &EpubArchive) -> Result<Publication> {
                 fragment: None,
                 children: Vec::new(),
             })
-            .collect();
+            .collect()
     }
-
-    Ok(Publication {
-        title: titles.first().cloned().unwrap_or_else(|| "(無題)".to_string()),
-        authors,
-        language: languages.into_iter().next(),
-        identifier: identifiers.into_iter().next(),
-        reading_order,
-        table_of_contents: toc,
-        cover_href,
-        layout,
-        direction,
-    })
 }
 
 // MARK: 目次
@@ -358,8 +419,7 @@ fn rootfile_path(archive: &EpubArchive) -> Option<String> {
     if !archive.contains("META-INF/container.xml") {
         return None;
     }
-    let data = archive.read("META-INF/container.xml")?;
-    let document = xml::parse(&css_compat::decode_text(&data))?;
+    let document = xml::parse(&archive.read_text("META-INF/container.xml")?)?;
     let root = root_index(&document)?;
     let rootfile = document.descendants(root, "rootfile").next()?;
     let value = document.get(rootfile).attr("full-path")?;

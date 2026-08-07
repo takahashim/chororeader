@@ -31,6 +31,10 @@ enum ReaderScripts {
         -webkit-appearance: none; appearance: none;
     }
     .choro-chapter-end-button:hover { background: rgba(128,128,128,0.18); }
+    /* 検索結果から飛んだ先で、当たった語を囲む印。書籍の配色に負けない濃さにする。 */
+    mark.choro-found {
+        background: rgba(255,196,0,0.55); color: inherit; border-radius: 2px;
+    }
     """
 
     /// スタイル注入だけを先に済ませ、本文が素のまま一瞬見える状態を避ける。
@@ -291,6 +295,29 @@ enum ReaderScripts {
       };
       window.choroSelectedText = function () {
         return (window.getSelection() || '').toString();
+      };
+
+      // 配られた本文に入っている当たりの印まで送る。押した直後の 1 回だけ呼ぶ。
+      //
+      // 印を入れるのは配信側（SearchMarkInserter）。ここで入れると、文字節を切って
+      // 包む手術を書くことになり、抽出（HTMLText）と数え方がずれる余地が残る。
+      window.choroApproachMark = function () {
+        var found = document.querySelector('mark.choro-found');
+        if (!found) return false;
+        var rect = found.getBoundingClientRect();
+        window.scrollBy(0, rect.top - window.innerHeight * 0.3);
+        return true;
+      };
+
+      // 印を外すだけなら、タグを剥がせば済む。配り直すと画面がちらつく。
+      window.choroClearMarks = function () {
+        var marks = document.querySelectorAll('mark.choro-found');
+        for (var i = 0; i < marks.length; i++) {
+          var parent = marks[i].parentNode;
+          while (marks[i].firstChild) { parent.insertBefore(marks[i].firstChild, marks[i]); }
+          parent.removeChild(marks[i]);
+          parent.normalize();
+        }
       };
 
       decorateCode();

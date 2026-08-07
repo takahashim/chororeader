@@ -6,6 +6,8 @@ struct BookRoute: Codable, Hashable {
     var locator: Locator?
     /// 開いた直後に引かせる語句。書棚の横断検索から「この本の全件」へ渡るときに使う。
     var query: String?
+    /// 開いた先で囲む当たり。1 つの当たりから渡ってきたときに使う。
+    var mark: SearchMark?
 }
 
 /// Finder やメニューからのファイル要求を、開いているウィンドウのどれか 1 つが処理する。
@@ -107,8 +109,10 @@ struct ReaderWindowView: View {
                 newSession.searchQuery = query
                 newSession.runSearch()
             }
-            newSession.openInNewWindow = { locator in
-                openWindow(value: BookRoute(path: route.path, locator: locator, query: nil))
+            // 引き直しは強調を消すので、渡された当たりはそのあとで置く。
+            newSession.mark = route.mark
+            newSession.openInNewWindow = { locator, mark in
+                openWindow(value: BookRoute(path: route.path, locator: locator, query: nil, mark: mark))
             }
             session = newSession
         } catch let error as BookDocument.OpenError {

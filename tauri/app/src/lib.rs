@@ -3,20 +3,25 @@
 //! 画面は Web だが、書籍を解釈するのは chororeader-core であり、
 //! その振る舞いは macOS 版・C# 版と conformance で突き合わせてある。
 //! ここに書くのは、画面と core をつなぐ部分だけにする。
+//!
+//! 命令の一覧と、core を呼ぶだけの薄い受け渡しがここに残る。
+//! 独立した仕組みは別に置く：窓と献立は windows、引くのは search_ui、
+//! 索引の置き場所は indexes、配信は protocol、覚えておくものは store。
 
+mod indexes;
+mod windows;
 mod library;
 mod protocol;
+mod search_ui;
 pub mod store;
 
 use serde::Serialize;
-use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 use chororeader_core::archive::ResourceProvider;
-use chororeader_core::publication::detect_format;
 use chororeader_core::style::{ReaderStyle, Theme};
-use chororeader_core::{css_compat, html_text, paths, preview, report, search};
+use chororeader_core::{css_compat, html_text, paths, preview, report};
 
 use library::{describe, BookInfo, Content, Library};
 use store::{Bookmark, BookState, Position, Store};
@@ -31,7 +36,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         // Windows には献立帯が無いと、鍵盤の割り当てを知る手立てがない。
         // macOS 版の献立と同じ並びにしてあり、動作確認もここから呼ぶ。
-        .menu(build_menu)
+        .menu(windows::build_menu)
         .on_menu_event(|app, event| {
             let id = event.id().0.clone();
 
@@ -45,7 +50,7 @@ pub fn run() {
                 return;
             }
             if id == "shelf" {
-                let _ = open_shelf_window(app);
+                let _ = windows::open_shelf_window(app);
                 return;
             }
 
@@ -66,7 +71,11 @@ pub fn run() {
             reader_css,
             settings,
             save_settings,
-            search_book,
+            search_ui::search_book,
+            search_ui::page_marks,
+            search_ui::search_library,
+            search_ui::stop_library_search,
+            search_ui::warm_indexes,
             preview_link,
             chapter_text,
             page_text,
@@ -83,28 +92,18 @@ pub fn run() {
             toggle_bookmark,
             open_external,
             focus_webview,
+            ui_log,
         ])
-        // 窓が鍵盤を得たら、WebView を受け手に戻す。
-        // ファイルダイアログが受け手を奪ったまま返さないことがあり、
-        // そうなると画面側では焦点が当たって見えるのにキーが 1 つも届かない。
         .on_window_event(|window, event| {
-            // ただし戻した拍子にまた知らせが来るので、続けざまには戻さない。
-            if let tauri::WindowEvent::Focused(true) = event {
-                if should_refocus(window.label()) {
-                    for webview in window.webviews() {
-                        let _ = webview.set_focus();
-                    }
-                }
-            }
             // 落とされた書籍は、1 冊につき 1 つの窓で開く。
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
-                open_dropped(&window.app_handle().clone(), paths);
+                windows::open_dropped(&window.app_handle().clone(), paths);
             }
         })
         // 落とし込みは窓ではなく WebView 側に届くことがある。取りこぼさないよう両方で受ける。
         .on_webview_event(|webview, event| {
             if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
-                open_dropped(&webview.app_handle().clone(), paths);
+                windows::open_dropped(&webview.app_handle().clone(), paths);
             }
         })
         .register_asynchronous_uri_scheme_protocol(protocol::SCHEME, |ctx, request, responder| {
@@ -114,6 +113,7 @@ pub fn run() {
         })
         .setup(move |app| {
             app.manage(Store::load(app.handle()));
+            app.manage(indexes::Indexes::load(app.handle()));
 
             if std::env::var("CHORO_SELFTEST").is_ok() {
                 // 判定が終わらないまま居座らないための見張り。
@@ -127,178 +127,21 @@ pub fn run() {
 
             if opening.is_empty() {
                 // 何も渡されなければ書棚から始める。macOS 版のライブラリ窓と同じ位置づけ。
-                open_shelf_window(app.handle())?;
+                windows::open_shelf_window(app.handle())?;
             } else {
                 for (index, path) in opening.iter().enumerate() {
                     let label = if index == 0 {
                         "main".to_string()
                     } else {
-                        format!("book-{}", NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+                        windows::next_label("book")
                     };
-                    open_window(app.handle(), &label, &format!("?path={}", urlencode(path)))?;
+                    windows::open_window(app.handle(), &label, &format!("path={}", windows::urlencode(path)))?;
                 }
             }
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("Tauri の起動に失敗した");
-}
-
-/// 落とされた経路のうち、開ける形式のものを 1 つずつ窓に開く。
-fn open_dropped(app: &tauri::AppHandle, paths: &[std::path::PathBuf]) {
-    for path in paths {
-        let Some(path) = path.to_str() else { continue };
-        if detect_format(path).is_none() {
-            continue;
-        }
-        let n = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let query = format!("?path={}", urlencode(path));
-        if let Err(error) = open_window(app, &format!("book-{n}"), &query) {
-            eprintln!("落とされた書籍を開けなかった: {error}");
-        }
-    }
-}
-
-fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    let item = |id: &str, label: &str, key: Option<&str>| -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
-        let mut builder = MenuItemBuilder::with_id(id, label);
-        if let Some(key) = key {
-            builder = builder.accelerator(key);
-        }
-        builder.build(app)
-    };
-
-    // macOS では先頭の一組がアプリの献立として扱われる。
-    // これを置かないと「ファイル」がそこへ吸われて消える。Windows では並びに影響しない。
-    let application = SubmenuBuilder::new(app, "chororeader")
-        .about(None)
-        .separator()
-        .hide()
-        .quit()
-        .build()?;
-
-    let samples = SubmenuBuilder::new(app, "サンプルを開く")
-        .item(&item("sample-reflowable", "リフロー型 EPUB", None)?)
-        .item(&item("sample-fixed", "固定レイアウト EPUB", None)?)
-        .item(&item("sample-pdf", "PDF", None)?)
-        .build()?;
-
-    let file = SubmenuBuilder::new(app, "ファイル")
-        .item(&item("open", "開く…", Some("CmdOrCtrl+O"))?)
-        .item(&samples)
-        .item(&item("new-window", "この場所を新しいウィンドウで開く", Some("CmdOrCtrl+N"))?)
-        .separator()
-        .item(&item("shelf", "書棚", Some("CmdOrCtrl+L"))?)
-        .separator()
-        .close_window()
-        .build()?;
-
-    let go = SubmenuBuilder::new(app, "移動")
-        .item(&item("back", "戻る", Some("CmdOrCtrl+["))?)
-        .item(&item("forward", "進む", Some("CmdOrCtrl+]"))?)
-        .separator()
-        .item(&item("prev", "前の章／ページ", Some("CmdOrCtrl+Up"))?)
-        .item(&item("next", "次の章／ページ", Some("CmdOrCtrl+Down"))?)
-        .separator()
-        .item(&item("find", "検索", Some("CmdOrCtrl+F"))?)
-        .item(&item("bookmark", "しおりを追加", Some("CmdOrCtrl+D"))?)
-        .build()?;
-
-    let view = SubmenuBuilder::new(app, "表示")
-        .item(&item("sidebar", "サイドバーの表示を切り替え", Some("CmdOrCtrl+\\"))?)
-        .separator()
-        .item(&item("zoom-in", "大きくする", Some("CmdOrCtrl+Plus"))?)
-        .item(&item("zoom-out", "小さくする", Some("CmdOrCtrl+-"))?)
-        .item(&item("zoom-reset", "標準の大きさ", Some("CmdOrCtrl+0"))?)
-        .build()?;
-
-    let help = SubmenuBuilder::new(app, "ヘルプ")
-        .item(&item("diagnose", "この書籍の診断…", Some("CmdOrCtrl+Alt+I"))?)
-        .separator()
-        .item(&item("selftest", "動作確認…", None)?)
-        .build()?;
-
-    MenuBuilder::new(app)
-        .items(&[&application, &file, &go, &view, &help])
-        .build()
-}
-
-fn open_window(
-    app: &tauri::AppHandle,
-    label: &str,
-    query: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    build_window(app, label, query, "chororeader", 1000.0, 760.0)
-}
-
-/// 書棚の窓。1 つしか持たない。すでにあるなら前へ出す。
-///
-/// 書棚を窓として独立させているのは macOS 版に倣ったものである。
-/// 書棚が本を配る側、読書の窓が読む側、と役割が分かれ、
-/// 「選んだ本がどの窓に開くのか」が決まる。
-fn open_shelf_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(window) = app.get_webview_window("shelf") {
-        let _ = window.show();
-        let _ = window.set_focus();
-        return Ok(());
-    }
-    build_window(app, "shelf", "?shelf=1", "書棚", 900.0, 640.0)
-}
-
-fn build_window(
-    app: &tauri::AppHandle,
-    label: &str,
-    query: &str,
-    title: &str,
-    width: f64,
-    height: f64,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // 旗はここで付ける。窓ごとに書き分けると、書棚のように渡し忘れる場所が出る。
-    let query = format!("{query}{}", window_flags());
-
-    // 同じ大きさで真上に重ねると、増えたことに気付けない。少しずらす。
-    let offset = (app.webview_windows().len() as f64) * 26.0 % 160.0;
-    WebviewWindowBuilder::new(
-        app,
-        label,
-        WebviewUrl::External(protocol::app_url(&query).parse()?),
-    )
-    .title(title)
-    .inner_size(width, height)
-    .position(60.0 + offset, 60.0 + offset)
-    .build()?;
-    Ok(())
-}
-
-/// 画面へ渡す旗。
-///
-/// CHORO_DEBUG は様子を標準エラーへ出す。
-/// CHORO_SELFTEST は開いた直後に動作確認を走らせて結果を出して終わる。
-/// 動作確認は最初の窓だけで走らせる。治具が開いた窓でも走ると、際限がなくなる。
-fn window_flags() -> String {
-    let mut flags = String::new();
-    if std::env::var("CHORO_DEBUG").is_ok() {
-        flags.push_str("&debug=1");
-    }
-    static SELFTEST_LEFT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-    if std::env::var("CHORO_SELFTEST").is_ok()
-        && SELFTEST_LEFT.swap(false, std::sync::atomic::Ordering::Relaxed)
-    {
-        flags.push_str("&selftest=1");
-    }
-    flags
-}
-
-fn urlencode(value: &str) -> String {
-    value
-        .bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
 }
 
 // MARK: サンプル書籍
@@ -328,9 +171,8 @@ fn open_sample(app: tauri::AppHandle, kind: String) -> Result<(), String> {
 
 fn open_sample_window(app: &tauri::AppHandle, kind: &str) -> Result<(), String> {
     let path = write_sample(app, kind)?;
-    let n = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let query = format!("?path={}", urlencode(&path));
-    open_window(app, &format!("book-{n}"), &query).map_err(|e| e.to_string())
+    let query = format!("path={}", windows::urlencode(&path));
+    windows::open_window(app, &windows::next_label("book"), &query).map_err(|e| e.to_string())
 }
 
 fn write_sample(app: &tauri::AppHandle, kind: &str) -> Result<String, String> {
@@ -477,29 +319,6 @@ fn window_count(app: tauri::AppHandle) -> usize {
     app.webview_windows().len()
 }
 
-/// いま受け手を戻してよいか。
-///
-/// `set_focus` は焦点の知らせを呼び返し、その知らせにまた応じると際限がなくなる。
-/// Windows では実際に毎秒何百回と回り、イベントの列が詰まって画面からの命令が
-/// 数十秒遅れた（動作確認が 120 秒で打ち切られていたのはこれである）。
-/// 自分で戻した直後の知らせは自分の呼び返しとみなし、一定のあいだ応じない。
-fn should_refocus(label: &str) -> bool {
-    use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
-    use std::time::{Duration, Instant};
-    static LAST: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
-    let last = LAST.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut last = last.lock().unwrap();
-    let now = Instant::now();
-    match last.get(label) {
-        Some(t) if now.duration_since(*t) < Duration::from_millis(1000) => false,
-        _ => {
-            last.insert(label.to_string(), now);
-            true
-        }
-    }
-}
-
 /// 献立の道が通っているかを、治具から確かめるための試し撃ち。
 ///
 /// 献立が効かなくなる壊れ方は、窓の権限が足りないときに起きた。
@@ -539,11 +358,8 @@ fn selftest_report(app: tauri::AppHandle, results: serde_json::Value) {
 
 #[tauri::command]
 fn open_shelf(app: tauri::AppHandle) -> Result<(), String> {
-    open_shelf_window(&app).map_err(|e| e.to_string())
+    windows::open_shelf_window(&app).map_err(|e| e.to_string())
 }
-
-/// 窓の名札。閉じた窓の番号を使い回さないよう、単調に増やす。
-static NEXT_WINDOW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
 
 #[tauri::command]
 fn open_in_new_window(
@@ -551,14 +367,26 @@ fn open_in_new_window(
     path: String,
     href: String,
     fragment: Option<String>,
+    query: Option<String>,
+    nth: Option<usize>,
+    list: Option<bool>,
 ) -> Result<(), String> {
-    let n = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let mut query = format!("?path={}&href={}", urlencode(&path), urlencode(&href));
+    let mut params = format!("path={}&href={}", windows::urlencode(&path), windows::urlencode(&href));
     // 節への参照は、開いた先でもその位置に着きたい。
     if let Some(fragment) = fragment.filter(|f| !f.is_empty()) {
-        query.push_str(&format!("&frag={}", urlencode(&fragment)));
+        params.push_str(&format!("&frag={}", windows::urlencode(&fragment)));
     }
-    open_window(&app, &format!("book-{n}"), &query).map_err(|e| e.to_string())
+    // 検索から開いたときは、当たった語を開いた先でも強調する。
+    if let Some(query) = query.filter(|q| !q.is_empty()) {
+        params.push_str(&format!("&q={}", windows::urlencode(&query)));
+        // その章の何番目の当たりか。同じ語が何度も出る章で、押したものを選び直すために要る。
+        params.push_str(&format!("&nth={}", nth.unwrap_or(0)));
+        // 横断検索から全件へ渡るときだけ、開いた先で引き直して一覧も出す。
+        if list.unwrap_or(false) {
+            params.push_str("&list=1");
+        }
+    }
+    windows::open_window(&app, &windows::next_label("book"), &params).map_err(|e| e.to_string())
 }
 
 // MARK: 表示設定
@@ -603,60 +431,7 @@ fn save_settings(store: tauri::State<'_, Store>, settings: serde_json::Value) {
     store.save_settings(settings);
 }
 
-// MARK: 読む
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Hit {
-    href: String,
-    page: i32,
-    progression: f64,
-    title: String,
-    excerpt: String,
-    is_code: bool,
-}
-
-#[tauri::command(async)]
-fn search_book(
-    library: tauri::State<'_, Library>,
-    id: String,
-    query: String,
-) -> Result<Vec<Hit>, String> {
-    let book = library.get(&id).ok_or("書籍が開かれていない")?;
-    let book = book.lock().unwrap();
-    match &book.content {
-        Content::Epub {
-            archive,
-            publication,
-        } => {
-            let outcome = search::search_epub(archive, publication, &query);
-            Ok(outcome
-                .results
-                .into_iter()
-                .map(|r| Hit {
-                    href: r.locator.href.unwrap_or_default(),
-                    page: 0,
-                    progression: r.locator.progression,
-                    title: r.chapter_title,
-                    excerpt: format!("{}{}{}", r.before, r.matched, r.after),
-                    is_code: r.is_code,
-                })
-                .collect())
-        }
-        Content::Pdf { worker, .. } => Ok(worker
-            .search(&query, 400)
-            .into_iter()
-            .map(|(page, excerpt)| Hit {
-                href: String::new(),
-                page,
-                progression: 0.0,
-                title: format!("p.{}", page + 1),
-                excerpt,
-                is_code: false,
-            })
-            .collect()),
-    }
-}
+// MARK: 本文を読み解く
 
 /// リンク先を移動せずに確かめるための抜粋。
 #[tauri::command(async)]

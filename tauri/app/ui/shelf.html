@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>書棚</title>
+<link rel="stylesheet" href="/app/chrome.css">
+<link rel="stylesheet" href="/app/shelf.css">
+</head>
+<body class="shelf">
+
+<div id="shelf">
+  <div id="shelf-bar">
+    <h1>書棚</h1>
+    <input id="shelf-search" type="search" placeholder="蔵書を検索（Return で実行）" spellcheck="false">
+    <span id="shelf-progress"></span>
+    <span class="spacer"></span>
+    <span id="shelf-modes">
+      <button data-mode="cover" title="表紙で並べる">表紙</button>
+      <button data-mode="table" title="表で並べる">一覧</button>
+    </span>
+    <button id="shelf-open">書籍を開く…</button>
+  </div>
+  <div id="shelf-results" hidden></div>
+  <div id="shelf-grid"></div>
+  <table id="shelf-table" hidden>
+    <thead><tr><th></th><th>題名</th><th>著者</th><th>形式</th><th>読み進み</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div id="shelf-empty" hidden>
+    <p>まだ開いた書籍がありません。</p>
+    <p>EPUB か PDF をこの窓に落とすか、「書籍を開く…」から選んでください。</p>
+    <p>手元に書籍が無いときは、同梱のサンプルで試せます。</p>
+    <div id="shelf-samples">
+      <button data-kind="reflowable">リフロー型 EPUB</button>
+      <button data-kind="fixed">固定レイアウト EPUB</button>
+      <button data-kind="pdf">PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- 当たりを右クリックしたときに出す。WebView 既定の献立は出さない。 -->
+<div id="menu" hidden></div>
+
+<div id="toast" hidden></div>
+
+<script type="module" src="/app/shelf.js"></script>
+<script type="module" src="/app/selftest.js"></script>
+</body>
+</html>

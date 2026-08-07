@@ -1,0 +1,10 @@
+{
+  "before": ">\n<body><p>この章には目当ての",
+  "command": "mark",
+  "found": true,
+  "href": "OEBPS/text/ch01.xhtml",
+  "marked": "語",
+  "nth": 0,
+  "query": "語",
+  "schema": 2
+}

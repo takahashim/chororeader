@@ -88,8 +88,7 @@ struct SidebarView: View {
                     .onSubmit { session.runSearch() }
                 if !session.searchQuery.isEmpty {
                     Button {
-                        session.searchQuery = ""
-                        session.searchResults = []
+                        session.clearSearch()
                     } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                     }
@@ -128,9 +127,9 @@ struct SidebarView: View {
     private func resultRow(_ result: SearchResult) -> some View {
         Button {
             if NSEvent.modifierFlags.contains(.command) {
-                session.openInNewWindow(result.locator)
+                session.openInNewWindow(result)
             } else {
-                session.go(to: result.locator)
+                session.go(to: result)
             }
         } label: {
             VStack(alignment: .leading, spacing: 3) {
@@ -157,7 +156,7 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("新しいウィンドウで開く") { session.openInNewWindow(result.locator) }
+            Button("新しいウィンドウで開く") { session.openInNewWindow(result) }
         }
     }
 

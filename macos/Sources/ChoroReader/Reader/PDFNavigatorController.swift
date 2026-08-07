@@ -16,6 +16,9 @@ final class PDFNavigatorController: NSObject, ObservableObject, PDFViewDelegate 
     var onNavigated: ((Locator) -> Void)?
     var onStatus: ((String?) -> Void)?
 
+    /// いま強調している当たり。紙面は文字を持たない絵なので、当たりの矩形を上から塗る。
+    var mark: SearchMark? { didSet { applyMark() } }
+
     private var observers: [NSObjectProtocol] = []
 
     var pageCount: Int { document.pdfDocument?.pageCount ?? 0 }
@@ -78,6 +81,24 @@ final class PDFNavigatorController: NSObject, ObservableObject, PDFViewDelegate 
             }
         }
         if let page = target.page { goToPage(page) }
+    }
+
+    // MARK: - 当たりの強調
+
+    /// 当たりのあったページで、その語が出ているところを塗る。
+    ///
+    /// PDFKit の選択（setCurrentSelection）とは別に持つ。
+    /// あちらは人が文字を選び直すと消えるが、こちらは検索をやめるまで残ってほしい。
+    private func applyMark() {
+        guard let mark, !mark.query.isEmpty, let page = mark.target.page,
+              let doc = document.pdfDocument, let target = doc.page(at: page) else {
+            pdfView.highlightedSelections = nil
+            return
+        }
+        let found = doc.findString(mark.query, withOptions: DocumentSearch.options)
+            .filter { $0.pages.first == target }
+        for selection in found { selection.color = .systemYellow }
+        pdfView.highlightedSelections = found.isEmpty ? nil : found
     }
 
     func goNextPage() { pdfView.canGoToNextPage ? pdfView.goToNextPage(nil) : () }

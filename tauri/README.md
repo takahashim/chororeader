@@ -11,7 +11,19 @@ tauri/
 ├── core/    書籍を読むための中身（EPUB の解析、CSS 互換、抽出、検索、診断、PDF）
 ├── probe/   実装間の突き合わせに使う CLI
 └── app/     画面（Tauri）
+    └── ui/
+        ├── index.html / reader.js   読書の窓
+        ├── shelf.html  / shelf.js   書棚の窓
+        ├── chrome.js                両方が使う道具
+        ├── agent.js                 本文の中で動く出先（素の script。窓とは postMessage）
+        ├── readers/                 形式ごとの振る舞いと、出先との口（talk.js）
+        ├── lib/                     画面に触らない部分（畳み方、並べ方、表示の文字列）
+        └── tests/                   lib/ の検査（node --test）
 ```
+
+窓ごとに文書を分けてある。Tauri は窓ごとに URL を渡す作りなので、
+役割の違う窓に別の文書を持たせるのが素直で、片方にしか要らない要素を
+もう片方が読み込まずに済む。`lib/` は画面を起こさずに確かめられる。
 
 ## なぜ先に core を作ったか
 
@@ -51,6 +63,9 @@ mupdf-sys の版が上がって形が変わったときは気付ける。
 cargo build --release
 cargo test --release
 
+# 画面側のうち、画面に依存しない部分（道具は要らない。Node 組み込みの検査で回す）
+cd app/ui && node --test
+
 # 契約との照合（conformance/probes.json に rust を登録してある）
 cd ../conformance
 bundle exec ./choroconf check rust
@@ -76,10 +91,13 @@ cargo run --release -p chororeader -- <EPUB か PDF のパス>
 
 作りは spikes/findings-tauri.md で確かめた形をそのまま使っている。
 
-- **画面も本文も `choro://localhost` から配る**。frontendDist のままだと生成元が割れ、
-  親から iframe の `contentDocument` に届かない。
-- **本文は `sandbox="allow-same-origin"` の iframe に入れる**。`allow-scripts` を与えないので
-  書籍の script は動かない。アプリ側のコードは注入ではなく、親から DOM を直接触る。
+- **画面も本文も `choro://localhost` から配る**。独自スキームを 1 つにしておくと、
+  本文の下位資源（画像・CSS・出先）を同じ経路で配れる。
+- **本文は `sandbox="allow-scripts"` の iframe に入れる**。`allow-same-origin` は与えないので、
+  本文は生成元を持たない文書になり、書籍の側からアプリへ手が届かない。
+  書籍の script は配信時の CSP（`script-src 'nonce-…'`）で止め、
+  こちらの出先（`app/ui/agent.js`）だけを nonce で通す。
+  本文に触るのは出先だけで、窓とは postMessage で話す（spec.md 第 15.2 節）。
 - **EPUB は展開しない**。要求のたびに ZIP から取り出し、CSS は配信時に書き換える。
 - **PDF は MuPDF で描いて PNG を独自スキームで渡す**。転送は 1 ms なので、
   速さの上限を決めるのは描画そのものである。
@@ -98,6 +116,11 @@ cargo run --release -p chororeader -- <EPUB か PDF のパス>
   倍率は PDF と本文で別々に覚える
 - ページの一覧（紙面の書籍のみ。縮小した絵から選ぶ）
 - 章単位の部分一致検索、しおり、読書位置の復元（飛び先、書き出し、割合の 3 段）
+- 検索結果から飛んだ先での当たりの強調。本文が HTML のものは語そのものを囲み、
+  PDF は MuPDF から受け取った矩形を絵の上に重ねる
+- 蔵書の横断検索（書棚で Return）。二字組の索引で候補を絞ってから走査し直すので、
+  当たりは 1 冊ずつ開いて引いたときと変わらない。索引は初めて引くときに作り、
+  以後は書棚を開いた時点でほどいておく。1 冊 20 件で打ち切り、その先はその本を開いて見る
 - 戻ると進む（⌘[ / ⌘]）。目次、検索結果、しおり、抜粋からの移動と章送りを覚える
 - 固定レイアウト EPUB（絵のページと本文のページを見分けて並べる）
 - 紙面の並べ方（連続スクロール／単ページ／見開き）。右開きは左右反転

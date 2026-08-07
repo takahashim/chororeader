@@ -5,7 +5,7 @@ import PDFKit
 /// 出力の形は conformance/CONTRACT.md で定義し、Windows 実装も同じ形を返す。
 /// UI もライブラリ保存も通らない純粋な経路にしておく（副作用を持ち込まない）。
 enum ProbeCLI {
-    static let schemaVersion = 1
+    static let schemaVersion = 2
 
     static func shouldRun(_ arguments: [String]) -> Bool {
         arguments.count >= 2 && arguments[1] == "probe"
@@ -28,6 +28,7 @@ enum ProbeCLI {
         case "resolve": resolve(Array(args.dropFirst()))
         case "css": css()
         case "search": search(Array(args.dropFirst()))
+        case "mark": mark(Array(args.dropFirst()))
         case "detect": detect(Array(args.dropFirst()))
         case "version": emit(["schema": AnyCodableValue(schemaVersion), "implementation": AnyCodableValue("swift")])
         default: fail("unknown command: \(command)")
@@ -167,6 +168,35 @@ enum ProbeCLI {
                        changes: result.changes.sorted { ($0.from, $0.to) < ($1.from, $1.to) }))
     }
 
+    /// 検索結果から飛んだ先で、どの語をどこで囲むか。
+    ///
+    /// 囲んだ HTML を丸ごと比べると、実装ごとの細部で偽の差分が出る。
+    /// 囲んだ語と、その直前にある本文で示す。置いた場所が同じかどうかはこれで分かる。
+    private static func mark(_ args: [String]) -> Never {
+        let usage = "usage: probe mark <epub> <href> <query> [nth]"
+        guard args.count >= 3 else { fail(usage) }
+        let nth = args.count >= 4 ? (Int(args[3]) ?? 0) : 0
+        do {
+            let archive = try ZipArchive(url: URL(fileURLWithPath: args[0]))
+            let raw = try archive.read(args[1])
+            // 配るときと同じ順で通す。印は書き換えたあとの本文へ入る。
+            let html = CSSCompat.rewriteXHTML(CSSCompat.decodeText(raw)).css
+            let placement = SearchMarkInserter.locate(in: html, query: args[2], nth: nth)
+            emit(MarkOutput(
+                schema: schemaVersion,
+                command: "mark",
+                href: norm(args[1]),
+                query: norm(args[2]),
+                nth: nth,
+                found: placement != nil,
+                marked: placement.map { norm($0.marked) },
+                before: placement.map { norm($0.before) }
+            ))
+        } catch {
+            emitError(error)
+        }
+    }
+
     private static func search(_ args: [String]) -> Never {
         guard args.count >= 2 else { fail("usage: probe search <epub> <query>") }
         do {
@@ -192,7 +222,8 @@ enum ProbeCLI {
                     SearchOutput.Hit(href: norm($0.locator.href ?? ""),
                                      progression: round($0.locator.progression * 1000) / 1000,
                                      match: norm($0.match),
-                                     isCode: $0.isCode)
+                                     isCode: $0.isCode,
+                                     nth: $0.nth)
                 }
             ))
         } catch {
@@ -331,12 +362,28 @@ struct SearchOutput: Codable {
         var progression: Double
         var match: String
         var isCode: Bool
+        /// 章の中で何番目の当たりか。飛んだ先で押した当たりを選び直すのに使うので、
+        /// 実装どうしで食い違うと、開き直したウィンドウが別の語を強調することになる。
+        var nth: Int
     }
     var schema: Int
     var command: String
     var query: String
     var truncated: Bool
     var results: [Hit]
+}
+
+struct MarkOutput: Codable {
+    var schema: Int
+    var command: String
+    var href: String
+    var query: String
+    var nth: Int
+    var found: Bool
+    /// 囲んだ語。囲めなかったときは出さない。
+    var marked: String?
+    /// 囲んだところの直前にある本文。囲めなかったときは出さない。
+    var before: String?
 }
 
 struct DetectOutput: Codable {

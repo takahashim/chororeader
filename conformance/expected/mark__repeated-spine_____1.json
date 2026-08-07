@@ -1,0 +1,10 @@
+{
+  "before": "ての語が二度出る。</p><p>二度目の",
+  "command": "mark",
+  "found": true,
+  "href": "OEBPS/text/ch01.xhtml",
+  "marked": "語",
+  "nth": 1,
+  "query": "語",
+  "schema": 2
+}

@@ -2,6 +2,6 @@
   "command": "preview",
   "isFootnote": true,
   "path": "OEBPS/text/__choro_preview__.xhtml",
-  "schema": 1,
+  "schema": 2,
   "text": "これは脚注の中身です。"
 }

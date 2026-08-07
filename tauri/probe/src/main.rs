@@ -7,12 +7,12 @@ use std::io::Read;
 use serde_json::{json, Map, Value};
 
 use chororeader_core::archive::{EpubArchive, ResourceProvider};
-use chororeader_core::preview::fixed_layout;
+use chororeader_core::fixed_layout;
 use chororeader_core::publication::{detect_format, DocumentError, DocumentFormat, TocEntry};
 use chororeader_core::style::{ReaderStyle, Theme};
-use chororeader_core::{css_compat, epub_parser, html_text, paths, pdf, preview, report, search};
+use chororeader_core::{css_compat, epub_parser, html_text, mark, paths, pdf, preview, report, search};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
@@ -23,7 +23,7 @@ fn main() {
     };
 
     let Some(command) = arguments.first() else {
-        fail("usage: choroprobe probe <version|parse|report|style|text|preview|fixed|resolve|css|search|detect> ...");
+        fail("usage: choroprobe probe <version|parse|report|style|text|preview|fixed|resolve|css|search|mark|detect> ...");
     };
     let rest = &arguments[1..];
 
@@ -38,6 +38,7 @@ fn main() {
         "resolve" => resolve(rest),
         "css" => Ok(css()),
         "search" => search_command(rest),
+        "mark" => mark_command(rest),
         "detect" => detect(rest),
         other => fail(&format!("unknown command: {other}")),
     };
@@ -288,11 +289,51 @@ fn search_command(args: &[String]) -> Result<Value, DocumentError> {
         "results": outcome.results.iter().map(|r| json!({
             "href": norm(r.locator.href.as_deref().unwrap_or("")),
             // 丸め方の差で落ちないよう、小数第 3 位へ揃える。
-            "progression": round_to_even(r.locator.progression, 3),
+            "progression": round_half_up(r.locator.progression, 3),
             "match": norm(&r.matched),
             "isCode": r.is_code,
+            // 章の中で何番目の当たりか。飛んだ先で押した当たりを選び直すのに使うので、
+            // 実装どうしで食い違うと、開き直した窓が別の語を強調することになる。
+            "nth": r.nth,
         })).collect::<Vec<_>>(),
     }))
+}
+
+/// 検索結果から飛んだ先で、どの語をどこで囲むか。
+///
+/// 囲んだ HTML を丸ごと比べると、実装ごとの細部で偽の差分が出る。
+/// 囲んだ語と、その直前にある本文で示す。置いた場所が同じかどうかはこれで分かる。
+fn mark_command(args: &[String]) -> Result<Value, DocumentError> {
+    let usage = "usage: probe mark <epub> <href> <query> [nth]";
+    let path = arg(args, 0, usage);
+    let href = arg(args, 1, usage);
+    let query = arg(args, 2, usage);
+    let nth: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
+
+    let archive = EpubArchive::open(path)?;
+    let data = archive
+        .read(href)
+        .ok_or_else(|| DocumentError::broken_archive(format!("{href} を読めない")))?;
+    // 配るときと同じ順で通す。印は書き換えたあとの本文へ入る。
+    let html = css_compat::rewrite_xhtml(&css_compat::decode_text(&data)).css;
+
+    let mut out = Map::new();
+    out.insert("schema".into(), json!(SCHEMA_VERSION));
+    out.insert("command".into(), json!("mark"));
+    out.insert("href".into(), json!(norm(href)));
+    out.insert("query".into(), json!(norm(query)));
+    out.insert("nth".into(), json!(nth));
+    match mark::locate(&html, query, nth) {
+        Some(placement) => {
+            out.insert("found".into(), json!(true));
+            out.insert("marked".into(), json!(norm(&placement.marked)));
+            out.insert("before".into(), json!(norm(&placement.before)));
+        }
+        None => {
+            out.insert("found".into(), json!(false));
+        }
+    }
+    Ok(Value::Object(out))
 }
 
 fn detect(args: &[String]) -> Result<Value, DocumentError> {
@@ -363,22 +404,13 @@ fn normalize_newlines(value: &str) -> String {
     value.replace("\r\n", "\n").replace('\r', "\n")
 }
 
-/// C# の MidpointRounding.ToEven に合わせる。ちょうど半分のときは偶数側へ寄せる。
-fn round_to_even(value: f64, digits: u32) -> f64 {
+/// 小数第 3 位へ丸める。ちょうど半分のときは 0 から遠い側へ寄せる（四捨五入）。
+///
+/// 以前は C# の MidpointRounding.ToEven に合わせていたが、C# 版は畳んだ。
+/// 境目に当たる値が出るまで、Swift 版との違いは隠れていた。
+fn round_half_up(value: f64, digits: u32) -> f64 {
     let factor = 10f64.powi(digits as i32);
-    let scaled = value * factor;
-    let floor = scaled.floor();
-    let fraction = scaled - floor;
-    let rounded = if (fraction - 0.5).abs() < f64::EPSILON {
-        if (floor as i64) % 2 == 0 {
-            floor
-        } else {
-            floor + 1.0
-        }
-    } else {
-        scaled.round()
-    };
-    rounded / factor
+    (value * factor).round() / factor
 }
 
 fn read_standard_input() -> Vec<u8> {

@@ -1,0 +1,29 @@
+{
+  "command": "report",
+  "report": {
+    "cssChanges": [],
+    "cssFileCount": 0,
+    "deflatedEntryCount": 5,
+    "direction": "ltr",
+    "fontCount": 0,
+    "format": "reflowableEPUB",
+    "hasCover": false,
+    "hasEncryptionMetadata": false,
+    "imageCount": 0,
+    "layout": "reflowable",
+    "legacyCSSFileCount": 0,
+    "malformedXHTMLCount": 0,
+    "missingResources": [
+      "OEBPS/style/book.css"
+    ],
+    "missingSpineItems": [],
+    "missingTOCTargets": [],
+    "nonUTF8CSSCount": 0,
+    "spineCount": 3,
+    "storedEntryCount": 1,
+    "tocEntryCount": 2,
+    "tocMaxDepth": 1,
+    "xhtmlCount": 3
+  },
+  "schema": 2
+}

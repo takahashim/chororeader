@@ -12,6 +12,14 @@ use crate::publication::{DocumentError, Result};
 pub trait ResourceProvider {
     fn contains(&self, path: &str) -> bool;
     fn read(&self, path: &str) -> Option<Vec<u8>>;
+
+    /// 文字として読む。
+    ///
+    /// 書庫から取り出したバイト列は、必ず同じ規則で文字に直す必要がある
+    /// （BOM、UTF-8 でない CSS）。呼ぶ側で書くと、いつか書き忘れる。
+    fn read_text(&self, path: &str) -> Option<String> {
+        Some(crate::css_compat::decode_text(&self.read(path)?))
+    }
 }
 
 struct Entry {

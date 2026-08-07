@@ -8,5 +8,5 @@
   ],
   "command": "css",
   "output": "/* -epub-writing-mode はコメント */\n.a { content: \"-epub-writing-mode: horizontal-tb\"; }\n.b { writing-mode: vertical-rl; }\n",
-  "schema": 1
+  "schema": 2
 }

@@ -11,7 +11,9 @@
 //! 当たりの位置を索引に持たせないぶん、容量が小さい。
 //! 日本語 50 万字（400 ページ相当）で 300 KB 前後に収まる。
 
-use crate::search::fold_text;
+use crate::fold;
+
+use varint::{put, Cursor};
 
 /// 索引の形式の版。読めない版のファイルは捨てて作り直す。
 const VERSION: u8 = 1;
@@ -50,7 +52,7 @@ impl Index {
 
         for (number, unit) in units.iter().enumerate() {
             let number = number as u32;
-            let chars = fold_text(unit.as_ref());
+            let chars = fold::text(unit.as_ref());
             for window in chars.windows(2) {
                 pairs.push((key_of(window[0], window[1] as u32), number));
             }
@@ -91,7 +93,7 @@ impl Index {
     ///
     /// `None` は「索引では絞れないので全部を見よ」を意味する。
     pub fn candidates(&self, query: &str) -> Option<Vec<u32>> {
-        let chars = fold_text(query);
+        let chars = fold::text(query);
         match chars.len() {
             0 => None,
             1 => Some(self.by_first_char(chars[0])),
@@ -169,10 +171,7 @@ impl Index {
     }
 
     pub fn decode(bytes: &[u8]) -> Option<Index> {
-        let mut cursor = Cursor {
-            bytes,
-            at: MAGIC.len() + 1,
-        };
+        let mut cursor = Cursor::new(bytes, MAGIC.len() + 1);
         if bytes.len() < cursor.at || &bytes[..MAGIC.len()] != MAGIC || bytes[MAGIC.len()] != VERSION
         {
             return None;
@@ -231,107 +230,65 @@ fn intersect(left: &[u32], right: &[u32]) -> Vec<u32> {
     found
 }
 
-fn put(out: &mut Vec<u8>, mut value: u64) {
-    loop {
-        let byte = (value & 0x7f) as u8;
-        value >>= 7;
-        if value == 0 {
-            out.push(byte);
-            return;
-        }
-        out.push(byte | 0x80);
-    }
-}
-
-struct Cursor<'a> {
-    bytes: &'a [u8],
-    at: usize,
-}
-
-impl Cursor<'_> {
-    fn get(&mut self) -> Option<u64> {
-        let mut value = 0u64;
-        let mut shift = 0;
+/// 可変長整数。索引の本体も、置き場所を包む覆いも、同じ書き方で読み書きする。
+///
+/// 数の並びは昇順で、差分を書けば大半が 1 バイトに収まる。
+/// 読む側と書く側が離れると境界の扱いがずれるので、両方をここに置く。
+pub mod varint {
+    /// 1 つ書き足す。
+    pub fn put(out: &mut Vec<u8>, mut value: u64) {
         loop {
-            let byte = *self.bytes.get(self.at)?;
-            self.at += 1;
-            value |= ((byte & 0x7f) as u64) << shift;
-            if byte & 0x80 == 0 {
-                return Some(value);
+            let byte = (value & 0x7f) as u8;
+            value >>= 7;
+            if value == 0 {
+                out.push(byte);
+                return;
             }
-            shift += 7;
-            if shift >= 64 {
-                return None;
-            }
+            out.push(byte | 0x80);
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn built() -> Index {
-        Index::build(&[
-            "型システムの話",
-            "配列と連結リスト",
-            "型推論と単一化",
-        ])
+    /// 長さを添えて、そのまま書き足す。
+    pub fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
+        put(out, bytes.len() as u64);
+        out.extend_from_slice(bytes);
     }
 
-    #[test]
-    fn 二字以上は含む単位だけに絞る() {
-        assert_eq!(built().candidates("型").unwrap(), vec![0, 2]);
-        assert_eq!(built().candidates("配列").unwrap(), vec![1]);
-        assert_eq!(built().candidates("型推論").unwrap(), vec![2]);
+    /// 読み進める位置。読み終わった分だけ `at` が進む。
+    pub struct Cursor<'a> {
+        pub bytes: &'a [u8],
+        pub at: usize,
     }
 
-    #[test]
-    fn 無い語は候補が空になる() {
-        assert!(built().candidates("継続モナド").unwrap().is_empty());
-    }
+    impl<'a> Cursor<'a> {
+        pub fn new(bytes: &'a [u8], at: usize) -> Self {
+            Cursor { bytes, at }
+        }
 
-    #[test]
-    fn 空の問い合わせは絞れない() {
-        assert!(built().candidates("").is_none());
-    }
+        pub fn get(&mut self) -> Option<u64> {
+            let mut value = 0u64;
+            let mut shift = 0;
+            loop {
+                let byte = *self.bytes.get(self.at)?;
+                self.at += 1;
+                value |= ((byte & 0x7f) as u64) << shift;
+                if byte & 0x80 == 0 {
+                    return Some(value);
+                }
+                shift += 7;
+                // 64 ビットに収まらない並びは、壊れているとみなす。
+                if shift >= 64 {
+                    return None;
+                }
+            }
+        }
 
-    #[test]
-    fn 単位の最後の一文字も引ける() {
-        let index = Index::build(&["あいう"]);
-        assert_eq!(index.candidates("う").unwrap(), vec![0]);
-    }
-
-    #[test]
-    fn 全角と半角を区別しない() {
-        let index = Index::build(&["ＡＰＩ の設計"]);
-        assert_eq!(index.candidates("api").unwrap(), vec![0]);
-    }
-
-    #[test]
-    fn 続いていなくても候補には残る() {
-        // 「型」と「論」は在るが「型論」とは続かない。索引は絞るだけなので候補には出す。
-        let index = Index::build(&["型と推論"]);
-        assert_eq!(index.candidates("と推").unwrap(), vec![0]);
-    }
-
-    #[test]
-    fn 書き出して読み戻せる() {
-        let index = built();
-        let bytes = index.encode();
-        let back = Index::decode(&bytes).expect("読み戻せる");
-        assert_eq!(back.unit_count(), index.unit_count());
-        assert_eq!(back.keys, index.keys);
-        assert_eq!(back.units, index.units);
-        assert_eq!(back.candidates("型推論").unwrap(), vec![2]);
-    }
-
-    #[test]
-    fn 壊れた入力は読まない() {
-        assert!(Index::decode(b"").is_none());
-        assert!(Index::decode(b"XXXX\x01").is_none());
-        let mut bytes = built().encode();
-        bytes[4] = VERSION + 1;
-        assert!(Index::decode(&bytes).is_none());
+        /// 長さを読んでから、そのぶんを切り出す。
+        pub fn take(&mut self) -> Option<&'a [u8]> {
+            let length = self.get()? as usize;
+            let slice = self.bytes.get(self.at..self.at + length)?;
+            self.at += length;
+            Some(slice)
+        }
     }
 }

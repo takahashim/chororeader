@@ -2,5 +2,5 @@
   "changes": [],
   "command": "css",
   "output": ".w { -webkit-writing-mode: vertical-rl; }\n",
-  "schema": 1
+  "schema": 2
 }

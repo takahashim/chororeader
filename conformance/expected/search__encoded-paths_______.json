@@ -6,15 +6,17 @@
       "href": "OEBPS/text/第1章.xhtml",
       "isCode": false,
       "match": "ファイル名",
-      "progression": 0.611
+      "nth": 0,
+      "progression": 0.417
     },
     {
       "href": "OEBPS/text/second chapter.xhtml",
       "isCode": false,
       "match": "ファイル名",
-      "progression": 0.65
+      "nth": 0,
+      "progression": 0.462
     }
   ],
-  "schema": 1,
+  "schema": 2,
   "truncated": false
 }

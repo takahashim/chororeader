@@ -24,6 +24,22 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
     /// リンク先を移動せずに見せるための要求。ビュー側でポップオーバーとして出す。
     @Published var preview: PreviewRequest?
 
+    /// いま強調している当たり。章を読み込むたびに当て直し、検索をやめると消える。
+    var mark: SearchMark? {
+        didSet {
+            // 押した直後の 1 回だけ、囲んだところまで送る。
+            // あとで通りかかったときは、配られた印がそのまま残る。
+            markApproach = mark != nil && mark != oldValue
+            // 印は配信の瞬間に入る。次に章を配ってもらうときのために、先に置いておく。
+            schemeHandler.mark = mark.map { ($0.query, $0.nth) }
+            // 外すだけなら配り直さなくてよい。配り直すと画面がちらつく。
+            if mark == nil {
+                webView.evaluateJavaScript("window.choroClearMarks && window.choroClearMarks()")
+            }
+        }
+    }
+    private var markApproach = false
+
     private var pendingRestore: Locator?
     private var settingsObserver: AnyCancellable?
     private var previewWebView: WKWebView?
@@ -81,6 +97,11 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
     }
 
     func reveal(_ target: Locator) {
+        // 当たりへ飛ぶときは読み直す。印は配信の瞬間に入るので、そのままでは付かない。
+        if markApproach, mark?.target.href == target.href {
+            load(locator: target)
+            return
+        }
         // 同じ章の中なら読み直さずに動く。
         if target.href == locator.href, !isLoading {
             onNavigated?(locator)
@@ -233,8 +254,25 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         showChapterEndAffordance()
         if let target = pendingRestore {
             pendingRestore = nil
-            restore(target)
+            // 当たりへ飛んだときは、囲まれたところへ送るのが位置の復元より正確なので、そちらに譲る。
+            if !(markApproach && marksHere) { restore(target) }
         }
+        approachMark()
+    }
+
+    // MARK: - 当たりの強調
+
+    /// この章に当たりがあるか。ほかの章では、目当ての語が出ていても囲まない。
+    private var marksHere: Bool {
+        guard let mark else { return false }
+        return mark.target.href == locator.href
+    }
+
+    /// 配られた本文に入っている印まで送る。押した直後の 1 回だけ。
+    private func approachMark() {
+        guard markApproach, marksHere else { return }
+        markApproach = false
+        webView.evaluateJavaScript("window.choroApproachMark && window.choroApproachMark()")
     }
 
     /// 章末に次の章への行き先を出す。最後の章では何も出さない。

@@ -13,8 +13,9 @@ Swift と Rust は独立して書かれており、XML の解析も ZIP の読�
 - EPUB のパース結果（読み順、目次の階層、href の正規化結果、書誌情報、レイアウト種別、綴じ方向）
 - 相対パスの解決規則
 - CSS 互換レイヤーの変換結果と変更内訳
-- 章から取り出す本文と、その中でコードが占める範囲
-- 検索のヒット位置、件数、順序
+- 章から取り出す本文と、その中でコードが占める範囲（head・script・style は本文に混ぜない）
+- 検索のヒット位置、件数、順序、章の中での通し番号（`nth`）
+- 検索結果から飛んだ先で、どの語をどこで囲むか
 - 形式判定とエラーの分類
 - 書籍の診断レポート
 - 表示設定から作る CSS
@@ -45,6 +46,7 @@ Swift と Rust は独立して書かれており、XML の解析も ZIP の読�
 <probe> probe css                     # 標準入力から CSS を受け取る
 <probe> probe style                   # 標準入力から表示設定を JSON で受け取る
 <probe> probe search  <epub> <query>
+<probe> probe mark    <epub> <href> <query> [nth]
 <probe> probe detect  <file>
 ```
 
@@ -54,6 +56,11 @@ Swift と Rust は独立して書かれており、XML の解析も ZIP の読�
 {"fontSizePercent": 100, "lineHeight": 1.8, "maxWidthEm": 42, "theme": "light",
  "bodyFont": "", "codeFont": "SF Mono", "codeWrap": false, "publisherStyle": false}
 ```
+
+`mark` は囲んだ HTML を丸ごと比べない。実装ごとの細部で偽の差分が出るためである。
+囲んだ語（`marked`）と、その直前にある本文（`before`、元の HTML から最大 20 文字）で示す。
+置いた場所が同じかどうかは、これで分かる。囲めなかったときは `found` を偽にし、
+`marked` と `before` は出さない。
 
 `preview` は整形の細部ではなく、切り出した範囲を揃える。
 出力の `text` は抜粋からタグとスタイルを除いたもので、注入した CSS は含めない。
@@ -73,6 +80,8 @@ tauri/target/release/choroprobe probe parse foo.epub
 - **パス**：区切りは常に `/`。アーカイブ先頭からの相対パスとし、先頭に `/` を付けない。パーセントエンコードは解く。
 - **改行**：CSS の出力は `\n` に統一する。
 - **小数**：`progression` は小数第 3 位へ丸める。丸め方の差で落ちないようにするため。
+  ちょうど半分のときは 0 から遠い側へ寄せる（四捨五入）。
+  寄せ方を決めていなかったころ、境目に当たる値が出るまで実装の違いが隠れていた。
 - **順序**：`readingOrder` と `tableOfContents` は書籍が定める順のまま。`changes` と診断レポートの配列は辞書順に整列する。
 - **値の無いキー**：出力しない。「キーが無い」と「キーがあって null」を揃えないと差になる。
 
@@ -92,5 +101,7 @@ tauri/target/release/choroprobe probe parse foo.epub
 
 ## スキーマ版数
 
-すべての出力に `schema` を含める。現在は `1`。
+すべての出力に `schema` を含める。現在は `2`。
+`2` で検索の当たりに `nth` が加わった。飛んだ先で当たりを強調するとき、
+どの当たりを押したのかをこの番号で選び直すため、実装どうしで揃っている必要がある。
 出力の意味を変える変更をするときは版数を上げ、ランナーは版数が一致しないことを差分ではなくエラーとして報告する。

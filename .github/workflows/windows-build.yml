@@ -45,6 +45,12 @@ jobs:
         working-directory: tauri
         run: ruby trim-mupdf.rb
 
+      # 画面のうち、画面に依存しない部分（照合の畳み方、紙面の並べ方、表示の文字列）。
+      # 組み立てより先に走らせる。ここが落ちるなら、あとを組む意味がない。
+      - name: 画面側の検査
+        working-directory: tauri/app/ui
+        run: node --test
+
       - name: 組み立てる
         working-directory: tauri
         run: cargo build --release -p chororeader

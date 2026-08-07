@@ -12,7 +12,7 @@ use chororeader_core::archive::EpubArchive;
 use chororeader_core::epub_parser;
 use chororeader_core::paths;
 use chororeader_core::pdf::PdfWorker;
-use chororeader_core::preview::fixed_layout;
+use chororeader_core::fixed_layout;
 use chororeader_core::publication::{detect_format, DocumentFormat, Publication, TocEntry};
 
 pub enum Content {
@@ -134,6 +134,11 @@ pub struct BookInfo {
     pub has_text_layer: bool,
     /// 固定レイアウトのページ。リフロー型では空。
     pub pages: Vec<FixedPage>,
+    /// 見開きの組み方。表紙は単独、以降を 2 枚ずつまとめる。紙面でない書籍では空。
+    ///
+    /// 組み方は core が決める。画面側で数え直すと、実装ごとに違う並びになりうる
+    /// （conformance/CONTRACT.md の「固定レイアウトのページ種別と、見開きの組み方」）。
+    pub spreads: Vec<Vec<usize>>,
     /// ページの寸法。拡大の枠を先に決めるために要る。
     pub page_size: Option<(f64, f64)>,
 }
@@ -188,6 +193,7 @@ pub fn describe(book: &Book) -> BookInfo {
                     .collect(),
                 page_count: 0,
                 has_text_layer: true,
+                spreads: fixed_layout::spreads(pages.len()),
                 pages,
                 page_size,
             }
@@ -205,6 +211,7 @@ pub fn describe(book: &Book) -> BookInfo {
             page_count: worker.page_count,
             has_text_layer: worker.has_text_layer,
             pages: Vec::new(),
+            spreads: fixed_layout::spreads(worker.page_count.max(0) as usize),
             page_size: None,
         },
     }

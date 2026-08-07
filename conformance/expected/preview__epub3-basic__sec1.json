@@ -2,6 +2,6 @@
   "command": "preview",
   "isFootnote": false,
   "path": "OEBPS/text/__choro_preview__.xhtml",
-  "schema": 1,
+  "schema": 2,
   "text": "本文です。  puts \"hello\""
 }
