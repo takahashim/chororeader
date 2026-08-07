@@ -24,19 +24,6 @@ final class CoreMLEmbedderTests: XCTestCase {
         let cases: [Case]
     }
 
-    /// 手元の Core ML 変換物。無ければ nil。
-    private func modelDirectory() -> URL? {
-        let hub = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache/huggingface/hub")
-        guard let walk = FileManager.default.enumerator(at: hub, includingPropertiesForKeys: nil)
-        else { return nil }
-        for case let url as URL in walk
-        where url.lastPathComponent.hasPrefix("buckets-") && url.pathExtension == "mlpackage" {
-            if url.path.contains("ruri-v3") { return url.deletingLastPathComponent() }
-        }
-        return nil
-    }
-
     private func fixture() throws -> Fixture {
         let url = TestPaths.repositoryRoot
             .appendingPathComponent("macos/Tests/ChoroReaderTests/Fixtures/ruri-v3-embedding.json")
@@ -44,10 +31,10 @@ final class CoreMLEmbedderTests: XCTestCase {
     }
 
     private func embedder() throws -> CoreMLEmbedder {
-        guard let directory = modelDirectory() else {
-            throw XCTSkip("手元に Ruri v3 の Core ML 変換物がありません")
+        guard let model = EmbeddingModelStore.installed() else {
+            throw XCTSkip("手元に Ruri v3 の Core ML 変換物がありません（\(EmbeddingModelStore.directory.path)）")
         }
-        return try CoreMLEmbedder(model: EmbeddingModel(directory: directory))
+        return try CoreMLEmbedder(model: model)
     }
 
     func test_参照実装と同じベクトルを返す() throws {
@@ -81,12 +68,16 @@ final class CoreMLEmbedderTests: XCTestCase {
     }
 
     /// 長い本文は切り詰めたうえで、切れたことを申告する。
+    ///
+    /// **長さはバケット集合から決める。** 数を決め打ちにすると、束を組み直したときに
+    /// 黙って通るようになる（実際、512 までの束に合わせた 200 回は 2048 の束では収まった）。
     func test_長すぎる本文は切り詰めて申告する() throws {
         let embedder = try embedder()
         let short = try embedder.embed("短い一節。", as: .document)
         XCTAssertFalse(short.truncated)
 
-        let long = String(repeating: "これは長い本文の繰り返しである。", count: 200)
+        // 1 回で 1 トークン以上にはなるので、上限の回数を繰り返せば必ず超える。
+        let long = String(repeating: "これは長い本文の繰り返しである。", count: embedder.maximumTokens)
         let made = try embedder.embed(long, as: .document)
         XCTAssertTrue(made.truncated, "切れたのに申告していない")
         XCTAssertEqual(made.vector.count, embedder.dimension)
@@ -117,17 +108,10 @@ final class CoreMLEmbedderTests: XCTestCase {
 @available(macOS 15, *)
 final class CoreMLEmbedderRaceTests: XCTestCase {
     func test_複数の筋から同時に呼べる() throws {
-        let hub = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache/huggingface/hub")
-        guard let walk = FileManager.default.enumerator(at: hub, includingPropertiesForKeys: nil)
-        else { throw XCTSkip("Hugging Face の置き場所がありません") }
-        var directory: URL?
-        for case let url as URL in walk
-        where url.lastPathComponent.hasPrefix("buckets-") && url.pathExtension == "mlpackage" {
-            if url.path.contains("ruri-v3") { directory = url.deletingLastPathComponent(); break }
+        guard let model = EmbeddingModelStore.installed() else {
+            throw XCTSkip("手元に Ruri v3 の Core ML 変換物がありません")
         }
-        guard let directory else { throw XCTSkip("手元に Ruri v3 の Core ML 変換物がありません") }
-        let embedder = try CoreMLEmbedder(model: EmbeddingModel(directory: directory))
+        let embedder = try CoreMLEmbedder(model: model)
 
         // 長さをばらけさせて、別々のバケットを同時に開かせる。
         // concurrentPerform で本当に同時に走らせる（async だと順に流れることがある）。

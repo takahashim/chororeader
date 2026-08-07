@@ -22,16 +22,7 @@ final class UnigramTokenizerTests: XCTestCase {
     }
 
     /// 手元のモデルの tokenizer.json。無ければ nil。
-    private func tokenizerURL() -> URL? {
-        let hub = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache/huggingface/hub")
-        guard let walk = FileManager.default.enumerator(at: hub, includingPropertiesForKeys: nil)
-        else { return nil }
-        for case let url as URL in walk where url.lastPathComponent == "tokenizer.json" {
-            if url.path.contains("ruri-v3") { return url }
-        }
-        return nil
-    }
+    private func tokenizerURL() -> URL? { EmbeddingModelStore.installed()?.tokenizerURL }
 
     private func fixture() throws -> Fixture {
         let url = TestPaths.repositoryRoot
