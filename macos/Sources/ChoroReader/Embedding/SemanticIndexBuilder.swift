@@ -45,6 +45,25 @@ final class SemanticIndexBuilder: ObservableObject {
 
     private init() {}
 
+    // MARK: - 温める
+
+    /// 短いバケットを裏で先に開いておく。
+    ///
+    /// バケットは 1 本開くのに数百 ms かかる（findings-buckets.md）。
+    /// 裏で走る索引づくりには見えないが、**launch 後の最初の問いだけは表に出る**。
+    /// 意味の層を入にした時点で開いておけば、待ち時間は 0 になる。
+    private var warmed = false
+
+    func warm() {
+        guard enabled, !warmed, EmbeddingModelStore.installed() != nil else { return }
+        warmed = true
+        Task.detached(priority: .utility) {
+            guard #available(macOS 15, *), let model = EmbeddingModelStore.installed() else { return }
+            // 短い問いを 1 回通す。これで問いが使うバケットが開く。
+            _ = try? CoreMLEmbedder(model: model).embed("架空", as: .query)
+        }
+    }
+
     // MARK: - 頼む
 
     /// 開いた本を先に作る。**割り込ませる。**

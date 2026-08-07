@@ -34,6 +34,11 @@ struct LibraryView: View {
     /// 外してよいか尋ねている最中の冊数。読書位置としおりも消えるので必ず尋ねる。
     @State private var confirmingRemoval = false
     @StateObject private var search = LibrarySearchModel()
+    @StateObject private var semantic = SemanticSearchModel()
+    @ObservedObject private var builder = SemanticIndexBuilder.shared
+    /// 引き方。**混ぜない**（spec-local-ai.md 第 5.2 節）。
+    /// 正確な検索には「当たり」があるが、意味の近さには無い。
+    @State private var searchKind: SearchKind = .exact
     @State private var queryText = ""
     /// 情報を見せている書籍。書棚では開いていない書籍のことも尋ねられる。
     @State private var showing: ShownFile?
@@ -209,26 +214,44 @@ struct LibraryView: View {
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            if builder.enabled {
+                Picker("", selection: $searchKind) {
+                    ForEach(SearchKind.allCases) { kind in
+                        Text(kind.label).tag(kind)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 130)
+                .onChange(of: searchKind) { _, _ in
+                    search.clear()
+                    semantic.clear()
+                    if !queryText.isEmpty { runSearch() }
+                }
+            } else {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            }
             // 蔵書を丸ごと引くのは重いので、1 文字ごとには走らせず、確定してから走らせる。
-            TextField("蔵書を検索（Return で実行）", text: $queryText)
+            TextField(searchKind == .exact ? "蔵書を検索（Return で実行）"
+                                           : "意味で探す（Return で実行）", text: $queryText)
                 .textFieldStyle(.plain)
                 .focused($queryFocused)
                 .onSubmit { runSearch() }
-            if !search.query.isEmpty || !queryText.isEmpty {
+            if !search.query.isEmpty || !semantic.query.isEmpty || !queryText.isEmpty {
                 Button {
                     queryText = ""
                     search.clear()
+                    semantic.clear()
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .help("検索をやめる")
             }
-            if search.running {
+            if search.running || semantic.running {
                 ProgressView().controlSize(.small)
             }
-            if search.running || !search.books.isEmpty {
+            if !progressLabel.isEmpty {
                 Text(progressLabel)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -239,16 +262,85 @@ struct LibraryView: View {
     }
 
     private var progressLabel: String {
+        if searchKind == .semantic {
+            if semantic.running { return "探しています" }
+            guard !semantic.query.isEmpty else { return "" }
+            // まだ読み込んでいない本があることを隠さない。
+            // 「無かった」のか「見ていない」のかで、次にすることが変わる。
+            let missing = semantic.missing > 0 ? "・未読み込み \(semantic.missing) 冊" : ""
+            return "\(semantic.found.count) 件\(missing)"
+        }
         if let building = search.building { return "索引を作成中：\(building)" }
         if search.running { return "\(search.searched) / \(search.total) 冊" }
+        guard !search.query.isEmpty else { return "" }
         return "\(search.books.count) 冊 / \(search.hitCount) 件"
     }
 
     private func runSearch() {
-        search.run(queryText, over: store.recent) { store.resolveURL(for: $0) }
+        switch searchKind {
+        case .exact:
+            search.run(queryText, over: store.recent) { store.resolveURL(for: $0) }
+        case .semantic:
+            semantic.run(queryText, over: store.recent) { store.resolveURL(for: $0) }
+        }
     }
 
     private var results: some View {
+        Group {
+            if searchKind == .semantic {
+                semanticResults
+            } else {
+                exactResults
+            }
+        }
+    }
+
+    /// 意味で引いた結果。
+    ///
+    /// **当たりを囲めない。** 語が一致していないので、前後の文脈に印を付けられない。
+    /// だから節の見出しと抜き書きを出し、どれくらい近いのかを数で添える。
+    private var semanticResults: some View {
+        Group {
+            if let reason = semantic.reason {
+                VStack(spacing: 10) {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.secondary)
+                    Text(reason).foregroundStyle(.secondary)
+                    if semantic.missing > 0 {
+                        Button("残りを読み込む") {
+                            builder.enqueue(store.entries.compactMap { store.resolveURL(for: $0) })
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(semantic.found) { passage in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(passage.book.displayTitle).font(.callout).lineLimit(1)
+                            Spacer(minLength: 6)
+                            Text(String(format: "%.2f", passage.score))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                        }
+                        if !passage.unit.heading.isEmpty {
+                            Text(passage.unit.heading).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Text(passage.unit.excerpt).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                    }
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        openWindow(value: BookRoute(path: passage.book.path,
+                                                    locator: passage.unit.target, query: nil))
+                    }
+                }
+            }
+        }
+    }
+
+    private var exactResults: some View {
         Group {
             if search.books.isEmpty && !search.running {
                 VStack(spacing: 10) {
@@ -583,5 +675,22 @@ private struct HitRow: View {
             }
         }
         return out
+    }
+}
+
+/// 蔵書の引き方。
+///
+/// **混ぜない**（spec-local-ai.md 第 5.2 節）。正確な検索には「当たり」があり、
+/// 当たった語を囲める。意味の近さには当たりが無く、囲むものも無い。
+/// 同じ一覧に並べると、どちらの目で見ればよいのか分からなくなる。
+enum SearchKind: String, CaseIterable, Identifiable {
+    case exact, semantic
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .exact: return "語句"
+        case .semantic: return "意味"
+        }
     }
 }

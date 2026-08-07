@@ -17,6 +17,9 @@ struct SemanticSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Toggle("意味で関連箇所を出す", isOn: $builder.enabled)
                 .disabled(!hasModel || !supported)
+                // 入にした時点で、問いが使う短いバケットを裏で開いておく。
+                // そうしないと最初の 1 回だけ数百 ms 待たされる。
+                .onChange(of: builder.enabled) { _, _ in builder.warm() }
 
             if !supported {
                 note("この機能は macOS 15 以降で使えます")
