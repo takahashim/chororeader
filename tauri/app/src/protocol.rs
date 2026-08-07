@@ -43,6 +43,8 @@ const ASSETS: &[(&str, &str, &str)] = &[
     ("lib/hit-row.js", include_str!("../ui/lib/hit-row.js"), JS),
     ("lib/diagnosis.js", include_str!("../ui/lib/diagnosis.js"), JS),
     ("lib/mark.js", include_str!("../ui/lib/mark.js"), JS),
+    ("readers/paged.js", include_str!("../ui/readers/paged.js"), JS),
+    ("readers/reflowable.js", include_str!("../ui/readers/reflowable.js"), JS),
     ("lib/format.js", include_str!("../ui/lib/format.js"), JS),
 ];
 
