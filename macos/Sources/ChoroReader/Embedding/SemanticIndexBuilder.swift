@@ -35,7 +35,18 @@ final class SemanticIndexBuilder: ObservableObject {
         var fraction: Double { total > 0 ? Double(done) / Double(total) : 0 }
     }
 
-    private var queue: [URL] = []
+    /// 待っている仕事。**電源の条件を仕事そのものに持たせる。**
+    ///
+    /// 以前は「`working` が空なら 1 冊目＝開いた本」と見なしていたが、
+    /// `working` は画面に出すための状態である。中断の直後も 1 冊終えた直後も空なので、
+    /// まとめて並べた 1 冊目まで電源の条件を素通りしていた。
+    private struct Job {
+        var url: URL
+        /// 開いた本は、電源に繋がっていなくても作る。
+        var ignoresPower: Bool
+    }
+
+    private var queue: [Job] = []
     private var running = false
     /// いま走っている仕事に「やめてくれ」と伝える目印。
     /// 裏の筋から同期で読めるようにしてあるので、節ごとに聞きに行かなくてよい。
@@ -71,18 +82,18 @@ final class SemanticIndexBuilder: ObservableObject {
     func prioritize(_ url: URL) {
         guard enabled, EmbeddingModelStore.installed() != nil else { return }
         guard !SemanticIndexStore.hasIndex(for: url) else { return }
-        queue.removeAll { $0.standardizedFileURL == url.standardizedFileURL }
-        queue.insert(url, at: 0)
+        queue.removeAll { $0.url.standardizedFileURL == url.standardizedFileURL }
+        queue.insert(Job(url: url, ignoresPower: true), at: 0)
         start()
     }
 
     /// 残りを順に作る。既に索引のあるものは並べない。
     func enqueue(_ urls: [URL]) {
         guard enabled, EmbeddingModelStore.installed() != nil else { return }
-        let known = Set(queue.map(\.standardizedFileURL))
+        let known = Set(queue.map(\.url.standardizedFileURL))
         for url in urls where !known.contains(url.standardizedFileURL) {
             guard !SemanticIndexStore.hasIndex(for: url) else { continue }
-            queue.append(url)
+            queue.append(Job(url: url, ignoresPower: false))
         }
         start()
     }
@@ -105,21 +116,20 @@ final class SemanticIndexBuilder: ObservableObject {
     }
 
     private func step() {
-        guard !stopFlag.wanted, let url = queue.first else {
+        guard !stopFlag.wanted, let job = queue.first else {
             running = false
             working = nil
             return
         }
         queue.removeFirst()
 
-        // 2 冊目からは電源の条件を見る。開いた本は繋がっていなくても作る。
-        let isFirst = working == nil
-        if !isFirst, onPowerOnly, !onPower() {
+        if !job.ignoresPower, onPowerOnly, !onPower() {
             running = false
             working = nil
             return
         }
 
+        let url = job.url
         let title = LibraryStore.shared.entry(for: BookID(url: url))?.displayTitle
             ?? url.deletingPathExtension().lastPathComponent
         generation += 1

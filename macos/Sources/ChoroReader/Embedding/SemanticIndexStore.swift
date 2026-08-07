@@ -32,10 +32,13 @@ enum SemanticIndexStore {
             return box.index
         }
 
+        // **鍵は 1 枚の頭で見る。** 中身をほどく前に落とせるので、
+        // モデルを入れ替えた直後に 20 MB を無駄に読まずに済む。
         guard let data = try? Data(contentsOf: location(for: url)),
-              let (storedSize, storedModified, payload) = unwrap(data),
-              storedSize == size, storedModified == modified,
-              let index = SemanticIndex(decoding: payload), index.model == model else { return nil }
+              let head = Head(data), head.size == size, head.modified == modified,
+              head.model == model,
+              let index = SemanticIndex(decoding: data, from: head.cursor, model: model)
+        else { return nil }
 
         memory.setObject(Box(index: index, size: size, modified: modified),
                          forKey: key, cost: index.count * index.dimension * 4)
@@ -134,12 +137,7 @@ enum SemanticIndexStore {
 
     private static func write(_ index: SemanticIndex, for url: URL) {
         guard let (size, modified) = stamp(of: url) else { return }
-        var out = Data("CHVB".utf8)
-        // 版 2：単位を節から段落へ変え、飛び先に本文の目印を足した。
-        // 版を上げないと、古い sidecar を新しい読み方で解いて崩れる。
-        out.append(2)
-        append(&out, size)
-        append(&out, modified)
+        var out = Head(size: size, modified: modified, model: index.model).encoded()
         out.append(index.encoded())
         try? out.write(to: location(for: url), options: .atomic)
         memory.setObject(Box(index: index, size: size, modified: modified),
@@ -147,37 +145,46 @@ enum SemanticIndexStore {
                          cost: index.count * index.dimension * 4)
     }
 
-    private static func unwrap(_ data: Data) -> (UInt64, UInt64, Data)? {
-        let bytes = [UInt8](data)
-        guard bytes.count > 5, Array(bytes[0 ..< 4]) == Array("CHVB".utf8), bytes[4] == 2 else { return nil }
-        var cursor = 5
-        func get() -> UInt64? {
-            var value: UInt64 = 0
-            var shift: UInt64 = 0
-            while cursor < bytes.count {
-                let byte = bytes[cursor]
-                cursor += 1
-                value |= UInt64(byte & 0x7f) << shift
-                if byte & 0x80 == 0 { return value }
-                shift += 7
-                if shift >= 64 { return nil }
-            }
-            return nil
-        }
-        guard let size = get(), let modified = get() else { return nil }
-        return (size, modified, data.subdata(in: cursor ..< data.count))
-    }
+    /// sidecar の頭。**失効の鍵をここに全部置く。**
+    ///
+    /// 以前は大きさと更新日時をここで、モデルの名前を中身の側で持っていた。
+    /// 鍵が 2 層に散っていると、片方だけ見て通す事故になる。
+    private struct Head {
+        /// 版 3：モデルの名前を頭へ移した（それ以前は中身にあった）。
+        /// 版を上げないと、古いものを新しい読み方で解いて崩れる。
+        static let version: UInt8 = 3
+        static let magic = Array("CHVB".utf8)
 
-    private static func append(_ out: inout Data, _ value: UInt64) {
-        var value = value
-        while true {
-            let byte = UInt8(value & 0x7f)
-            value >>= 7
-            if value == 0 {
-                out.append(byte)
-                return
-            }
-            out.append(byte | 0x80)
+        var size: UInt64
+        var modified: UInt64
+        var model: String
+        /// 中身の始まる位置。
+        var cursor = 0
+
+        init(size: UInt64, modified: UInt64, model: String) {
+            self.size = size
+            self.modified = modified
+            self.model = model
+        }
+
+        init?(_ data: Data) {
+            let bytes = [UInt8](data.prefix(5))
+            guard bytes.count == 5, Array(bytes[0 ..< 4]) == Self.magic,
+                  bytes[4] == Self.version else { return nil }
+            var reader = Varint.Reader(data, from: 5)
+            guard let size = reader.number(), let modified = reader.number(),
+                  let model = reader.text() else { return nil }
+            self.init(size: size, modified: modified, model: model)
+            cursor = reader.cursor
+        }
+
+        func encoded() -> Data {
+            var out = Data(Self.magic)
+            out.append(Self.version)
+            Varint.append(size, to: &out)
+            Varint.append(modified, to: &out)
+            Varint.append(model, to: &out)
+            return out
         }
     }
 }

@@ -206,17 +206,18 @@ final class ReaderSession: ObservableObject {
                     self.relatedReason = "うまく引けませんでした"
                     return
                 }
-                self.related = RelatedPassages.find(near: vector, like: self.here(), excluding: mine)
-                self.relatedReason = self.related.isEmpty ? "近い箇所は見つかりませんでした" : nil
+                let targets = SemanticFinder.targets(LibraryStore.shared.entries, excluding: mine) {
+                    LibraryStore.shared.resolveURL(for: $0)
+                }
+                self.related = SemanticFinder.rank(vector, over: targets.ready, limits: .related)
+                self.relatedReason = self.related.isEmpty
+                    // 「無かった」のか「まだ見ていない」のかで、次にすることが変わる。
+                    ? (targets.ready.isEmpty
+                       ? "まだ 1 冊も読み込んでいません"
+                       : "近い箇所は見つかりませんでした（未読み込み \(targets.missing) 冊）")
+                    : nil
             }
         }
-    }
-
-    /// 次元と版を揃えるための手本。自分の索引が無くても引けるよう、無ければ空で通す。
-    private func here() -> SemanticIndex {
-        SemanticIndexStore.cached(for: document.url)
-            ?? SemanticIndex(model: EmbeddingModelStore.defaultName, dimension: 0,
-                             units: [], vectors: [], truncated: 0)
     }
 
     func clearRelated() {

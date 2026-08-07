@@ -75,17 +75,15 @@ enum SemanticUnits {
         var made: [Piece] = []
         for link in publication.readingOrder {
             guard let data = try? resources.read(link.href) else { continue }
-            let sections = split(CSSCompat.decodeText(data))
-
             // 章の中での位置は、取り出した本文の長さで測る。綴じ方に左右されないため。
-            let texts = sections.map { tidy(HTMLText.extract($0.html).text) }
-            let total = max(1, texts.reduce(0) { $0 + $1.count })
-            var passed = 0
+            // **足し込みを外へ出す**（変数を跨いで進めると、書き忘れても動いてしまう）。
+            let sections = placed(split(CSSCompat.decodeText(data)))
+            let total = max(1, sections.last.map { $0.offset + $0.text.count } ?? 0)
 
-            for (at, section) in sections.enumerated() {
-                for passage in passages(in: texts[at], leastCharacters: leastCharacters) {
+            for section in sections {
+                for passage in passages(in: section.text, leastCharacters: leastCharacters) {
                     let locator = Locator(href: link.href,
-                                          progression: min(1, Double(passed + passage.offset) / Double(total)),
+                                          progression: min(1, Double(section.offset + passage.offset) / Double(total)),
                                           // 節の頭の段落なら見出しの id へ、そうでなければ本文で探す
                                           fragment: passage.offset == 0 ? section.fragment : nil,
                                           text: anchor(passage.text))
@@ -94,7 +92,6 @@ enum SemanticUnits {
                                                          excerpt: excerpt(passage.text)),
                                       text: passage.text))
                 }
-                passed += texts[at].count
             }
         }
         return made
@@ -104,6 +101,26 @@ enum SemanticUnits {
         var heading: String
         var fragment: String?
         var html: String
+    }
+
+    /// 本文を取り出し、章の頭からの位置を添えた節。
+    private struct PlacedSection {
+        var heading: String
+        var fragment: String?
+        var text: String
+        /// 章の頭から、この節の頭までの文字数。
+        var offset: Int
+    }
+
+    /// 節を順に並べ、章の頭からの位置を付ける。
+    private static func placed(_ sections: [Section]) -> [PlacedSection] {
+        var offset = 0
+        return sections.map { section in
+            let text = tidy(HTMLText.extract(section.html).text)
+            defer { offset += text.count }
+            return PlacedSection(heading: section.heading, fragment: section.fragment,
+                                 text: text, offset: offset)
+        }
     }
 
     /// 見出しの位置で HTML を割る。見出しが無ければ丸ごと 1 つ。

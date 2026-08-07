@@ -92,9 +92,14 @@ extension RelatedPassagesTests {
     /// **下を切らないと、蔵書のどこかしらが必ず並ぶ。**
     /// 関係の無いものが常に出ると、出ていること自体が信用されなくなる。
     func test_下限が効いている() {
-        XCTAssertGreaterThan(RelatedPassages.leastScore, 0.3,
-                             "下限が緩すぎる。何でも並ぶことになる")
-        XCTAssertLessThan(RelatedPassages.leastScore, 0.9,
-                          "下限が厳しすぎる。まず出なくなる")
+        for limits in [SemanticFinder.Limits.related, .search] {
+            XCTAssertGreaterThan(limits.leastScore, 0.3, "下限が緩すぎる。何でも並ぶことになる")
+            XCTAssertLessThan(limits.leastScore, 0.9, "下限が厳しすぎる。まず出なくなる")
+            XCTAssertGreaterThan(limits.perBook, 0)
+            XCTAssertGreaterThan(limits.total, limits.perBook)
+        }
+        // 関連箇所は本文どうし（同じ接頭辞）なので点が高く出る。下限もそのぶん高い。
+        XCTAssertGreaterThan(SemanticFinder.Limits.related.leastScore,
+                             SemanticFinder.Limits.search.leastScore)
     }
 }

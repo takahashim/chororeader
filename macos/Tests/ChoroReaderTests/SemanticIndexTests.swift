@@ -29,7 +29,7 @@ final class SemanticIndexTests: XCTestCase {
 
     func test_書いたものが読める() throws {
         let index = made(count: 12)
-        let back = try XCTUnwrap(SemanticIndex(decoding: index.encoded()))
+        let back = try XCTUnwrap(SemanticIndex(decoding: index.encoded(), model: index.model))
 
         XCTAssertEqual(back.model, index.model)
         XCTAssertEqual(back.dimension, index.dimension)
@@ -52,7 +52,7 @@ final class SemanticIndexTests: XCTestCase {
     /// 位置表現が往復すること。ここが崩れると、当たっても飛べない。
     func test_飛び先が往復する() throws {
         let index = made(count: 6)
-        let back = try XCTUnwrap(SemanticIndex(decoding: index.encoded()))
+        let back = try XCTUnwrap(SemanticIndex(decoding: index.encoded(), model: index.model))
         for (a, b) in zip(back.units, index.units) {
             XCTAssertEqual(a.locator.href, b.locator.href)
             XCTAssertEqual(a.locator.page, b.locator.page)
@@ -67,14 +67,14 @@ final class SemanticIndexTests: XCTestCase {
     func test_途中で切れたものは読まない() {
         let data = made(count: 10).encoded()
         for cut in [1, data.count / 3, data.count / 2, data.count - 1] {
-            XCTAssertNil(SemanticIndex(decoding: data.prefix(cut)),
+            XCTAssertNil(SemanticIndex(decoding: data.prefix(cut), model: "m"),
                          "\(cut) バイトで切れたものを読んでしまった")
         }
     }
 
     func test_空でも書けて読める() throws {
         let empty = SemanticIndex(model: "m", dimension: 4, units: [], vectors: [], truncated: 0)
-        let back = try XCTUnwrap(SemanticIndex(decoding: empty.encoded()))
+        let back = try XCTUnwrap(SemanticIndex(decoding: empty.encoded(), model: empty.model))
         XCTAssertEqual(back.count, 0)
         XCTAssertTrue(back.nearest(to: [1, 0, 0, 0], limit: 3).isEmpty)
     }
