@@ -20,8 +20,17 @@ final class CoreMLEmbedder {
     private let tokenizer: UnigramTokenizer
     private let model: EmbeddingModel
     private let pooling: EmbeddingModel.Pooling
-    /// 長さごとの固定形。短い順に並べる。
-    private var buckets: [(length: Int, model: MLModel)] = []
+    /// 束が担う長さ。短い順。**開くのは使うときで、ここでは名前だけ持つ。**
+    private let lengths: [Int]
+    private let package: URL
+    /// 組み直した束。1 度組んだら使い回す。
+    private var compiled: URL?
+    /// 開いたバケット。長さごとに 1 つ。
+    private var opened: [Int: MLModel] = [:]
+    /// **開く仕事は書き換えを伴う。** 索引作りは裏で走り、問いは前で走るので、
+    /// 同じ埋め込み器が両方から呼ばれる。閂を掛ける。
+    /// （全部を init で開いていた頃は、後は読むだけだったので要らなかった）
+    private let gate = NSLock()
     let dimension: Int
 
     /// 束の中で、その長さを担う function の名前。
@@ -46,22 +55,39 @@ final class CoreMLEmbedder {
         dimension = try model.dimension()
         pooling = model.pooling()
 
-        let lengths = try Self.bucketLengths(in: model.directory)
-        guard !lengths.bundle.isEmpty else {
+        let found = try Self.bucketLengths(in: model.directory)
+        guard !found.bundle.isEmpty else {
             throw Failure.noBuckets("buckets-… の束が \(model.directory.lastPathComponent) にありません")
         }
+        package = found.url
+        lengths = found.bundle.sorted()
+    }
+
+    /// その長さを担うバケット。**まだ開いていなければ、ここで開く。**
+    ///
+    /// バケットは 1 つ開くのに 440 ms ほどかかり、**長さには依らない**（実測）。
+    /// 6 つ揃えて起動時に開くと 4 秒待たされるが、1 回の埋め込みが使うのは 1 つだけである。
+    /// 問いを引くだけなら短いバケット 1 つで足りるので、使うときに開く。
+    ///
+    /// 形の検査（`check`）も開いたときに回る。読み込みで先に落とせなくなる代わりに、
+    /// 使う前には必ず通る。
+    private func bucket(for length: Int) throws -> (length: Int, model: MLModel)? {
+        guard let fits = lengths.first(where: { $0 >= length }) else { return nil }
+        gate.lock()
+        defer { gate.unlock() }
+        if let already = opened[fits] { return (fits, already) }
+
         // `.mlpackage` はそのままでは読めない。組み直したものを置いておく。
-        let compiled = try Self.compiled(lengths.url)
+        let ready = try compiled ?? Self.compiled(package)
+        compiled = ready
 
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .cpuAndNeuralEngine
-
-        for length in lengths.bundle.sorted() {
-            configuration.functionName = lengths.bundle.count > 1 ? Self.functionName(length) : nil
-            let loaded = try MLModel(contentsOf: compiled, configuration: configuration)
-            try Self.check(loaded, length: length, dimension: dimension)
-            buckets.append((length, loaded))
-        }
+        configuration.functionName = lengths.count > 1 ? Self.functionName(fits) : nil
+        let loaded = try MLModel(contentsOf: ready, configuration: configuration)
+        try Self.check(loaded, length: fits, dimension: dimension)
+        opened[fits] = loaded
+        return (fits, loaded)
     }
 
     /// 組み直した束。**1 度組んだら置いておく。**
@@ -145,13 +171,8 @@ final class CoreMLEmbedder {
         return "\(size)-\(modified)"
     }
 
-    /// 収まる最小のバケット。どれにも収まらなければ nil。
-    private func bucket(for length: Int) -> (length: Int, model: MLModel)? {
-        buckets.first { $0.length >= length }
-    }
-
-    /// 一番長いバケット。切り詰めの上限になる。
-    var maximumTokens: Int { buckets.last?.length ?? 0 }
+    /// 一番長いバケット。切り詰めの上限になる。開かなくても分かる。
+    var maximumTokens: Int { lengths.last ?? 0 }
 
     // MARK: - 埋め込む
 
@@ -168,7 +189,7 @@ final class CoreMLEmbedder {
             ids = Array(ids.prefix(maximumTokens))
             if let last { ids[ids.count - 1] = last }
         }
-        guard let bucket = bucket(for: ids.count) else {
+        guard let bucket = try bucket(for: ids.count) else {
             throw Failure.noBuckets("\(ids.count) トークンを収めるバケットがありません")
         }
 

@@ -104,3 +104,43 @@ final class CoreMLEmbedderTests: XCTestCase {
         XCTAssertLessThan(dot, 0.999, "接頭辞が効いていない")
     }
 }
+
+/// バケットを使うときに開く形になったので、複数の筋から同時に呼べること。
+///
+/// 索引作りは裏で走り、問いは前で走るので、同じ埋め込み器が両方から呼ばれる。
+///
+/// **この検査は競合そのものを捕まえられない。** 閂を外して 3 度走らせても通り、
+/// Thread Sanitizer も何も言わなかった。`opened` の書き換えがぶつかる窓が狭いためで、
+/// 「出ない」ことは「無い」ことではない。閂は、共有され書き換わる状態がある以上
+/// 要るという理由で掛けてある。ここで見ているのは、同時に呼んでも
+/// 答えが壊れないという当たり前の方だけである。
+@available(macOS 15, *)
+final class CoreMLEmbedderRaceTests: XCTestCase {
+    func test_複数の筋から同時に呼べる() throws {
+        let hub = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/huggingface/hub")
+        guard let walk = FileManager.default.enumerator(at: hub, includingPropertiesForKeys: nil)
+        else { throw XCTSkip("Hugging Face の置き場所がありません") }
+        var directory: URL?
+        for case let url as URL in walk
+        where url.lastPathComponent.hasPrefix("buckets-") && url.pathExtension == "mlpackage" {
+            if url.path.contains("ruri-v3") { directory = url.deletingLastPathComponent(); break }
+        }
+        guard let directory else { throw XCTSkip("手元に Ruri v3 の Core ML 変換物がありません") }
+        let embedder = try CoreMLEmbedder(model: EmbeddingModel(directory: directory))
+
+        // 長さをばらけさせて、別々のバケットを同時に開かせる。
+        // concurrentPerform で本当に同時に走らせる（async だと順に流れることがある）。
+        let texts = (0 ..< 32).map { String(repeating: "架空の一節である。", count: 1 + ($0 % 8) * 12) }
+        let failures = NSMutableArray()
+        DispatchQueue.concurrentPerform(iterations: texts.count) { at in
+            do {
+                let made = try embedder.embed(texts[at], as: .document)
+                if made.vector.count != embedder.dimension { failures.add("次元が違う") }
+            } catch {
+                failures.add("\(error)")
+            }
+        }
+        XCTAssertEqual(failures.count, 0, "同時に呼ぶと壊れる：\(failures)")
+    }
+}
