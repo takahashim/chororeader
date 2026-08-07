@@ -5,8 +5,8 @@
 
 import { $ } from "../chrome.js";
 
-/// 覆いを作る。`waitUntil` は抜粋の枠が入り終わるのを待つのに使う。
-export function overlays({ waitUntil, attachKeys }) {
+/// 覆いを作る。
+export function overlays() {
   /// 図版を大きく見せる。押すか Escape で閉じる。
   function showImage(src) {
     $("lightbox-image").src = src;
@@ -20,28 +20,24 @@ export function overlays({ waitUntil, attachKeys }) {
 
   /// リンク先の抜粋を、そのリンクの近くに浮かせる。
   ///
+  /// `rect` は押されたリンクの枠（窓から見た位置）。
   /// `actions` は `[[名前, すること], ...]`。押すと覆いを閉じてから走る。
-  function showPreview(anchor, built, actions) {
+  function showPreview(rect, built, actions) {
     const box = $("popover");
     const body = $("popover-body");
     body.textContent = "";
 
-    // 抜粋も本文と同じく、書籍の script は動かさない。
+    // 抜粋は見せるだけ。**sandbox を空にして、script を一切走らせない。**
+    // 押す先も、閉じる手立ても、この枠の外（下の釦と Escape）にある。
     const frame = document.createElement("iframe");
-    frame.setAttribute("sandbox", "allow-same-origin");
+    frame.setAttribute("sandbox", "");
     body.appendChild(frame);
     body.appendChild(buttons(actions));
 
-    place(box, anchor);
+    place(box, rect);
 
     frame.srcdoc = built.html;
     frame.style.height = built.isFootnote ? "auto" : "100%";
-
-    // 抜粋の中に焦点が移ったままでも操作できるようにする。
-    waitUntil(() => {
-      const doc = frame.contentDocument;
-      return doc && doc.readyState === "complete" && doc.body ? doc : null;
-    }, "抜粋", 3000).then(attachKeys).catch(() => {});
   }
 
   function hidePreview() {
@@ -66,8 +62,7 @@ export function overlays({ waitUntil, attachKeys }) {
   }
 
   /// リンクの近くへ置く。画面の外へはみ出さないところまでで止める。
-  function place(box, anchor) {
-    const rectangle = anchor.getBoundingClientRect();
+  function place(box, rectangle) {
     const stage = $("stage").getBoundingClientRect();
     box.hidden = false;
     const top = Math.min(stage.height - box.offsetHeight - 10, rectangle.bottom + 8);

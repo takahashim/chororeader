@@ -14,7 +14,7 @@ import {
 } from "./chrome.js";
 import * as diagnosis from "./lib/diagnosis.js";
 import { hitRow } from "./lib/hit-row.js";
-import { aimedAt, markQuery, takeApproach, unwrapMarks } from "./lib/mark.js";
+import { aimedAt, markQuery } from "./lib/mark.js";
 import { pagedReader } from "./readers/paged.js";
 import { reflowableReader } from "./readers/reflowable.js";
 import {
@@ -101,9 +101,8 @@ const shared = {
   encodePath,
   /// 本文を読み進めただけ。目次は塗り直さず、位置だけ覚える。
   scrolled: () => rememberSoon(),
-  /// 本文の文書にも窓の入力処理を張る。焦点が本文へ移っても鍵盤が届くようにするため。
+  /// 本文の中で押されたキー。出先が上げてきたものを、ここで引き受ける。
   onKeyDown: (event) => onKeyDown(event),
-  onWheel: (event) => onWheel(event),
 };
 
 const readers = { paged: pagedReader(shared), reflowable: reflowableReader(shared) };
@@ -556,7 +555,8 @@ function onKeyDown(event) {
   if (event.key === forward) { event.preventDefault(); return step(1); }
 
   // 縦の送り。焦点は親に置いてあるので、本文へはこちらから送る。
-  if (event.target && event.target.ownerDocument !== document) return;
+  // 本文から上がってきたキーは、あちらで既に縦へ送られている。二重に送らない。
+  if (event.fromContent) return;
   const step_ = { ArrowDown: 60, ArrowUp: -60, PageDown: 0.9, PageUp: -0.9 }[event.key];
   const space = event.key === " " ? (event.shiftKey ? -0.9 : 0.9) : null;
   if (step_ == null && space == null) return;

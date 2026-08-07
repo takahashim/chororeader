@@ -419,6 +419,75 @@ NavigationHistoryEntry
 - ZIP bomb と過度な展開サイズを検出する
 - 書籍由来の HTML とアプリ由来の注入 JavaScript の境界を明確にする
 
+### 15.1 書籍の JavaScript を止める仕組み
+
+止め方は実装で違う。**どちらも「書籍の script は走らず、こちらの注入だけが走る」に落とす。**
+
+**macOS 版**は本文専用の WKWebView を持つので、webview 単位で切れる。
+`allowsContentJavaScript = false` にしても `WKUserScript` は走るという WebKit の性質に乗り、
+注入したスクリプトだけが動く。窓との通信は `WKUserContentController` の
+メッセージハンドラ（native bridge）1 本に限る。
+
+**Tauri 版**は画面と本文が同じ WebView にいる（本文は iframe）。
+webview 単位で切ると画面自体が死ぬので、枠ごとに決める。
+
+- 枠は `sandbox="allow-scripts"`。**`allow-same-origin` は与えない。**
+  本文は生成元を持たない文書になり、書籍の側からアプリの生成元へ手が届かない。
+  `allow-top-navigation` と `allow-popups` と `allow-forms` も与えない
+- 走ってよい script は、配信時の CSP `script-src 'nonce-…'` で 1 本に限る。
+  nonce は要求ごとに引き直すので、書籍側に書いておいて当てることはできない
+- 本文の HTML を解析して `<script>` を削る形は**採らない**。
+  `<svg><script>`、`on…=` 属性、`javascript:` URL を取りこぼす。
+  CSP はブラウザが強制するので、書き方の変化に左右されない
+- ネットワークも同じ CSP で塞ぐ。`default-src 'none'` を土台に、
+  `img-src` `media-src` `font-src` `style-src` を独自スキームだけに許す。
+  `connect-src 'none'`、`base-uri 'none'`、`form-action 'none'`
+- 生成元を持たない相手なので、窓からは本文の DOM に触れない。
+  触る仕事は出先が引き受ける（第 15.2 節）
+
+### 15.2 本文の出先と窓の言葉（Tauri 版）
+
+本文に触るのは、本文の中で動く出先ただ 1 つとする（`tauri/app/ui/agent.js`）。
+窓とは postMessage で話し、やり取りする言葉をここに定める。
+**相手の見分けに `event.origin` を使ってはならない。**
+生成元を持たない相手であり、独自スキームでは中身が処方どおりにならない。
+窓は `event.source` が本文の枠かどうかで、出先は `event.source === parent` で見分ける。
+
+窓 → 出先（言いつけ）
+
+| | すること |
+|---|---|
+| `style` | 表示設定の CSS を当てる。暗いテーマの文字色付けもここ |
+| `dress` | 本文に無いものを足す。図版の拡大、コードのコピー、章末の行き先 |
+| `go` | 覚えていた場所へ戻す。飛び先、書き出し、割合の順に試す |
+| `top` | 先頭へ |
+| `by` | 送る。量と、1 画面ぶんかどうか |
+| `zoom` | 倍率を当てる |
+| `approach` | 配られた本文に入っている印まで送る |
+| `unmark` | 印の包みを解く |
+| `report` | 中の様子を伝える（動作確認が見る唯一の覗き口） |
+| `press` | 本文の中でキーを押してみせる（動作確認が鍵盤の経路を通すため） |
+
+出先 → 窓（出来事）
+
+| | 意味 |
+|---|---|
+| `ready` | 入り終わった。窓はこれで「目当ての文書が入ったか」を見る |
+| `at` | 居場所が動いた。割合と、画面の上端にある文字 |
+| `link` | 本文のリンクが押された。行き先を決めるのは窓 |
+| `image` | 図版が押された |
+| `copy` | コードのコピーが押された。写すのは窓（生成元を持たない文書から clipboard は触れない） |
+| `next` | 章末の行き先が押された |
+| `key` | 本文の中でキーが押された |
+| `wheel` | ピンチ（Ctrl を伴う wheel） |
+| `stumbled` | 言いつけの途中で転んだ |
+| `report` | `report` への返事 |
+
+居場所は**出先から押し出す**。窓の `position()` は同期で答える約束であり、
+尋ねて待つ形にすると履歴と読書位置がすべて往復を待つことになるためである。
+
+出先はモジュールにできない。module の取得は CORS を伴い、生成元を持たない文書からは読めない。
+
 ## 16. 性能
 
 ### 16.1 目標値

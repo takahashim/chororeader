@@ -31,9 +31,20 @@ function stubWindow() {
 }
 
 for (const name of ["chrome.js", "reader.js", "shelf.js", "selftest.js",
-                    "readers/paged.js", "readers/reflowable.js", "readers/overlays.js"]) {
+                    "readers/paged.js", "readers/reflowable.js", "readers/overlays.js",
+                    "readers/talk.js"]) {
   test(`${name} を読み込める`, async () => {
     stubWindow();
     await assert.doesNotReject(() => import(`../${name}`));
   });
 }
+
+// 出先（agent.js）はモジュールではない。生成元を持たない文書へは module を
+// 読み込めない（取得が CORS を伴う）ため、素の script として書いてある。
+// 取り違えると本文の中で何も動かなくなるので、形だけここで見張る。
+test("agent.js は素の script である", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../agent.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /^\s*(import|export)\s/m, "module の構文が混じっている");
+  assert.match(source, /^\(function \(\) \{/m, "外側の包みが無い");
+});

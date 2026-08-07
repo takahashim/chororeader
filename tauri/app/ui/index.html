@@ -57,7 +57,9 @@
   <main id="stage" tabindex="-1">
     <!-- 本文。allow-scripts を与えないので書籍の script は動かない。
          allow-same-origin だけ与えて、親からこの中の DOM を触れるようにする。 -->
-    <iframe id="page" sandbox="allow-same-origin" title="本文"></iframe>
+    <!-- 本文は生成元を持たない枠に入れる。allow-same-origin を与えないので、
+         この文書からは中に触れない。触るのは出先（agent.js）だけ。 -->
+    <iframe id="page" sandbox="allow-scripts" title="本文"></iframe>
     <div id="pdf" tabindex="-1" hidden></div>
 </main>
 </div>

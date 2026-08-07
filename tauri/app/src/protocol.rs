@@ -1,8 +1,8 @@
 //! 書籍の中身を配る経路。
 //!
 //! EPUB は展開せず、要求されたときに ZIP から取り出す。
-//! 画面そのものも同じ生成元から配る。そうしないと本文を入れた iframe と生成元が分かれ、
-//! アプリ側のコードから本文の DOM に届かなくなる（spikes/findings-tauri.md）。
+//! 本文は生成元を持たない枠（sandbox="allow-scripts"）へ入れる。書籍の script は
+//! CSP で止め、こちらの出先（agent.js）だけを nonce で通す（spikes/findings-tauri.md）。
 
 use tauri::http::{Request, Response};
 use tauri::Manager;
@@ -47,7 +47,9 @@ const ASSETS: &[(&str, &str, &str)] = &[
     ("readers/paged.js", include_str!("../ui/readers/paged.js"), JS),
     ("readers/reflowable.js", include_str!("../ui/readers/reflowable.js"), JS),
     ("readers/overlays.js", include_str!("../ui/readers/overlays.js"), JS),
+    ("readers/talk.js", include_str!("../ui/readers/talk.js"), JS),
     ("lib/format.js", include_str!("../ui/lib/format.js"), JS),
+    ("agent.js", include_str!("../ui/agent.js"), JS),
 ];
 
 const JS: &str = "text/javascript; charset=utf-8";
@@ -141,7 +143,7 @@ fn serve_book(
                 }
                 None => rewritten.css,
             };
-            html(body.into_bytes())
+            book_html(&body)
         }
         other => typed(data, mime_of(other)),
     }
@@ -203,9 +205,71 @@ fn percent_decode(value: &str) -> String {
     chororeader_core::paths::percent_decode(value)
 }
 
-fn html(body: Vec<u8>) -> Response<Vec<u8>> {
-    typed(body, "text/html; charset=utf-8")
+/// 書籍の本文を返す。**書籍の script はここで止める。**
+///
+/// 本文の枠は sandbox="allow-scripts" で、生成元を持たない文書として入る。
+/// script が走る余地はあるので、走ってよいものを CSP の nonce で 1 本に限る。
+/// nonce は要求ごとに引き直すため、書籍側に書いておいて当てることはできない。
+///
+/// 止め方を配信側に置くのは、HTML を解析して script を削る形だと
+/// `<svg><script>` や `on…=` 属性や `javascript:` を取りこぼすためである。
+/// CSP はブラウザが強制するので、書き方の変化に左右されない。
+fn book_html(body: &str) -> Response<Vec<u8>> {
+    let nonce = fresh_nonce();
+    let policy = format!(
+        "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline' choro:; \
+         img-src choro: data:; media-src choro:; font-src choro:; connect-src 'none'; \
+         base-uri 'none'; form-action 'none'"
+    );
+    Response::builder()
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Content-Security-Policy", policy)
+        .body(inject_agent(body, &nonce).into_bytes())
+        .unwrap()
 }
+
+/// 要求ごとの nonce。当てられては意味がないので、走らせるごとの種と通し番号から作る。
+fn fresh_nonce() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::OnceLock;
+
+    static SEED: OnceLock<u64> = OnceLock::new();
+    static COUNT: AtomicU64 = AtomicU64::new(0);
+    // HashMap の種は OS の乱数から取られる。別に乱数の口を増やさずに済む。
+    let seed = *SEED.get_or_init(|| std::collections::hash_map::RandomState::new().build_hasher().finish());
+    let count = COUNT.fetch_add(1, Ordering::Relaxed);
+    format!("{:016x}{:08x}", seed, count)
+}
+
+/// 出先を本文へ差し込む。head があればその中の頭、無ければ文書の先頭。
+fn inject_agent(html: &str, nonce: &str) -> String {
+    let tag = format!("<script nonce=\"{nonce}\" src=\"/app/agent.js\"></script>");
+    match head_starts(html) {
+        Some(at) => {
+            let mut out = String::with_capacity(html.len() + tag.len());
+            out.push_str(&html[..at]);
+            out.push_str(&tag);
+            out.push_str(&html[at..]);
+            out
+        }
+        None => format!("{tag}{html}"),
+    }
+}
+
+/// `<head …>` の閉じ括弧の次の位置。`<header>` とは取り違えない。
+fn head_starts(html: &str) -> Option<usize> {
+    let lower = html.to_ascii_lowercase();
+    for (at, _) in lower.match_indices("<head") {
+        let next = lower[at + 5..].chars().next();
+        if next.is_some_and(|c| c.is_ascii_alphanumeric()) {
+            continue; // <header> など
+        }
+        return lower[at..].find('>').map(|close| at + close + 1);
+    }
+    None
+}
+
 
 fn typed(body: Vec<u8>, content_type: &str) -> Response<Vec<u8>> {
     Response::builder()
@@ -216,4 +280,38 @@ fn typed(body: Vec<u8>, content_type: &str) -> Response<Vec<u8>> {
 
 fn not_found() -> Response<Vec<u8>> {
     Response::builder().status(404).body(Vec::new()).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn head_の頭へ差し込む() {
+        let out = inject_agent("<html><head><title>題</title></head><body>本文</body></html>", "n");
+        assert!(out.starts_with("<html><head><script nonce=\"n\" src=\"/app/agent.js\"></script><title>"), "{out}");
+    }
+
+    #[test]
+    fn 属性つきの_head_も見分ける() {
+        let out = inject_agent("<head profile=\"x\"><meta/></head>", "n");
+        assert!(out.starts_with("<head profile=\"x\"><script"), "{out}");
+    }
+
+    #[test]
+    fn header_を_head_と取り違えない() {
+        let out = inject_agent("<body><header>見出し</header></body>", "n");
+        assert!(out.starts_with("<script nonce=\"n\""), "{out}");
+    }
+
+    #[test]
+    fn head_が無ければ先頭へ置く() {
+        let out = inject_agent("<p>断片</p>", "n");
+        assert_eq!(out, "<script nonce=\"n\" src=\"/app/agent.js\"></script><p>断片</p>");
+    }
+
+    #[test]
+    fn nonce_は要求ごとに変わる() {
+        assert_ne!(fresh_nonce(), fresh_nonce());
+    }
 }

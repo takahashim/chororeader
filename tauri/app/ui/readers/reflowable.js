@@ -1,28 +1,34 @@
 // リフローする本文の窓。章を 1 つずつ iframe に入れる。
 //
-// 本文の iframe には allow-scripts を与えない。書籍の script を止めたうえで、
-// 親から contentDocument を辿って手を入れる（spikes/findings-tauri.md）。
-// 図版の拡大やリンクの抜粋も、この文書に紐づくのでここが持つ。
+// 本文の枠は sandbox="allow-scripts" で、allow-same-origin を与えていない。
+// その文書は生成元を持たないので、ここからは DOM に一切触れない。
+// 本文に触る仕事は出先（agent.js）が引き受け、こちらとは決めた言葉で話す
+// （spec.md「本文の出先と窓の言葉」）。
 //
 // 読書の窓（reader.js）とは `nav` の形で話す。あちらは形式を意識しない。
 // 動いたことは departing / moved で知らせるだけで、履歴や読書位置には手を出さない。
 
-import { $, invoke, showFailure, showMenu, toast } from "../chrome.js";
+import { $, invoke, showFailure, toast } from "../chrome.js";
 import { chapterOfHref as chapterOfHrefIn } from "../lib/layout.js";
-import { scrollToMark, unwrapMarks } from "../lib/mark.js";
+import { takeApproach } from "../lib/mark.js";
 import { overlays } from "./overlays.js";
+import { rectInWindow, talkTo } from "./talk.js";
 
 /// 本文の振る舞いを作る。窓と分かち合うものは `shared` で受け取る。
 export function reflowableReader(shared) {
-  const { state, departing, moved, scrolled, bookUrl, focusContent, onKeyDown, onWheel } = shared;
+  const { state, departing, moved, scrolled, bookUrl, focusContent, setZoom, onKeyDown } = shared;
 
   /// 本文の上に浮かせる覆い。図版の拡大とリンク先の抜粋。
-  const overlay = overlays({ waitUntil, attachKeys: (doc) => doc.addEventListener("keydown", onKeyDown) });
+  const overlay = overlays();
 
   /// いま出している章の番号。本文だけが持つ。
   /// 窓は「どこにいるか」を at() と position() で尋ねる。
   /// 局所の index と紛れないよう、持ち物の側に別の名前を付けておく。
   let shownIndex = 0;
+
+  /// 出先が押し出してくる居場所。窓は position() を同期で答える約束なので、
+  /// 尋ねて待つのではなく、送られてきた最後の値を持っておく。
+  let here = { progression: 0, text: "" };
 
   /// 行き先（章の番号）。目次や当たりは経路で言ってくる。
   const chapterOfHref = (href) => chapterOfHrefIn(state.book, href);
@@ -41,6 +47,14 @@ export function reflowableReader(shared) {
 
   const isLoading = () => arriving !== null;
 
+  /// 名乗りを待っているあいだの受け皿。待っていなければ null。
+  let waitingFor = null;
+
+  /// 出先との口。枠は 1 つきりなので、口も 1 つで足りる。
+  const page = talkTo($("page"), (said) => hear(said));
+
+
+  // ---- 章を出す -------------------------------------------------------------
 
   /// 章を出す。転んだら知らせる。呼ぶ側は着くのを待たないので、ここで受け止める。
   ///
@@ -64,40 +78,29 @@ export function reflowableReader(shared) {
     shownIndex = index;
     arriving = { token, goTo, queuedSteps: 0 };
 
-    const frame = $("page");
-    const url = bookUrl(chapter.href);
+    await loadInto($("page"), bookUrl(chapter.href));
 
-    // 読み込みのあいだも、入れ替わる文書に手を付け続ける。
-    // 空きを作ると、その隙に押されたキーがどこにも届かない。
-    const stopWatching = watchDocument(frame);
-
-    let doc;
-    try {
-      doc = await loadInto(frame, url);
-    } finally {
-      stopWatching();
-    }
     // 後から押された分に追い越されていたら、こちらの後始末はしない。
     // 新しい読み込みが `arriving` を持っているので、こちらは触らずに降りる。
     if (!arriving || arriving.token !== token) return;
 
-    decorate(doc);
+    dress();
     focusContent();
     nav.applyZoom();
 
     if (fragment) {
-      const target = doc.getElementById(fragment);
-      if (target) target.scrollIntoView();
+      page.say({ choro: "go", to: { fragment } });
     } else if (arriving.goTo != null) {
       // 数字だけ渡されたときは割合として扱う（検索やしおりからの移動）。
-      restorePosition(doc, typeof arriving.goTo === "number"
-        ? { progression: arriving.goTo }
-        : arriving.goTo);
+      page.say({
+        choro: "go",
+        to: typeof arriving.goTo === "number" ? { progression: arriving.goTo } : arriving.goTo,
+      });
     } else {
-      (doc.scrollingElement || doc.documentElement).scrollTop = 0;
+      page.say({ choro: "top" });
     }
     // 位置を決めたあとで、囲まれている当たりまで送る。順番を逆にできない。
-    scrollToMark(doc, state.mark);
+    if (takeApproach(state.mark)) page.say({ choro: "approach" });
 
     const queued = arriving.queuedSteps;
     arriving = null;
@@ -107,158 +110,96 @@ export function reflowableReader(shared) {
     if (queued !== 0) nav.step(queued);
   }
 
-
   /// 目当ての文書が入り終わるまで待つ。
   ///
-  /// iframe は生成直後に about:blank を持っており、それも readyState は 'complete' を返す。
-  /// ファイル名の部分一致で見分けると、名前が似た章どうしで取り違える。経路全体で照合する。
+  /// 枠は生成直後に about:blank を持っており、load も readyState も当てにならない。
+  /// 中身を覗くこともできないので、**出先が名乗るのを待つ**。
+  /// 同じ章をもう一度開くこともある（当たりへ飛ぶときなど）ので、
+  /// 名乗りが目当ての経路かどうかまで見る。
   function loadInto(frame, url) {
     const expected = decodeURIComponent(new URL(url, location.href).pathname);
-    // 同じ章をもう一度開くことがある（検索結果から、いま読んでいる章の当たりへ飛ぶときなど）。
-    // 差し替わるまで前の文書が残っており、経路だけで見分けると捨てられる側を掴む。
-    // そちらに手を入れても次の描画で消えるので、別の文書になるまで待つ。
-    const previous = frame.contentDocument;
+    let arrived = null;
+    waitingFor = (said) => {
+      if (said.choro === "ready" && decodeURIComponent(said.href) === expected) arrived = said;
+    };
     frame.src = url;
-    return waitUntil(() => {
-      const doc = frame.contentDocument;
-      if (!doc || doc === previous || doc.readyState !== "complete" || !doc.body) return null;
-      return decodeURIComponent(doc.location.pathname) === expected ? doc : null;
-    }, "本文");
+    return waitUntil(() => arrived, "本文").finally(() => { waitingFor = null; });
   }
 
-
-  /// 入れ替わる文書へ、現れた次の描画で手を付ける。読み込みが終わるまでの繋ぎ。
-  function watchDocument(frame) {
-    let stopped = false;
-    let seen = null;
-    const tick = () => {
-      if (stopped) return;
-      const doc = frame.contentDocument;
-      if (doc && doc !== seen) {
-        seen = doc;
-        // 同じ関数を二度足しても増えない。decorate と重なってよい。
-        doc.addEventListener("keydown", onKeyDown);
-      }
-      requestAnimationFrame(tick);
-    };
-    tick();
-    return () => { stopped = true; };
+  /// 本文に無いものを足してもらう。章末の行き先は、次の章の呼び名まで決めて渡す。
+  function dress() {
+    page.say({
+      choro: "style",
+      css: state.style.css,
+      foreground: state.style.needsForegroundMarking,
+    });
+    page.say({ choro: "dress", next: nextChapterLabel() });
   }
 
-
-  /// 本文の文書に手を入れる。注入ではなく、親から直接触る。
-  function decorate(doc) {
-    applyStyle(doc);
-    bindFigures(doc);
-    addCodeCopyButtons(doc);
-    addChapterFooter(doc);
-
-    doc.addEventListener("click", onBodyClick, true);
-    doc.addEventListener("keydown", onKeyDown);
-    doc.addEventListener("wheel", onWheel, { passive: false });
-    doc.addEventListener("scroll", scrolled, { passive: true });
-    doc.defaultView.addEventListener("scroll", scrolled, { passive: true });
-  }
-
-
-  /// 図版は本文の幅に縮めてあるので、細かい図は読めない。押したら大きく出す。
-  function bindFigures(doc) {
-    for (const img of doc.querySelectorAll("img")) {
-      if (img.dataset.choroZoom) continue;
-      img.dataset.choroZoom = "1";
-      img.style.cursor = "zoom-in";
-      img.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        overlay.showImage(img.src);
-      });
-    }
-  }
-
-
-  function applyStyle(doc) {
-    let tag = doc.getElementById("choro-style");
-    if (!tag) {
-      tag = doc.createElement("style");
-      tag.id = "choro-style";
-      (doc.head || doc.documentElement).appendChild(tag);
-    }
-    tag.textContent = state.style.css;
-
-    // 暗いテーマでだけ、背景色を持たない要素に文字色を当てる。
-    // 一律に上書きすると、見出しの黒帯のように背景色を持つ要素から文字色を奪う。
-    for (const el of doc.querySelectorAll(".choro-fg")) el.classList.remove("choro-fg");
-    if (!state.style.needsForegroundMarking) return;
-    const view = doc.defaultView;
-    const walk = (el) => {
-      const background = view.getComputedStyle(el).backgroundColor;
-      const painted = background && background !== "transparent" && !background.startsWith("rgba(0, 0, 0, 0)");
-      if (painted) return; // ここから内側は出版社の配色に任せる
-      el.classList.add("choro-fg");
-      for (const child of el.children) walk(child);
-    };
-    if (doc.body) walk(doc.body);
-  }
-
-
-  function addCodeCopyButtons(doc) {
-    for (const pre of doc.querySelectorAll("pre")) {
-      if (pre.dataset.choroCopy) continue;
-      pre.dataset.choroCopy = "1";
-      pre.style.position = "relative";
-      const button = doc.createElement("button");
-      // こちらが足したものだと分かる印。当たりを数えるときに本文から外す。
-      button.className = "choro-copy";
-      button.textContent = "コピー";
-      button.setAttribute("style",
-        "position:absolute;top:6px;right:6px;font-size:11px;padding:2px 8px;" +
-        "border-radius:4px;border:1px solid rgba(127,127,127,.5);background:rgba(255,255,255,.85);" +
-        "color:#222;cursor:pointer;opacity:0;transition:opacity .12s");
-      pre.addEventListener("mouseenter", () => { button.style.opacity = "1"; });
-      pre.addEventListener("mouseleave", () => { button.style.opacity = "0"; });
-      button.addEventListener("click", async (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const text = Array.from(pre.childNodes)
-          .filter((n) => n !== button)
-          .map((n) => n.textContent).join("");
-        await navigator.clipboard.writeText(text);
-        toast("コードをコピーしました");
-      });
-      pre.appendChild(button);
-    }
-  }
-
-
-  // 縦は読む軸、横は移動する軸。スクロールでは章を跨がないため、章末に導線を置く。
-  function addChapterFooter(doc) {
-    if (doc.getElementById("choro-footer") || !doc.body) return;
-    if (!nav.canGoNext()) return;
+  /// 章末に出す呼び名。次が無ければ null。
+  /// 目次に無い章は題が付かず、代わりにファイル名が入る。それを見せても意味がない。
+  function nextChapterLabel() {
+    if (!nav.canGoNext()) return null;
     const next = state.book.chapters[shownIndex + 1];
-    const footer = doc.createElement("div");
-    footer.id = "choro-footer";
-    footer.setAttribute("style", "margin:3em 0 1em;text-align:center");
-    const button = doc.createElement("button");
-    // 目次に無い章は題が付かず、代わりにファイル名が入る。それを見せても意味がない。
     const named = next.title && next.title !== next.href.split("/").pop();
-    button.textContent = named ? "次の章へ： " + next.title : "次の章へ";
-    button.setAttribute("style",
-      "font:inherit;padding:8px 18px;border-radius:6px;cursor:pointer;" +
-      "border:1px solid rgba(127,127,127,.5);background:transparent;color:inherit");
-    button.addEventListener("click", () => { departing(); showChapter(shownIndex + 1); });
-    footer.appendChild(button);
-    doc.body.appendChild(footer);
+    return named ? "次の章へ： " + next.title : "次の章へ";
   }
 
 
+  // ---- 出先が言ってきたこと ---------------------------------------------------
 
-  function onBodyClick(event) {
-    const anchor = event.target.closest && event.target.closest("a[href]");
-    if (!anchor) return;
-    const raw = anchor.getAttribute("href");
-    if (!raw) return;
-    event.preventDefault();
+  function hear(said) {
+    if (waitingFor) waitingFor(said);
+    switch (said.choro) {
+      case "at": return heardPosition(said);
+      case "link": return heardLink(said);
+      case "image": return overlay.showImage(said.src);
+      case "copy": return heardCopy(said.text);
+      case "next": departing(); showChapter(shownIndex + 1); return;
+      case "key": return onKeyDown(keyFromContent(said));
+      case "wheel": return heardWheel(said.deltaY);
+      case "stumbled":
+        return showFailure("本文の出先が転びました", `${said.what}: ${said.why}`);
+    }
+  }
 
+  function heardPosition(said) {
+    here = { progression: said.progression, text: said.text };
+    scrolled();
+  }
+
+  function heardCopy(text) {
+    // 生成元を持たない文書から clipboard は触れない。写すのはこちら。
+    navigator.clipboard.writeText(text)
+      .then(() => toast("コードをコピーしました"))
+      .catch(() => toast("コピーできませんでした"));
+  }
+
+  function heardWheel(deltaY) {
+    // ピンチ 1 回ぶんの deltaY は小さい。50 で割ると指の動きに付いてくる。
+    if (state.book) setZoom(state.zoom * Math.exp(-deltaY / 50), "custom");
+  }
+
+  /// 本文から上がってきたキーを、窓の受け手が読める形にする。
+  ///
+  /// 縦の送りは本文の側で既に動いている。`fromContent` を立てておくと、
+  /// 窓はそれを見て二重に送らない。
+  function keyFromContent(said) {
+    return {
+      key: said.key,
+      metaKey: said.meta,
+      ctrlKey: said.ctrl,
+      shiftKey: said.shift,
+      altKey: said.alt,
+      fromContent: true,
+      target: null,
+      preventDefault() {},
+    };
+  }
+
+  /// 本文のリンクが押された。行き先を決めるのはこちら。
+  function heardLink(said) {
+    const raw = said.href;
     if (/^(https?|mailto):/i.test(raw)) {
       toast("ブラウザで開きます: " + raw);
       invoke("open_external", { url: raw });
@@ -266,23 +207,24 @@ export function reflowableReader(shared) {
     }
 
     const [path, fragment] = raw.split("#");
-    const href = path ? resolveHref(state.book.chapters[shownIndex].href, path) : state.book.chapters[shownIndex].href;
+    const from = state.book.chapters[shownIndex].href;
+    const href = path ? resolveHref(from, path) : from;
 
-    if (event.metaKey || event.ctrlKey) {
+    if (said.meta) {
       invoke("open_in_new_window", { path: state.book.path, href });
       return;
     }
-    showPreview(anchor, href, fragment || null);
+    showPreview(rectInWindow($("page"), said.rect), href, fragment || null);
   }
 
   /// リンク先を、移動せずにその場で見せる。押したときにすることも一緒に渡す。
-  async function showPreview(anchor, href, fragment) {
+  async function showPreview(rect, href, fragment) {
     const built = await invoke("preview_link", {
       id: state.book.id, href, fragment, css: state.style.css,
     });
     if (!built) return toast("参照先を読めませんでした");
 
-    overlay.showPreview(anchor, built, [
+    overlay.showPreview(rect, built, [
       ["ここへ移動", () => {
         const index = chapterOfHref(href);
         if (index != null) { departing(); showChapter(index, fragment); }
@@ -305,54 +247,12 @@ export function reflowableReader(shared) {
   }
 
 
-  /// 画面の上端にある段落の書き出し。長すぎると当たらなくなるので短く取る。
-  function topText(doc) {
-    try {
-      const view = doc.defaultView;
-      const element = doc.elementFromPoint(Math.floor(view.innerWidth / 2), 8);
-      if (!element) return "";
-      return (element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40);
-    } catch (_) {
-      return "";
-    }
-  }
-
-
-  /// 覚えておいた場所へ戻す。飛び先、書き出し、割合の順に試す。
-  function restorePosition(doc, position) {
-    if (position.fragment) {
-      const target = doc.getElementById(position.fragment);
-      if (target) { target.scrollIntoView(); return; }
-    }
-    if (position.text && scrollToText(doc, position.text)) return;
-    const el = doc.scrollingElement || doc.documentElement;
-    el.scrollTop = (position.progression || 0) * el.scrollHeight;
-  }
-
-
-  function scrollToText(doc, text) {
-    const needle = text.trim().slice(0, 20);
-    if (needle.length < 4) return false;
-    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      if (!walker.currentNode.nodeValue.includes(needle)) continue;
-      const element = walker.currentNode.parentElement;
-      if (!element) continue;
-      element.scrollIntoView({ block: "start" });
-      return true;
-    }
-    return false;
-  }
-
-
-  // iframe は生成直後に about:blank を持っており、それも readyState は 'complete' を返す。
-  // load イベントや readyState で待つと空の文書を掴む。目当ての印が現れるまで待つ。
+  /// 目当てのものが現れるまで待つ。
   function waitUntil(check, what, timeout = 10000) {
     return new Promise((resolve, reject) => {
       const started = performance.now();
       const tick = () => {
-        let value = null;
-        try { value = check(); } catch (_) { /* 生成元が違えば例外 */ }
+        const value = check();
         if (value) return resolve(value);
         if (performance.now() - started > timeout) {
           // 待ち切れなかっただけか、思わぬ躓きか。受ける側が見分けられるようにする。
@@ -367,7 +267,7 @@ export function reflowableReader(shared) {
   }
 
 
-
+  // ---- 窓との約束 -----------------------------------------------------------
 
   const nav = {
     paged: false,
@@ -381,17 +281,14 @@ export function reflowableReader(shared) {
     currentHref: () => (state.book.chapters[shownIndex] || {}).href,
 
     position() {
-      const doc = $("page").contentDocument;
-      const el = doc && (doc.scrollingElement || doc.documentElement);
-      const progression = el && el.scrollHeight > 0 ? el.scrollTop / el.scrollHeight : 0;
       return {
         href: this.currentHref() || "",
-        progression,
+        progression: here.progression,
         page: 0,
         fragment: "",
         // 割合だけだと、文字サイズや本文幅を変えたときに見失う。
         // いま画面の上端に来ている文字を覚えておき、次はそれを手掛かりに戻す。
-        text: doc ? topText(doc) : "",
+        text: here.text,
       };
     },
 
@@ -409,18 +306,8 @@ export function reflowableReader(shared) {
       showChapter(index);
     },
 
-    scrollBy(amount, byScreen) {
-      const doc = $("page").contentDocument;
-      const el = doc && (doc.scrollingElement || doc.documentElement);
-      if (!el) return;
-      el.scrollTop += byScreen ? amount * doc.defaultView.innerHeight : amount;
-    },
-
-    applyZoom() {
-      // リフローする本文は、文字も図も一緒に拡大する。
-      const doc = $("page").contentDocument;
-      if (doc && doc.documentElement) doc.documentElement.style.zoom = state.zoom;
-    },
+    scrollBy: (amount, byScreen) => page.say({ choro: "by", amount, byScreen }),
+    applyZoom: () => page.say({ choro: "zoom", zoom: state.zoom }),
 
     /// 当たりの目当て。リフローは章の経路で指す。
     markTarget: (href) => ({ href: href || "", page: 0 }),
@@ -437,17 +324,6 @@ export function reflowableReader(shared) {
     /// 次の章があるか。章末の行き先を出すかどうかも、これで決まる。
     canGoNext: () => shownIndex + 1 < (state.book.chapters || []).length,
 
-    /// 印を外す。本文は 1 つの文書なので、そこだけ見ればよい。
-    clearMarks: () => unwrapMarks($("page").contentDocument),
-    /// ページの一覧はリフローには無い。並べ方も窓の大きさも本文には効かない。
-    showThumbs: () => {},
-    relayout: () => {},
-    refit: () => {},
-    /// 倍率を戻したときの値。本文は等倍に戻す。
-    defaultZoom: () => 1,
-    /// 合わせ方から決まる倍率。本文には紙面のような「収める」寸法が無い。
-    zoomFor: () => null,
-
     prepare(saved, href, fragment) {
       $("pdf").hidden = true;
       $("page").hidden = false;
@@ -460,22 +336,16 @@ export function reflowableReader(shared) {
       return showChapter(index, fragment || null, href ? null : saved.position);
     },
 
-    /// いまどこにいるか。本文は章の番号で言う。
-    at: () => String(shownIndex),
-    /// 次の章があるか。章末の行き先を出すかどうかも、これで決まる。
-    canGoNext: () => shownIndex + 1 < (state.book.chapters || []).length,
-
     /// 印を外す。本文は 1 つの文書なので、そこだけ見ればよい。
-    clearMarks: () => unwrapMarks($("page").contentDocument),
+    clearMarks: () => page.say({ choro: "unmark" }),
     /// 覆いを閉じる。図版の拡大とリンクの抜粋は、本文から開いたもの。
-    dismissOverlays() {
-      overlay.dismiss();
-    },
+    dismissOverlays: () => overlay.dismiss(),
     /// 表示設定が変わった。いま出ている本文へ当て直す。
-    restyle() {
-      const doc = $("page").contentDocument;
-      if (doc && doc.body) applyStyle(doc);
-    },
+    restyle: () => page.say({
+      choro: "style",
+      css: state.style.css,
+      foreground: state.style.needsForegroundMarking,
+    }),
     /// 章の読み込みが飛んでいるか。様子を記録するときに使う。
     loading: () => isLoading(),
 

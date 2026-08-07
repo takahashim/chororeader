@@ -10,11 +10,45 @@ import { $, invoke, toast } from "../chrome.js";
 import {
   isFixedBook, pageAfterStep, pageCountOf, pageOfHref as pageOfHrefIn, pagesToShow,
 } from "../lib/layout.js";
-import { scrollToMark, unwrapMarks } from "../lib/mark.js";
+import { takeApproach } from "../lib/mark.js";
+import { talkTo } from "./talk.js";
 
 /// 紙面の振る舞いを作る。窓と分かち合うものは `shared` で受け取る。
 export function pagedReader(shared) {
-  const { state, departing, moved, setZoom, bookUrl, encodePath } = shared;
+  const { state, departing, moved, setZoom, bookUrl, encodePath, onKeyDown } = shared;
+
+  /// 紙面に入れた本文のページと話す口。組み直すたびに張り替える。
+  /// 絵のページ（PDF）には出先がいないので、ここには並ばない。
+  let pages = [];
+
+  /// 1 枚ぶんの口を開く。名乗ったら、囲まれている当たりまで送ってもらう。
+  function listenTo(frame) {
+    const page = talkTo(frame, (said) => {
+      if (said.choro === "ready" && takeApproach(state.mark)) page.say({ choro: "approach" });
+      if (said.choro === "key") onKeyDown(keyFromContent(said));
+    });
+    return page;
+  }
+
+  /// 本文から上がってきたキーを、窓の受け手が読める形にする。
+  /// 紙面は自前で送らないので、縦の送りも窓に任せる。
+  function keyFromContent(said) {
+    return {
+      key: said.key,
+      metaKey: said.meta,
+      ctrlKey: said.ctrl,
+      shiftKey: said.shift,
+      altKey: said.alt,
+      target: null,
+      preventDefault() {},
+    };
+  }
+
+  /// 開いていた口を閉じる。枠を捨てる前に呼ぶ。
+  function closePages() {
+    for (const page of pages) page.stop();
+    pages = [];
+  }
 
   /// いま出しているページと、その寸法。紙面だけが持つ。
   /// 窓は「どこにいるか」を at() と position() で尋ねる。
@@ -83,6 +117,8 @@ export function pagedReader(shared) {
     const fresh = box.dataset.book !== state.book.id;
     box.dataset.key = key;
     box.dataset.book = state.book.id;
+    // 枠ごと捨てるので、開いていた口も閉じる。残すと消えた枠を聞き続ける。
+    closePages();
     box.textContent = "";
 
     indices.map((i) => state.book.pages[i]).forEach((page, position) => {
@@ -94,13 +130,13 @@ export function pagedReader(shared) {
         element.loading = "lazy";
         element.src = url;
       } else {
-        // 本文のあるページは書籍の script を動かさない。読書の窓と同じ扱いにする。
+        // 本文のあるページも、読書の窓と同じ扱いにする。生成元を持たない枠に入れ、
+        // 中に触るのは出先（agent.js）だけ。こちらとは言葉でやり取りする。
         element = document.createElement("iframe");
-        element.setAttribute("sandbox", "allow-same-origin");
+        element.setAttribute("sandbox", "allow-scripts");
         element.loading = "lazy";
-        // 紙面は遅れて入る。入った時点で、囲まれている当たりまで送る。
-        element.addEventListener("load", (event) => scrollToMark(event.target.contentDocument, state.mark));
         element.src = url;
+        pages.push(listenTo(element));
       }
       element.dataset.page = String(index);
       box.appendChild(element);
@@ -405,9 +441,7 @@ export function pagedReader(shared) {
     /// 印を外す。紙面の枠と、紙面に入っている本文の印の両方。
     clearMarks() {
       layoutMarks();
-      for (const part of pageParts($("pdf"))) {
-        if (part.tagName === "IFRAME") unwrapMarks(part.contentDocument);
-      }
+      for (const page of pages) page.say({ choro: "unmark" });
     },
 
     /// いまどこにいるか。紙面はページ番号で言う。

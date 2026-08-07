@@ -4,6 +4,9 @@
 // 「どの当たりを囲んでほしいか」だけで、形を組む場所を 1 つにまとめる。
 //
 // 組む場所が分かれると、どの項目がどこで決まるのか追えなくなる。
+//
+// 印まで送るのと、印を外すのは本文の中の仕事なので出先（agent.js）にある。
+// ここは画面に触らない。
 
 /// 当たりを目当てにする。`target` は形式ごとの行き先（章の経路か、ページ番号）。
 export function aimedAt({ query, nth, target, rects = [] }) {
@@ -32,25 +35,4 @@ export function takeApproach(mark) {
 export function markQuery(mark, wanted) {
   if (!mark || !mark.query || !wanted) return "";
   return `?q=${encodeURIComponent(mark.query)}&nth=${mark.nth}`;
-}
-
-/// 配られた本文に入っている印まで送る。押した直後の 1 回だけ。
-export function scrollToMark(doc, mark) {
-  const found = doc && doc.querySelector("mark.choro-found");
-  if (!found || !takeApproach(mark)) return;
-  found.scrollIntoView({ block: "center" });
-}
-
-/// 本文に入っている印の包みを解く。
-///
-/// 入れるのは Rust（配信時に囲んで返す）だが、外すだけならタグを剥がせば済む。
-/// 配り直すと画面がちらつくので、消すときはこちらでやる。
-export function unwrapMarks(doc) {
-  if (!doc || !doc.body) return;
-  for (const mark of doc.querySelectorAll("mark.choro-found")) {
-    const parent = mark.parentNode;
-    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
-    parent.removeChild(mark);
-    parent.normalize();
-  }
 }

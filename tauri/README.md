@@ -15,6 +15,8 @@ tauri/
         ├── index.html / reader.js   読書の窓
         ├── shelf.html  / shelf.js   書棚の窓
         ├── chrome.js                両方が使う道具
+        ├── agent.js                 本文の中で動く出先（素の script。窓とは postMessage）
+        ├── readers/                 形式ごとの振る舞いと、出先との口（talk.js）
         ├── lib/                     画面に触らない部分（畳み方、並べ方、表示の文字列）
         └── tests/                   lib/ の検査（node --test）
 ```
@@ -89,10 +91,13 @@ cargo run --release -p chororeader -- <EPUB か PDF のパス>
 
 作りは spikes/findings-tauri.md で確かめた形をそのまま使っている。
 
-- **画面も本文も `choro://localhost` から配る**。frontendDist のままだと生成元が割れ、
-  親から iframe の `contentDocument` に届かない。
-- **本文は `sandbox="allow-same-origin"` の iframe に入れる**。`allow-scripts` を与えないので
-  書籍の script は動かない。アプリ側のコードは注入ではなく、親から DOM を直接触る。
+- **画面も本文も `choro://localhost` から配る**。独自スキームを 1 つにしておくと、
+  本文の下位資源（画像・CSS・出先）を同じ経路で配れる。
+- **本文は `sandbox="allow-scripts"` の iframe に入れる**。`allow-same-origin` は与えないので、
+  本文は生成元を持たない文書になり、書籍の側からアプリへ手が届かない。
+  書籍の script は配信時の CSP（`script-src 'nonce-…'`）で止め、
+  こちらの出先（`app/ui/agent.js`）だけを nonce で通す。
+  本文に触るのは出先だけで、窓とは postMessage で話す（spec.md 第 15.2 節）。
 - **EPUB は展開しない**。要求のたびに ZIP から取り出し、CSS は配信時に書き換える。
 - **PDF は MuPDF で描いて PNG を独自スキームで渡す**。転送は 1 ms なので、
   速さの上限を決めるのは描画そのものである。

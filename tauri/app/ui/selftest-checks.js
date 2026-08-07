@@ -24,6 +24,32 @@ export async function until(check, timeout = 4000) {
 
 export const manualState = {};
 
+/// 本文の出先に様子を尋ねる。
+///
+/// 本文は生成元を持たない枠に入っているので、窓からは DOM に触れない。
+/// 中を確かめる道はこの 1 本だけである（agent.js の report）。
+export function askContent(frame = $("page"), timeout = 4000) {
+  return new Promise((resolve, reject) => {
+    const listen = (event) => {
+      if (event.source !== frame.contentWindow) return;
+      if (!event.data || event.data.choro !== "report") return;
+      window.removeEventListener("message", listen);
+      resolve(event.data);
+    };
+    window.addEventListener("message", listen);
+    frame.contentWindow.postMessage({ choro: "report" }, "*");
+    setTimeout(() => {
+      window.removeEventListener("message", listen);
+      reject(new Error("本文の出先が答えない"));
+    }, timeout);
+  });
+}
+
+/// 本文を入れている枠すべて。リフローは 1 つ、固定レイアウトはページごと。
+function contentFrames() {
+  return Array.from(document.querySelectorAll("#stage iframe")).filter((f) => f.contentWindow);
+}
+
 /// 自動で確かめられるもの。画面の中だけで完結する。
 export const automatic = [
   {
@@ -32,29 +58,50 @@ export const automatic = [
   },
   {
     name: "本文が入っている",
-    run: () => {
-      const doc = $("page").contentDocument;
-      const length = doc && doc.body ? doc.body.textContent.trim().length : 0;
-      return { ok: length > 0, detail: `${length} 文字` };
+    run: async () => {
+      const seen = await askContent();
+      return { ok: seen.text > 0, detail: `${seen.text} 文字` };
     },
     only: "reflowable",
   },
   {
-    name: "本文の枠に allow-scripts を与えていない",
+    name: "本文の枠に allow-same-origin を与えていない",
     run: () => {
-      // これが崩れると書籍側の script が動く。安全側の前提そのものなので必ず見る。
+      // 与えると本文がアプリと同じ生成元になり、書籍の側から画面へ手が届く。
+      // 安全側の前提そのものなので必ず見る。
       const sandbox = Array.from($("page").sandbox || []);
-      const ok = sandbox.includes("allow-same-origin") && !sandbox.includes("allow-scripts");
+      const ok = sandbox.includes("allow-scripts") && !sandbox.includes("allow-same-origin");
       return { ok, detail: sandbox.join(" ") || "指定なし" };
     },
     only: "reflowable",
   },
   {
-    name: "アプリの CSS が本文に入っている",
+    name: "窓から本文の DOM に触れない",
     run: () => {
-      const doc = $("page").contentDocument;
-      const style = doc && doc.getElementById("choro-style");
-      return { ok: !!style && style.textContent.length > 0, detail: style ? "入っている" : "無い" };
+      // 触れてしまうなら生成元が分かれていない。上の検査と対で見る。
+      let reached = false;
+      try {
+        const doc = $("page").contentDocument;
+        reached = !!(doc && doc.body);
+      } catch (_) { reached = false; }
+      return { ok: !reached, detail: reached ? "触れてしまう" : "触れない" };
+    },
+    only: "reflowable",
+  },
+  {
+    name: "書籍の script は走らない",
+    run: async () => {
+      // 出先が nonce を持たない script を 1 本置いてみる。CSP が効いていれば走らない。
+      const seen = await askContent();
+      return { ok: !seen.bookScriptRuns, detail: seen.bookScriptRuns ? "走ってしまう" : "止まっている" };
+    },
+    only: "reflowable",
+  },
+  {
+    name: "アプリの CSS が本文に入っている",
+    run: async () => {
+      const seen = await askContent();
+      return { ok: seen.styled, detail: seen.styled ? "入っている" : "無い" };
     },
     only: "reflowable",
   },
@@ -118,10 +165,11 @@ export const automatic = [
 
       // PDF は絵の上に枠を重ね、本文が HTML のものは語そのものを囲む。
       const framed = () => document.querySelectorAll("#pdf .found-frame").length;
-      const wrapped = () => Array.from(document.querySelectorAll("iframe"))
-        .filter((frame) => frame.contentDocument
-          && frame.contentDocument.querySelector("mark.choro-found")).length;
-      const marked = await until(() => framed() || wrapped(), 8000);
+      const wrapped = async () => {
+        const seen = await Promise.all(contentFrames().map((f) => askContent(f).catch(() => null)));
+        return seen.filter((s) => s && s.marks > 0).length;
+      };
+      const marked = await until(async () => framed() || await wrapped(), 8000);
       // 元いた場所へ帰しておく。ここで動いたままだと、読書位置として覚えられ、
       // 次に走らせたときの出発点が変わってしまう。
       window.choro.goBack();
@@ -130,7 +178,7 @@ export const automatic = [
       return {
         ok: marked,
         detail: marked
-          ? `枠 ${framed()} ／ 語 ${wrapped()}`
+          ? `枠 ${framed()} ／ 語 ${await wrapped()}`
           : `囲めない（目当て ${JSON.stringify(window.choro.state.mark)}`
             + ` 居場所 ${window.choro.nav.currentHref()} / ${window.choro.nav.at()}）`,
       };
@@ -168,6 +216,43 @@ export const automatic = [
         await until(() => !window.choro.nav.loading());
       }
       return { ok: settled, detail: `${before} → ${after}` };
+    },
+    only: "reflowable",
+  },
+  {
+    name: "本文の中で押したキーが窓へ届く",
+    run: async () => {
+      // 窓から本文の DOM に触れないので、キーは出先が拾って上げてくるしかない。
+      // ここが切れると、本文を押したあと ← → が効かなくなる。
+      const key = atEnd() ? "ArrowLeft" : "ArrowRight";
+      const before = place();
+      $("page").contentWindow.postMessage({ choro: "press", key }, "*");
+      const moved = await until(() => place() !== before, 6000);
+      await until(() => !window.choro.nav.loading());
+      const after = place();
+      if (moved) {
+        window.choro.step(key === "ArrowLeft" ? 1 : -1);
+        await until(() => !window.choro.nav.loading());
+      }
+      return { ok: moved, detail: `${key}（本文から） ${before} → ${after}` };
+    },
+    only: "reflowable",
+  },
+  {
+    name: "章末に次の章への行き先が入る",
+    run: async () => {
+      // 出先が足すもの。ここが入らないなら、装いの言いつけが届いていない。
+      // 終端の章には出さないのが正しいので、出すはずの場所まで下がって見る。
+      const backed = atEnd();
+      if (backed) {
+        window.choro.step(-1);
+        if (!await until(() => !window.choro.nav.loading() && !atEnd(), 6000)) {
+          return { ok: null, detail: "章が 1 つしかない" };
+        }
+      }
+      const seen = await askContent();
+      if (backed) { window.choro.step(1); await until(() => !window.choro.nav.loading()); }
+      return { ok: seen.footer, detail: seen.footer ? "入っている" : "無い" };
     },
     only: "reflowable",
   },
