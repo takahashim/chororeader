@@ -28,6 +28,7 @@ struct LibraryView: View {
     /// 情報を見せている書籍。書棚では開いていない書籍のことも尋ねられる。
     @State private var showing: ShownFile?
     @StateObject private var importing = FolderImport()
+    @State private var syncing = false
     @FocusState private var queryFocused: Bool
 
     var body: some View {
@@ -69,9 +70,13 @@ struct LibraryView: View {
                     }
                     Button("フォルダを取り込む…") {
                         if let folder = FileOpener.runFolderPanel() {
+                            // 取り込んだところは覚えておく。あとから同期で見に行ける。
+                            WatchedFolders.shared.remember(folder)
                             importing.run(folder, into: store)
                         }
                     }
+                    Divider()
+                    Button("フォルダと同期…") { syncing = true }
                 } label: {
                     Label("加える", systemImage: "plus")
                 }
@@ -105,6 +110,9 @@ struct LibraryView: View {
         // 書棚では開いていない書籍のことも尋ねられる。開かずにファイルから読む。
         .sheet(item: $showing) { shown in
             PropertiesView(subject: .file(shown.url))
+        }
+        .sheet(isPresented: $syncing) {
+            SyncFoldersView()
         }
     }
 
@@ -257,6 +265,7 @@ struct LibraryView: View {
                 // 蔵書がフォルダに溜まっている人には、1 冊ずつ開かせない。
                 Button("フォルダを取り込む…") {
                     if let folder = FileOpener.runFolderPanel() {
+                        WatchedFolders.shared.remember(folder)
                         importing.run(folder, into: store)
                     }
                 }

@@ -118,6 +118,21 @@ final class LibraryStore: ObservableObject {
         return true
     }
 
+    /// 場所が変わった書籍を、いまの置き場所に付け替える。
+    ///
+    /// 読書位置としおりは持ち物なので、そのまま連れていく。
+    /// id は道筋から作るので変わってしまうが、外から引くのは id なので付け替える。
+    func relocate(_ id: BookID, to url: URL) {
+        guard var entry = entries.first(where: { $0.id == id }) else { return }
+        entries.removeAll { $0.id == id }
+        entry.id = BookID(url: url)
+        entry.path = url.path
+        entry.bookmarkData = try? url.bookmarkData(options: [.withSecurityScope],
+                                                   includingResourceValuesForKeys: nil,
+                                                   relativeTo: nil)
+        upsert(entry)
+    }
+
     func savePosition(_ locator: Locator, for id: BookID) {
         guard var entry = entries.first(where: { $0.id == id }) else { return }
         entry.lastLocator = locator
