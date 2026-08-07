@@ -17,8 +17,14 @@ struct LibraryEntry: Codable, Identifiable, Hashable {
     var bookmarks: [Bookmark] = []
     /// 書棚に並べる表紙の置き場所。取れなかった書籍では nil。
     var coverName: String?
+    /// 人が付けた名前。書籍の名乗りより優先する。消せば名乗りに戻る。
+    ///
+    /// 書籍の名乗り（title / authors）は書き換えない。名乗りは書籍の情報で
+    /// そのまま見せ続けるし、「消せば戻る」は別に持たないと作れない。
+    var customTitle: String?
+    var customAuthors: [String]?
 
-    var displayAuthors: String { authors.joined(separator: "、") }
+    var displayAuthors: String { (customAuthors ?? authors).joined(separator: "、") }
     var fileExists: Bool { FileManager.default.fileExists(atPath: path) }
 }
 
@@ -116,6 +122,14 @@ final class LibraryStore: ObservableObject {
                                                    relativeTo: nil)
         upsert(entry)
         return true
+    }
+
+    /// 人が付けた名前を覚える。nil や空は「付けない」＝名乗りに戻す。
+    func setCustomName(_ id: BookID, title: String?, authors: [String]?) {
+        guard var entry = entries.first(where: { $0.id == id }) else { return }
+        entry.customTitle = title.flatMap { $0.isEmpty ? nil : $0 }
+        entry.customAuthors = authors.flatMap { $0.isEmpty ? nil : $0 }
+        upsert(entry)
     }
 
     func savePosition(_ locator: Locator, for id: BookID) {

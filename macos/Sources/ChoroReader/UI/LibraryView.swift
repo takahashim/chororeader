@@ -2,9 +2,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// 情報を見せる相手。sheet(item:) が同一性を要るので包む。
+/// 複数入れると、保存するたびに次へ進む流しになる。
 struct ShownFile: Identifiable {
-    let url: URL
-    var id: String { url.path }
+    let urls: [URL]
+    var id: String { urls.map(\.path).joined(separator: "\u{0}") }
+
+    init(url: URL) { urls = [url] }
+    init(urls: [URL]) { self.urls = urls }
 }
 
 /// 書棚の見せ方。表紙を並べるか、表で並べるか。
@@ -123,7 +127,7 @@ struct LibraryView: View {
         }
         // 書棚では開いていない書籍のことも尋ねられる。開かずにファイルから読む。
         .sheet(item: $showing) { shown in
-            PropertiesView(subject: .file(shown.url))
+            PropertiesView(subjects: shown.urls.map { .file($0) })
         }
     }
 
@@ -358,7 +362,7 @@ struct LibraryView: View {
             }
             .width(30)
             TableColumn("題名") { entry in
-                Text(entry.title)
+                Text(entry.displayTitle)
                     .foregroundStyle(entry.fileExists ? Color.primary : Color.secondary)
             }
             TableColumn("著者") { entry in Text(entry.displayAuthors) }
@@ -397,6 +401,10 @@ struct LibraryView: View {
                 confirmingRemoval = true
             }
         } else if chosen.count > 1 {
+            // 名無しの本をまとめて直す道もこれ。保存するたびに次の本へ進む。
+            Button("選んだ \(chosen.count) 冊の情報を見る") {
+                showing = ShownFile(urls: chosen.compactMap { store.resolveURL(for: $0) })
+            }
             Button("Finder で表示") {
                 NSWorkspace.shared.activateFileViewerSelecting(
                     chosen.compactMap { store.resolveURL(for: $0) })
@@ -442,7 +450,7 @@ private struct CoverCard: View {
     var body: some View {
         VStack(spacing: 6) {
             CoverThumb(entry: entry, height: 168)
-            Text(entry.title)
+            Text(entry.displayTitle)
                 .font(.system(size: 12))
                 .lineLimit(3)
                 .multilineTextAlignment(.center)

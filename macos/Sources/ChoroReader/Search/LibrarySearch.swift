@@ -79,7 +79,7 @@ final class LibrarySearchModel: ObservableObject {
 
                 let needsBuilding = SearchIndexStore.cached(for: target.url) == nil
                 if needsBuilding {
-                    let title = target.entry.title
+                    let title = target.entry.displayTitle
                     DispatchQueue.main.async { self.report(generation, building: title) }
                 }
 
@@ -145,7 +145,7 @@ final class LibrarySearchModel: ObservableObject {
         }
         if results.isEmpty { return nil }
 
-        return LibraryBookHits(id: entry.id, title: entry.title, path: entry.path,
+        return LibraryBookHits(id: entry.id, title: entry.displayTitle, path: entry.path,
                                hits: results.map { LibraryHit(result: $0) }, truncated: truncated)
     }
 

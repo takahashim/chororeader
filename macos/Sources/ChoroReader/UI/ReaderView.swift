@@ -70,7 +70,7 @@ struct ReaderView: View {
             DiagnosticsView(session: session)
         }
         .sheet(isPresented: $showProperties) {
-            PropertiesView(subject: .opened(session))
+            PropertiesView(subjects: [.opened(session)])
         }
     }
 
