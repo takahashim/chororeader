@@ -127,11 +127,14 @@ enum SemanticUnits {
         }
         for (at, match) in matches.enumerated() {
             let to = at + 1 < matches.count ? matches[at + 1].range.location : text.length
-            let range = NSRange(location: match.range.location, length: to - match.range.location)
+            // **見出しの札そのものは本文に含めない。** 見出しは別に持っているので二重になるうえ、
+            // 画面では見出しと段落が別の節点なので、跨いだ目印は本文から見つからない。
+            let from = match.range.location + match.range.length
+            let body = from < to ? text.substring(with: NSRange(location: from, length: to - from)) : ""
             let heading = tidy(HTMLText.extract(text.substring(with: match.range(at: 2))).text)
             made.append(Section(heading: heading,
                                 fragment: identifier(in: text.substring(with: match.range(at: 1))),
-                                html: text.substring(with: range)))
+                                html: body))
         }
         return made
     }

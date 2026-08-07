@@ -58,7 +58,9 @@ struct LibraryView: View {
                 Divider()
             }
             Group {
-                if !search.query.isEmpty {
+                // **引き方ごとに見る問いが違う。** 語句側だけを見ていると、
+                // 意味で引いても書棚の一覧が出たままになる。
+                if !currentQuery.isEmpty {
                     results
                 } else if store.entries.isEmpty {
                     empty
@@ -259,6 +261,11 @@ struct LibraryView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    /// いま引いている問い。画面を切り替える判断に使う。
+    private var currentQuery: String {
+        searchKind == .semantic ? semantic.query : search.query
     }
 
     private var progressLabel: String {
