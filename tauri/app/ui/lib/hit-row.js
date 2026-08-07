@@ -9,9 +9,11 @@ import { oneLine } from "./format.js";
 ///
 /// `open()` は押したとき、`menu()` は右クリックしたときに出す献立
 /// （`[[名前, すること], ...]` の並び）を返す。
-export function hitRow(document, hit, { open, menu, title }) {
+export function hitRow(hit, { open, menu, title }) {
   const row = document.createElement("a");
   row.className = "hit" + (hit.isCode ? " code" : "");
+  // 治具はここを見て当たりを押す。見た目の名前（.hit）に頼らせない。
+  row.dataset.role = "hit";
   if (title) row.title = title;
 
   const where = document.createElement("span");

@@ -114,7 +114,7 @@
       run: async () => {
         $("search-input").value = await searchWord();
         await window.choro.runSearch();
-        const row = $("results").querySelector(".hit");
+        const row = $("results").querySelector('[data-role="hit"]');
         if (!row) return { ok: false, detail: "当たりが無い" };
         row.click();
 

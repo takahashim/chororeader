@@ -278,7 +278,7 @@ function foundHit(book, hit) {
     query: librarySearch.query,
     nth: hit.nth,
   });
-  return hitRow(document, hit, {
+  return hitRow(hit, {
     open,
     title: book.path,
     menu: (event) => showMenu(event, [

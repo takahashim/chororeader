@@ -14,6 +14,7 @@ import {
 } from "./chrome.js";
 import * as diagnosis from "./lib/diagnosis.js";
 import { hitRow } from "./lib/hit-row.js";
+import { aimedAt, markQuery, takeApproach } from "./lib/mark.js";
 import {
   chapterOfHref as chapterOfHrefIn, isFixedBook, isPagedBook, pageAfterStep,
   pageCountOf, pageOfHref as pageOfHrefIn, pagesToShow,
@@ -241,8 +242,33 @@ const pagedReader = {
   },
 };
 
+/// 書籍を開く前。窓は出ているが、まだ読むものが無い。
+///
+/// 束ねは文書が入った時点で張られており、書籍が開く前に押されうる。
+/// 既定をリフローにしておくと「PDF の窓なのにリフローとして振る舞う」時間ができ、
+/// 実害が出ないのは押される順が偶然そうなっているからでしかなくなる。
+const emptyReader = {
+  paged: false,
+  zoomSetting: "epubZoom",
+  defaultFit: "custom",
+  locate: () => null,
+  show: () => {},
+  currentHref: () => "",
+  position: () => ({ href: "", progression: 0, page: 0, fragment: "", text: "" }),
+  reveal: () => {},
+  step: () => {},
+  scrollBy: () => {},
+  applyZoom: () => {},
+  markTarget: () => ({ href: "", page: 0 }),
+  hitTarget: () => null,
+  label: () => "",
+  hereHref: () => "",
+  paintMark: async () => {},
+  prepare: async () => {},
+};
+
 /// いま使っている振る舞い。書籍を開くときに選ぶ。
-let nav = reflowableReader;
+let nav = emptyReader;
 
 // ---- 書籍を開く ---------------------------------------------------------
 
@@ -283,13 +309,11 @@ function dressChrome(saved) {
 /// 印は配信時に入るので、開いてから決めたのでは間に合わない。
 function aimFromCarried(carried, href) {
   if (!carried.query || carried.list) return;
-  state.mark = {
+  state.mark = aimedAt({
     query: carried.query,
-    nth: Number(carried.nth) || 0,
-    ...nav.markTarget(href),
-    rects: [],
-    approach: true,
-  };
+    nth: Number(carried.nth),
+    target: nav.markTarget(href),
+  });
 }
 
 /// 本文が出たあとに、渡されたものの残りを当てる。
@@ -1031,7 +1055,7 @@ async function runSearch() {
       aimAt(query, hit);
       if (target != null) jump(() => nav.show(target, { goTo: hit.progression }));
     };
-    box.appendChild(hitRow(document, hit, {
+    box.appendChild(hitRow(hit, {
       open: openHit,
       menu: (event) => showMenu(event, [
         ["新しいウィンドウで開く", () => openHit(true)],
@@ -1055,16 +1079,12 @@ async function runSearch() {
 
 /// 当たりを強調の目当てにする。移動そのものは呼び出し側が行う。
 function aimAt(query, hit) {
-  state.mark = {
+  state.mark = aimedAt({
     query,
-    /// その章の中で何番目の当たりか。同じ語が何度も出る章で、押したものを選び直す。
-    nth: hit.nth || 0,
-    href: nav.paged ? "" : hit.href || "",
-    page: nav.paged ? nav.hitTarget(hit) : 0,
-    rects: hit.rects || [],
-    /// 押した直後の 1 回だけ、その場所まで送る。あとで通りかかったときは囲むだけにする。
-    approach: true,
-  };
+    nth: hit.nth,
+    target: nav.paged ? { page: nav.hitTarget(hit) } : { href: hit.href },
+    rects: hit.rects,
+  });
 }
 
 
@@ -1081,10 +1101,8 @@ function forgetMark() {
 function bookUrl(href, page = null) {
   const url = `/book/${state.book.id}/${encodePath(href)}`;
   const mark = state.mark;
-  if (!mark || !mark.query) return url;
-  const wanted = isFixed() ? page === mark.page : mark.href === href;
-  if (!wanted) return url;
-  return `${url}?q=${encodeURIComponent(mark.query)}&nth=${mark.nth}`;
+  const wanted = mark && (isFixed() ? page === mark.page : mark.href === href);
+  return url + markQuery(mark, wanted);
 }
 
 /// 目当てのページを配り直す。印の付き外れは配信時に決まるので、
@@ -1099,11 +1117,9 @@ function refreshMarkedPage() {
 
 /// 配られた本文に入っている印まで送る。押した直後の 1 回だけ。
 function approachMark(doc) {
-  if (!doc || !state.mark || !state.mark.approach) return;
-  const found = doc.querySelector("mark.choro-found");
-  if (!found) return;
+  const found = doc && doc.querySelector("mark.choro-found");
+  if (!found || !takeApproach(state.mark)) return;
   found.scrollIntoView({ block: "center" });
-  state.mark.approach = false;
 }
 
 /// いま画面に出ている本文の文書。固定レイアウトでは紙面ごとに分かれる。
