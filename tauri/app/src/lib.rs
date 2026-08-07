@@ -15,6 +15,8 @@ mod protocol;
 mod search_ui;
 pub mod store;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
@@ -85,6 +87,8 @@ pub fn run() {
             open_shelf,
             open_sample,
             window_count,
+            note_awake,
+            awake_count,
             ping_menu,
             selftest_report,
             book_state,
@@ -319,6 +323,23 @@ fn window_count(app: tauri::AppHandle) -> usize {
     app.webview_windows().len()
 }
 
+/// 画面が起き上がった窓の数。窓ができたことと、その窓が動くことは別である。
+///
+/// 窓の枠だけ出来て中身が空、という壊れ方を実際にした。窓の数だけを見ていると、
+/// これが「開けた」として通ってしまう。画面の側から名乗らせて、別に数える。
+static AWAKE: AtomicUsize = AtomicUsize::new(0);
+
+/// 画面が起き上がったという名乗り。土台と話せることを確かめた直後に呼ばれる。
+#[tauri::command]
+fn note_awake() {
+    AWAKE.fetch_add(1, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn awake_count() -> usize {
+    AWAKE.load(Ordering::Relaxed)
+}
+
 /// 献立の道が通っているかを、治具から確かめるための試し撃ち。
 ///
 /// 献立が効かなくなる壊れ方は、窓の権限が足りないときに起きた。
@@ -356,12 +377,26 @@ fn selftest_report(app: tauri::AppHandle, results: serde_json::Value) {
     app.exit(if failed == 0 { 0 } else { 1 });
 }
 
-#[tauri::command]
+// MARK: 窓を増やす
+//
+// **窓を作る命令は async にする。**
+//
+// 同期の命令は主スレッドで、しかも WebView の便りを受けている最中に走る。
+// Windows の WebView2 は自分の呼び返しの最中に次の WebView を作らせない。
+// 呼び返しは外側が返るまで届かず、窓の枠だけが出来て中身が空のまま残る。
+// 「窓は出るのに真っ白」はこれである（書棚から本を開けなかった）。
+//
+// async にすると別のスレッドから頼むことになり、要求は催しの列を通って
+// 落ち着いたところで捌かれる。ダイアログを待たない形にしたのと同じ理由である
+// （pick_book を見よ）。献立から作るときは WebView の呼び返しの外なので、
+// こちらの制約には掛からない。
+
+#[tauri::command(async)]
 fn open_shelf(app: tauri::AppHandle) -> Result<(), String> {
     windows::open_shelf_window(&app).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_in_new_window(
     app: tauri::AppHandle,
     path: String,
