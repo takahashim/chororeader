@@ -1,10 +1,11 @@
 import XCTest
 @testable import ChoroReader
 
-/// 「いま読んでいるのはどの節か」の判定。
+/// 「いま読んでいるのはどの段落か」の判定。
 ///
-/// **ここが 1 つずれても症状が出ない。** 関連箇所は出るし、それらしくも見える。
-/// ただ隣の節を種にしているので、静かに的が外れるだけである。
+/// 関連箇所は**選んだところ**から引くようにしたので、この判定は主役ではなくなった。
+/// それでも位置から種を採る道は残してあり、**1 つずれても症状は出ない**
+/// （それらしい結果が出て、静かに的が外れるだけである）。
 final class RelatedPassagesTests: XCTestCase {
     private func index(_ units: [SemanticUnit]) -> SemanticIndex {
         SemanticIndex(model: "m", dimension: 2, units: units,
@@ -23,7 +24,7 @@ final class RelatedPassagesTests: XCTestCase {
 
     // MARK: - EPUB
 
-    func test_章の中で位置を越えない最後の節を選ぶ() {
+    func test_章の中で位置を越えない最後の段落を選ぶ() {
         let made = index([
             epub("ch1.xhtml", 0.0, "一の一"),
             epub("ch1.xhtml", 0.4, "一の二"),
@@ -36,15 +37,15 @@ final class RelatedPassagesTests: XCTestCase {
         }
         XCTAssertEqual(heading(at: 0.0), "一の一")
         XCTAssertEqual(heading(at: 0.39), "一の一")
-        XCTAssertEqual(heading(at: 0.4), "一の二", "節の頭ちょうどで前の節を選んでいる")
+        XCTAssertEqual(heading(at: 0.4), "一の二", "段落の頭ちょうどで前の段落を選んでいる")
         XCTAssertEqual(heading(at: 0.79), "一の二")
         XCTAssertEqual(heading(at: 1.0), "一の三")
         XCTAssertEqual(heading(at: 0.5, "ch2.xhtml"), "二の一", "章を跨いで選んでいる")
     }
 
-    /// 章の頭に節が無いことがある（前書きが短くて落ちたとき）。
-    /// **そこで諦めると、章の頭では関連箇所が出ない。**
-    func test_章の頭に節が無ければその章の最初を選ぶ() {
+    /// 章の頭に段落が無いことがある（前書きが短くて落ちたとき）。
+    /// **そこで諦めると、章の頭では種が採れない。**
+    func test_章の頭に段落が無ければその章の最初を選ぶ() {
         let made = index([
             epub("ch1.xhtml", 0.5, "一の二"),
             epub("ch2.xhtml", 0.3, "二の一"),
@@ -60,7 +61,7 @@ final class RelatedPassagesTests: XCTestCase {
 
     // MARK: - PDF
 
-    func test_頁を越えない最後の節を選ぶ() {
+    func test_頁を越えない最後の段落を選ぶ() {
         let made = index([pdf(0, "はじめ"), pdf(10, "なか"), pdf(20, "おわり")])
         func heading(atPage page: Int) -> String? {
             RelatedPassages.unit(for: Locator(page: page, progression: 0), in: made)
@@ -68,12 +69,12 @@ final class RelatedPassagesTests: XCTestCase {
         }
         XCTAssertEqual(heading(atPage: 0), "はじめ")
         XCTAssertEqual(heading(atPage: 9), "はじめ")
-        XCTAssertEqual(heading(atPage: 10), "なか", "節の頭ちょうどで前の節を選んでいる")
+        XCTAssertEqual(heading(atPage: 10), "なか", "段落の頭ちょうどで前の段落を選んでいる")
         XCTAssertEqual(heading(atPage: 30), "おわり")
     }
 
-    /// 索引の最初の節より前の頁にいることがある（表紙・目次）。
-    func test_最初の節より前なら最初を選ぶ() {
+    /// 索引の最初の段落より前の頁にいることがある（表紙・目次）。
+    func test_最初の段落より前なら最初を選ぶ() {
         let made = index([pdf(5, "はじめ"), pdf(10, "なか")])
         let at = RelatedPassages.unit(for: Locator(page: 0, progression: 0), in: made)
         XCTAssertEqual(at.map { made.units[$0].heading }, "はじめ")
@@ -81,5 +82,19 @@ final class RelatedPassagesTests: XCTestCase {
 
     func test_空の索引では選ばない() {
         XCTAssertNil(RelatedPassages.unit(for: Locator(page: 3, progression: 0), in: index([])))
+    }
+}
+
+/// 渡されたベクトルから、他の書籍の近い箇所を選ぶところ。
+extension RelatedPassagesTests {
+    /// 遠いものを出さないこと。
+    ///
+    /// **下を切らないと、蔵書のどこかしらが必ず並ぶ。**
+    /// 関係の無いものが常に出ると、出ていること自体が信用されなくなる。
+    func test_下限が効いている() {
+        XCTAssertGreaterThan(RelatedPassages.leastScore, 0.3,
+                             "下限が緩すぎる。何でも並ぶことになる")
+        XCTAssertLessThan(RelatedPassages.leastScore, 0.9,
+                          "下限が厳しすぎる。まず出なくなる")
     }
 }

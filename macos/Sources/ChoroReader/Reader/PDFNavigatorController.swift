@@ -111,6 +111,11 @@ final class PDFNavigatorController: NSObject, ObservableObject, PDFViewDelegate 
         pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit
     }
 
+    /// いま選んでいる本文。web 側と形を揃える（あちらは一往復かかる）。
+    func selectedText(_ hand: @escaping (String?) -> Void) {
+        hand(pdfView.currentSelection?.string)
+    }
+
     func copySelection() {
         guard let text = pdfView.currentSelection?.string, !text.isEmpty else { return }
         NSPasteboard.general.clearContents()

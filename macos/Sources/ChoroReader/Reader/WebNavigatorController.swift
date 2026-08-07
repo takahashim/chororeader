@@ -133,10 +133,17 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
     }
 
     func copySelection() {
-        webView.evaluateJavaScript("window.choroSelectedText()") { value, _ in
-            guard let text = value as? String, !text.isEmpty else { return }
+        selectedText { text in
+            guard let text, !text.isEmpty else { return }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+        }
+    }
+
+    /// いま選んでいる本文。**取り出しに一往復かかる**ので、返し手で受ける。
+    func selectedText(_ hand: @escaping (String?) -> Void) {
+        webView.evaluateJavaScript("window.choroSelectedText()") { value, _ in
+            hand(value as? String)
         }
     }
 

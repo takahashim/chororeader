@@ -203,24 +203,49 @@ struct SidebarView: View {
 
     // MARK: - 関連
 
-    /// いま読んでいる場所に関連する、他の書籍の箇所。
+    /// 選んだところに関連する、他の書籍の箇所。
+    ///
+    /// **勝手に出さない。** 常時出ている情報は、当たらなければ視界の邪魔にしかならない。
+    /// 本文を選んで頼んだときにだけ引く。
     ///
     /// **検索と見せ方を分ける**（spec-local-ai.md 第 2 章）。
     /// 検索には「当たり」があるが、意味の近さには無い。
     /// 当たった語を囲むこともできないので、近さを添えて「候補」として並べる。
     private var relatedList: some View {
-        Group {
+        VStack(spacing: 0) {
+            HStack {
+                Button {
+                    session.findRelated()
+                } label: {
+                    Label("選んだ箇所に近い場所を探す", systemImage: "sparkle.magnifyingglass")
+                        .font(.callout)
+                }
+                .disabled(session.relatedRunning)
+                if session.relatedRunning { ProgressView().controlSize(.small) }
+                Spacer()
+            }
+            .padding(8)
+
+            if let seed = session.relatedSeed {
+                // 何に対する結果なのかを出す。選び直したのに前の結果を見ていた、を防ぐ。
+                Text(seed)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+            }
+
+            Divider()
+
             if let reason = session.relatedReason {
                 placeholder(reason)
+            } else if session.relatedSeed == nil {
+                placeholder("本文を選んでから探してください")
             } else {
-                List {
-                    Section {
-                        ForEach(session.related) { passage in
-                            relatedRow(passage)
-                        }
-                    } header: {
-                        Text("この場所に近い \(session.related.count) 件")
-                    }
+                List(session.related) { passage in
+                    relatedRow(passage)
                 }
                 .listStyle(.sidebar)
             }

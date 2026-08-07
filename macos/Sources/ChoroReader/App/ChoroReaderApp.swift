@@ -191,6 +191,15 @@ struct AppCommands: Commands {
             Button("検索") { NotificationCenter.default.post(name: .choroFocusSearch, object: nil) }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(session == nil)
+
+            // 選んだ本文を種に、ほかの書籍の近い箇所を探す。
+            // 勝手に出さず、頼まれたときだけ引く。
+            Button("選んだ箇所に近い場所を探す") {
+                session?.sidebarTab = .related
+                session?.findRelated()
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(session == nil || !SemanticIndexBuilder.shared.enabled)
         }
 
         CommandMenu("移動") {

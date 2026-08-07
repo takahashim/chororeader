@@ -46,10 +46,13 @@ final class ReaderSession: ObservableObject {
     /// いまの一覧を出した語。欄の文字は引いたあとにも書き換わるので、別に覚えておく。
     private(set) var searchedQuery = ""
     @Published var isSearching = false
-    /// いま読んでいる場所に関連する、他の書籍の箇所。
+    /// 選んだところに関連する、他の書籍の箇所。
     @Published var related: [RelatedPassage] = []
     /// 関連箇所が出せない理由。無ければ出せている。
     @Published var relatedReason: String?
+    /// 種にした本文。何に対する結果なのかを画面に出すために持つ。
+    @Published var relatedSeed: String?
+    @Published var relatedRunning = false
     @Published var searchTruncated = false
     @Published var status: String?
 
@@ -148,35 +151,78 @@ final class ReaderSession: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // 関連箇所は場所が変わるたびに引き直す。位置の保存より粗くてよい。
-        publisher
-            .debounce(for: .milliseconds(600), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.refreshRelated() }
-            .store(in: &cancellables)
-        refreshRelated()
     }
 
     // MARK: - 関連箇所
 
-    /// いまの場所に関連する箇所を引き直す。
+    /// **選んだところを種にする。**
     ///
-    /// **推論は回さない。** いまの節のベクトルは既に索引にあるので、
-    /// 読むのはほどいた索引だけである。前の筋で呼んでよい。
-    func refreshRelated() {
-        guard SemanticIndexBuilder.shared.enabled else {
-            related = []
-            relatedReason = nil
+    /// 場所が変わるたびに勝手に引き直す形にしていたが、常時出ている情報は
+    /// 当たらなければ視界の邪魔にしかならず、渡る理由も立たなかった。
+    /// 「ここに近いものを知りたい」と思った時にだけ引く。
+    ///
+    /// 推論を 1 回だけ回すので裏の筋でやる。**選んだ本文は端末の外へ出ない。**
+    func findRelated() {
+        guard SemanticIndexBuilder.shared.enabled else { return }
+        relatedSeed = nil
+        selectedText { [weak self] selection in
+            guard let self else { return }
+            let text = (selection ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard text.count >= 10 else {
+                self.related = []
+                self.relatedReason = "本文を選んでから探してください（10 字以上）"
+                return
+            }
+            self.run(seed: text)
+        }
+    }
+
+    /// 選んでいる本文を渡す。読み手ごとに取り方が違う。
+    private func selectedText(_ hand: @escaping (String?) -> Void) {
+        if let web { web.selectedText(hand) } else if let pdf { pdf.selectedText(hand) } else { hand(nil) }
+    }
+
+    private func run(seed text: String) {
+        guard #available(macOS 15, *), let model = EmbeddingModelStore.installed() else {
+            relatedReason = "意味の層を使えません"
             return
         }
-        guard let here = SemanticIndexStore.cached(for: document.url) else {
-            related = []
-            relatedReason = SemanticIndexBuilder.shared.working != nil
-                ? "この本を読み込んでいます"
-                : "この本はまだ読み込んでいません"
-            return
+        relatedSeed = text
+        relatedRunning = true
+        relatedReason = nil
+        let mine = document.id
+        Task.detached(priority: .userInitiated) {
+            let vector: [Float]?
+            do {
+                // 本文どうしの比較なので、種も文書として埋め込む（両側を揃える）。
+                vector = try CoreMLEmbedder(model: model).embed(text, as: .document).vector
+            } catch {
+                vector = nil
+            }
+            await MainActor.run { [weak self] in
+                guard let self, self.relatedSeed == text else { return }
+                self.relatedRunning = false
+                guard let vector else {
+                    self.relatedReason = "うまく引けませんでした"
+                    return
+                }
+                self.related = RelatedPassages.find(near: vector, like: self.here(), excluding: mine)
+                self.relatedReason = self.related.isEmpty ? "近い箇所は見つかりませんでした" : nil
+            }
         }
-        related = RelatedPassages.find(near: locator, in: here, excluding: document.id)
-        relatedReason = related.isEmpty ? "近い箇所は見つかりませんでした" : nil
+    }
+
+    /// 次元と版を揃えるための手本。自分の索引が無くても引けるよう、無ければ空で通す。
+    private func here() -> SemanticIndex {
+        SemanticIndexStore.cached(for: document.url)
+            ?? SemanticIndex(model: EmbeddingModelStore.defaultName, dimension: 0,
+                             units: [], vectors: [], truncated: 0)
+    }
+
+    func clearRelated() {
+        related = []
+        relatedSeed = nil
+        relatedReason = nil
     }
 
     // MARK: - 移動
