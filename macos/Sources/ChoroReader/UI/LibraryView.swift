@@ -21,8 +21,13 @@ struct LibraryView: View {
     @Environment(\.openWindow) private var openWindow
     @AppStorage("shelfMode") private var mode: ShelfMode = .cover
     @State private var dropTargeted = false
-    /// 表で並べるときの選択。contextMenu(forSelectionType:) はこれを前提にしている。
-    @State private var selection: LibraryEntry.ID?
+    /// 選んでいる書籍。表でも表紙でも同じものを使う。
+    ///
+    /// 書類が紛れ込んだ書棚を掃除するには、1 冊ずつでは終わらない。
+    /// 複数選べることと、まとめて外せることを対にする。
+    @State private var selection: Set<LibraryEntry.ID> = []
+    /// 外してよいか尋ねている最中の冊数。読書位置としおりも消えるので必ず尋ねる。
+    @State private var confirmingRemoval = false
     @StateObject private var search = LibrarySearchModel()
     @State private var queryText = ""
     /// 情報を見せている書籍。書棚では開いていない書籍のことも尋ねられる。
@@ -36,6 +41,10 @@ struct LibraryView: View {
             Divider()
             if importing.running || importing.summary != nil {
                 importBar
+                Divider()
+            }
+            if !selection.isEmpty {
+                selectionBar
                 Divider()
             }
             Group {
@@ -102,6 +111,16 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .choroFocusLibrarySearch)) { _ in
             queryFocused = true
         }
+        // 外すと読書位置としおりも消える。取り返しがつかないので必ず尋ねる。
+        .confirmationDialog(removalQuestion, isPresented: $confirmingRemoval, titleVisibility: .visible) {
+            Button("\(selection.count) 冊を外す", role: .destructive) {
+                store.remove(Set(selection))
+                selection = []
+            }
+            Button("やめる", role: .cancel) {}
+        } message: {
+            Text("書棚から外すだけで、ファイルは消えません。ただし読書位置としおりは失われます。")
+        }
         // 書棚では開いていない書籍のことも尋ねられる。開かずにファイルから読む。
         .sheet(item: $showing) { shown in
             PropertiesView(subject: .file(shown.url))
@@ -136,6 +155,41 @@ struct LibraryView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    /// 選んでいる冊数と、まとめてできること。
+    ///
+    /// 何冊選んだかは表の見た目だけでは数えられない。掃除の途中で
+    /// 「いま何冊消そうとしているか」が分からないのは危ない。
+    private var selectionBar: some View {
+        HStack(spacing: 10) {
+            Text("\(selection.count) 冊を選択中")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            Button("すべて選択") { selection = Set(store.recent.map(\.id)) }
+                .font(.system(size: 11))
+                .keyboardShortcut("a", modifiers: .command)
+            Button("選択を解除") { selection = [] }
+                .font(.system(size: 11))
+            Spacer()
+            Button(role: .destructive) { askRemoval() } label: {
+                Label("書棚から外す", systemImage: "trash")
+                    .font(.system(size: 11))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    private var removalQuestion: String {
+        selection.count == 1
+            ? "この書籍を書棚から外しますか？"
+            : "選んだ \(selection.count) 冊を書棚から外しますか？"
+    }
+
+    /// 選んでいるものを外す。⌫ でも呼ぶ。
+    private func askRemoval() {
+        guard !selection.isEmpty else { return }
+        confirmingRemoval = true
     }
 
     // MARK: - 横断検索
@@ -273,12 +327,26 @@ struct LibraryView: View {
                       alignment: .leading, spacing: 24) {
                 ForEach(store.recent) { entry in
                     CoverCard(entry: entry)
-                        .onTapGesture { openEntry(entry) }
-                        .contextMenu { menu(for: entry) }
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selection.contains(entry.id)
+                                      ? Color.accentColor.opacity(0.25) : Color.clear)
+                                .padding(-6)
+                        )
+                        // ⌘クリックで選び、そのまま押せば開く。macOS の流儀に合わせる。
+                        .gesture(TapGesture().modifiers(.command).onEnded {
+                            if selection.contains(entry.id) { selection.remove(entry.id) }
+                            else { selection.insert(entry.id) }
+                        })
+                        .onTapGesture { selection = []; openEntry(entry) }
+                        .contextMenu {
+                            menu(forSelected: selection.contains(entry.id) ? selection : [entry.id])
+                        }
                 }
             }
             .padding(20)
         }
+        .onDeleteCommand(perform: askRemoval)
     }
 
     // MARK: - 表で並べる
@@ -299,10 +367,9 @@ struct LibraryView: View {
             TableColumn("読み進み") { entry in Text(progressLabel(entry)) }
                 .width(80)
         }
+        .onDeleteCommand(perform: askRemoval)
         .contextMenu(forSelectionType: LibraryEntry.ID.self) { ids in
-            if let id = ids.first, let entry = store.recent.first(where: { $0.id == id }) {
-                menu(for: entry)
-            }
+            menu(forSelected: ids)
         } primaryAction: { ids in
             if let id = ids.first, let entry = store.recent.first(where: { $0.id == id }) {
                 openEntry(entry)
@@ -310,17 +377,36 @@ struct LibraryView: View {
         }
     }
 
+    /// 選んでいる冊数に合わせたメニュー。
+    ///
+    /// 1 冊なら今までどおり。何冊も選んでいるときは、その分だけまとめて扱う。
     @ViewBuilder
-    private func menu(for entry: LibraryEntry) -> some View {
-        Button("新しいウィンドウで開く") { openEntry(entry) }
-        Button("情報を見る") { showing = store.resolveURL(for: entry).map(ShownFile.init) }
-        Button("Finder で表示") {
-            if let url = store.resolveURL(for: entry) {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
+    private func menu(forSelected ids: Set<LibraryEntry.ID>) -> some View {
+        let chosen = store.recent.filter { ids.contains($0.id) }
+        if chosen.count == 1, let entry = chosen.first {
+            Button("新しいウィンドウで開く") { openEntry(entry) }
+            Button("情報を見る") { showing = store.resolveURL(for: entry).map(ShownFile.init) }
+            Button("Finder で表示") {
+                if let url = store.resolveURL(for: entry) {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
+            Divider()
+            Button("一覧から削除", role: .destructive) {
+                selection = [entry.id]
+                confirmingRemoval = true
+            }
+        } else if chosen.count > 1 {
+            Button("Finder で表示") {
+                NSWorkspace.shared.activateFileViewerSelecting(
+                    chosen.compactMap { store.resolveURL(for: $0) })
+            }
+            Divider()
+            Button("選んだ \(chosen.count) 冊を一覧から削除", role: .destructive) {
+                selection = ids
+                confirmingRemoval = true
             }
         }
-        Divider()
-        Button("一覧から削除", role: .destructive) { store.remove(entry.id) }
     }
 
     private func label(for format: DocumentFormat) -> String {

@@ -131,8 +131,19 @@ final class LibraryStore: ObservableObject {
     }
 
     func remove(_ id: BookID) {
-        if let name = entry(for: id)?.coverName { CoverCache.discard(name) }
-        entries.removeAll { $0.id == id }
+        remove([id])
+    }
+
+    /// まとめて外す。
+    ///
+    /// 1 冊ずつ呼ぶと、書棚がその数だけ描き直され、保存もその数だけ積まれる。
+    /// 何百冊を掃除するときに効く。
+    func remove(_ ids: Set<BookID>) {
+        guard !ids.isEmpty else { return }
+        for entry in entries where ids.contains(entry.id) {
+            if let name = entry.coverName { CoverCache.discard(name) }
+        }
+        entries.removeAll { ids.contains($0.id) }
         scheduleSave()
     }
 

@@ -123,3 +123,49 @@ final class LibraryRegisterTests: XCTestCase {
         XCTAssertFalse(LibraryStore.shared.register(url))
     }
 }
+
+/// まとめて外すところ。書類が紛れ込んだ書棚を掃除するのに要る。
+@MainActor
+final class LibraryBulkRemoveTests: XCTestCase {
+    private var root: URL!
+    private var store: LibraryStore!
+
+    override func setUpWithError() throws {
+        root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("choro-bulk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        store = LibraryStore.shared
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    private func putBooks(_ count: Int) throws -> [BookID] {
+        let source = TestPaths.fixture("epub3-basic.epub")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: source.path))
+        return try (0 ..< count).map { at in
+            let url = root.appendingPathComponent("\(at).epub")
+            try FileManager.default.copyItem(at: source, to: url)
+            XCTAssertTrue(store.register(url))
+            return BookID(url: url)
+        }
+    }
+
+    func test_選んだものだけをまとめて外す() throws {
+        let ids = try putBooks(5)
+        defer { store.remove(Set(ids)) }
+
+        store.remove(Set(ids.prefix(3)))
+
+        for id in ids.prefix(3) { XCTAssertNil(store.entry(for: id), "外れていない") }
+        for id in ids.suffix(2) { XCTAssertNotNil(store.entry(for: id), "選んでいないものまで外している") }
+    }
+
+    func test_空を渡しても何も起きない() throws {
+        let ids = try putBooks(2)
+        defer { store.remove(Set(ids)) }
+        store.remove(Set<BookID>())
+        for id in ids { XCTAssertNotNil(store.entry(for: id)) }
+    }
+}
