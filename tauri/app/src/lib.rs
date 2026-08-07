@@ -5,7 +5,7 @@
 //! ここに書くのは、画面と core をつなぐ部分だけにする。
 //!
 //! 命令の一覧と、core を呼ぶだけの薄い受け渡しがここに残る。
-//! 独立した仕組みは別に置く：窓と献立は windows、引くのは search_ui、
+//! 独立した仕組みは別に置く：窓とメニューは windows、引くのは search_ui、
 //! 索引の置き場所は indexes、配信は protocol、覚えておくものは store。
 
 mod indexes;
@@ -36,8 +36,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        // Windows には献立帯が無いと、鍵盤の割り当てを知る手立てがない。
-        // macOS 版の献立と同じ並びにしてあり、動作確認もここから呼ぶ。
+        // Windows にはメニューバーが無いと、鍵盤の割り当てを知る手立てがない。
+        // macOS 版のメニューと同じ並びにしてあり、動作確認もここから呼ぶ。
         .menu(windows::build_menu)
         .on_menu_event(|app, event| {
             let id = event.id().0.clone();
@@ -341,9 +341,9 @@ fn awake_count() -> usize {
     AWAKE.load(Ordering::Relaxed)
 }
 
-/// 献立の道が通っているかを、治具から確かめるための試し撃ち。
+/// メニューの道が通っているかを、治具から確かめるための試し撃ち。
 ///
-/// 献立が効かなくなる壊れ方は、窓の権限が足りないときに起きた。
+/// メニューが効かなくなる壊れ方は、窓の権限が足りないときに起きた。
 /// 押してみるまで分からない、という状態を残さないための命令である。
 #[tauri::command]
 fn ping_menu(app: tauri::AppHandle) -> Result<(), String> {
@@ -398,7 +398,7 @@ fn selftest_report(app: tauri::AppHandle, results: serde_json::Value) {
 //
 // async にすると別のスレッドから頼むことになり、要求は催しの列を通って
 // 落ち着いたところで捌かれる。ダイアログを待たない形にしたのと同じ理由である
-// （pick_book を見よ）。献立から作るときは WebView の呼び返しの外なので、
+// （pick_book を見よ）。メニューから作るときは WebView の呼び返しの外なので、
 // こちらの制約には掛からない。
 
 #[tauri::command(async)]

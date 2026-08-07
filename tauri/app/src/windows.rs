@@ -1,4 +1,4 @@
-//! 窓と献立の組み立て。
+//! 窓とメニューの組み立て。
 //!
 //! 書籍の中身には触れない。どの窓にどの文書を出すか、どの旗を渡すか、
 //! 落とされたものをどう配るか、という OS 寄りの仕事だけを持つ。
@@ -52,7 +52,7 @@ pub fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
         builder.build(app)
     };
 
-    // macOS では先頭の一組がアプリの献立として扱われる。
+    // macOS では先頭の一組がアプリのメニューとして扱われる。
     // これを置かないと「ファイル」がそこへ吸われて消える。Windows では並びに影響しない。
     let application = SubmenuBuilder::new(app, "chororeader")
         .about(None)

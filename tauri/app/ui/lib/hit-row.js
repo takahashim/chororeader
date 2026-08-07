@@ -7,7 +7,7 @@ import { oneLine } from "./format.js";
 
 /// 当たり 1 件の行。押したときの振る舞いは呼ぶ側が決める。
 ///
-/// `open()` は押したとき、`menu()` は右クリックしたときに出す献立
+/// `open()` は押したとき、`menu()` は右クリックしたときに出すメニュー
 /// （`[[名前, すること], ...]` の並び）を返す。
 export function hitRow(hit, { open, menu, title }) {
   const row = document.createElement("a");

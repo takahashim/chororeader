@@ -124,7 +124,7 @@ async function openPath(path, href, fragment, carried = {}) {
   // 形式を見るのはここだけ。以降の振る舞いの違いは nav の中に閉じる。
   nav = isPaged() ? readers.paged : readers.reflowable;
 
-  // 開いた後の支度で転んでも、呼んだ側は待っていないことがある（献立、道具帯）。
+  // 開いた後の支度で転んでも、呼んだ側は待っていないことがある（メニュー、道具帯）。
   // 受け手がいないと「応答が返りませんでした」だけが残る。ここでまとめて受ける。
   try {
     const saved = await invoke("book_state", { path });
@@ -736,7 +736,7 @@ async function main() {
   invoke("open_shelf");
 }
 
-// 献立からの呼び出しと、動作確認の治具に渡す入口。
+// メニューからの呼び出しと、動作確認の治具に渡す入口。
 // 画面の中身をそのまま外へ出さず、必要なものだけを名前を付けて渡す。
 window.choro = {
   kind: "reader",
@@ -784,7 +784,7 @@ try {
     selftest: () => window.choroSelfTest && window.choroSelfTest(),
   });
 } catch (error) {
-  showFailure("献立を受け取れません", error);
+  showFailure("メニューを受け取れません", error);
 }
 
 main().catch((error) => showFailure("起動に失敗しました", error));

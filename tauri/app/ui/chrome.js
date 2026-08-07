@@ -65,7 +65,7 @@ export function toast(message) {
   toast.timer = setTimeout(() => { box.hidden = true; }, 1800);
 }
 
-/// 献立を出す。WebView 既定の献立は目次や当たりの上では邪魔になるので抑える。
+/// メニューを出す。WebView 既定のメニューは目次や当たりの上では邪魔になるので抑える。
 export function showMenu(event, items) {
   const menu = $("menu");
   menu.textContent = "";
@@ -87,7 +87,7 @@ export function hideMenu() {
   $("menu").hidden = true;
 }
 
-/// 献立の受け取り。効く項目は窓によって違うので、割り当ては呼ぶ側が渡す。
+/// メニューの受け取り。効く項目は窓によって違うので、割り当ては呼ぶ側が渡す。
 ///
 /// ここが例外を投げると窓の組み立てが道連れになるので、呼ぶ側で囲って使う。
 export function listenToMenu(actions) {
@@ -96,11 +96,11 @@ export function listenToMenu(actions) {
     throw new Error("window.__TAURI__.event が無い");
   }
   events.listen("menu", (event) => {
-    // 治具が「献立の道が通っているか」を見るための印。
+    // 治具が「メニューの道が通っているか」を見るための印。
     window.choroLastMenu = event.payload;
     const action = actions[event.payload];
     if (action) action();
-  }).catch((error) => showFailure("献立を受け取れません", error));
+  }).catch((error) => showFailure("メニューを受け取れません", error));
   return events;
 }
 

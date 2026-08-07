@@ -312,7 +312,7 @@ export const shelfChecks = [
     },
   },
   {
-    name: "献立の道が通っている",
+    name: "メニューの道が通っている",
     run: async () => {
       // 窓の権限が足りないと、ここだけが黙って効かなくなる。
       window.choroLastMenu = null;
@@ -373,7 +373,7 @@ export const shelfChecks = [
 /// 操作をお願いするもの。OS の入力が本当に届いているかは、これでしか分からない。
 export const manual = [
   {
-    name: "目次の右クリックで献立が出る",
+    name: "目次の右クリックでメニューが出る",
     ask: "左の目次のどれかを右クリックしてください。",
     wait: () => !$("menu").hidden,
     after: () => { window.choro.hideMenu(); },

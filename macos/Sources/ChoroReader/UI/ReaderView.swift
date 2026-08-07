@@ -134,6 +134,11 @@ struct ReaderView: View {
         ToolbarItemGroup {
             Button { session.addBookmark() } label: { Label("しおり", systemImage: "bookmark") }
 
+            // 何ページの本か、文字を持つか。読む前に知りたいことが多いので、
+            // メニュー（⌘I）だけでなく道具帯からも出せるようにする。
+            Button { showProperties = true } label: { Label("情報", systemImage: "info.circle") }
+                .help("この書籍の情報（⌘I）")
+
             Button { showSettings.toggle() } label: { Label("表示設定", systemImage: "textformat.size") }
                 .popover(isPresented: $showSettings, arrowEdge: .bottom) {
                     DisplaySettingsView(reflowable: session.isReflowable, paged: session.isPaged)

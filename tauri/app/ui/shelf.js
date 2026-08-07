@@ -345,7 +345,7 @@ document.addEventListener("keydown", (event) => {
 
 // ---- 起動 ---------------------------------------------------------------
 
-// 献立からの呼び出しと、動作確認の治具に渡す入口。
+// メニューからの呼び出しと、動作確認の治具に渡す入口。
 // 画面の中身をそのまま外へ出さず、必要なものだけを名前を付けて渡す。
 window.choro = {
   kind: "shelf",
@@ -374,7 +374,7 @@ try {
   // 横断検索は 1 冊ぶん終わるたびに届く。聞くのはこの窓だけでよい。
   events.listen("library-search", onLibrarySearch).catch(() => {});
 } catch (error) {
-  showFailure("献立を受け取れません", error);
+  showFailure("メニューを受け取れません", error);
 }
 
 async function main() {
