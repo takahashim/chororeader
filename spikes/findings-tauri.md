@@ -280,3 +280,22 @@ setup（起動引数・最初の書棚）        → 出る
 
 **窓の数だけを見ていては捕まらない。** 枠は出来ているので数は増える。
 動作確認では、開いた窓の画面が土台へ名乗るところまで見る（`note_awake`）。
+
+## CSP に `choro:` と書くと Windows では何にも当たらない（2026-08-07）
+
+独自スキームは Windows では `http://choro.localhost` に割り当てられる。
+`img-src choro:` は当たらず、`default-src 'none'` が効いて、本文の枠に入った
+書籍の画像も CSS も落ちる。書籍の CSS が効かず図版が抜けた本文が出る。
+
+同じ書籍を CSP だけ変えて並べて確かめた。
+
+```
+img-src choro:                     → 画像は壊れた枠、書籍の CSS も効かない
+img-src http://choro.localhost     → どちらも出る
+```
+
+許し先は経路を組み立てるのと同じところ（`protocol::origin`）から取る。
+
+なお同梱の固定レイアウトのサンプルでは気付けない。ページが画像 1 枚だけの
+本文は core が `kind: "image"` と見なし、窓の側が `<img>` を直に置くので、
+本文の枠を通らず CSP に掛からない（`core/fixed_layout.rs`）。
