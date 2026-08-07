@@ -11,7 +11,7 @@
 //! 当たりの位置を索引に持たせないぶん、容量が小さい。
 //! 日本語 50 万字（400 ページ相当）で 300 KB 前後に収まる。
 
-use crate::search::fold_text;
+use crate::fold;
 
 use varint::{put, Cursor};
 
@@ -52,7 +52,7 @@ impl Index {
 
         for (number, unit) in units.iter().enumerate() {
             let number = number as u32;
-            let chars = fold_text(unit.as_ref());
+            let chars = fold::text(unit.as_ref());
             for window in chars.windows(2) {
                 pairs.push((key_of(window[0], window[1] as u32), number));
             }
@@ -93,7 +93,7 @@ impl Index {
     ///
     /// `None` は「索引では絞れないので全部を見よ」を意味する。
     pub fn candidates(&self, query: &str) -> Option<Vec<u32>> {
-        let chars = fold_text(query);
+        let chars = fold::text(query);
         match chars.len() {
             0 => None,
             1 => Some(self.by_first_char(chars[0])),
