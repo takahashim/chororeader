@@ -4,11 +4,10 @@
 //! 抽出（html_text）と数え方がずれる余地が残る。ここで入れれば、
 //! 当たりを選ぶのは検索と同じコード（search::nth_match）になる。
 //!
-//! **抽出そのものには触らない。** あちらは実装間で突き合わせている中心なので、
-//! 本文と元の HTML を後から突き合わせて位置を求める。突き合わせがずれても、
-//! 動くのは印の位置だけで、検索の当たりは動かない。
+//! 場所は抽出（html_text::extract）が控えた位置をそのまま使う。
+//! 抽出は削って詰めるだけなので、削りながら控えれば元の位置が分かる。
 
-use crate::html_text::{self, align, entity_length};
+use crate::html_text;
 use crate::search;
 
 /// 印に付ける名前。画面側の CSS はこれを見て色を当てる。
@@ -55,11 +54,10 @@ fn span(html: &str, query: &str, nth: usize) -> Option<(usize, usize)> {
     let extracted = html_text::extract(html);
     let (from, to) = search::nth_match(&extracted.text, query, nth)?;
 
-    let origins = align(html, &extracted.text);
+    let origins = &extracted.origins;
     let start = *origins.get(from)?;
-    // 終わりは、当たりの最後の文字の後ろ。
-    let last = *origins.get(to.saturating_sub(1))?;
-    let end = last + source_width(&html[last..]);
+    // 終わりは、当たりの次の文字が始まるところ。最後まで当たっていれば HTML の末尾。
+    let end = origins.get(to).copied().unwrap_or(html.len());
     // 節をまたぐ当たりは、始まりの地の文で切る。タグを囲むと入れ子が壊れる。
     let end = end.min(run_end(html, start));
     (end > start).then_some((start, end))
@@ -71,19 +69,6 @@ fn run_end(html: &str, at: usize) -> usize {
         Some(offset) => at + offset,
         None => html.len(),
     }
-}
-
-/// 本文の 1 文字が、元の HTML で占める長さ。実体参照は書かれたぶんを数える。
-fn source_width(rest: &str) -> usize {
-    let Some(c) = rest.chars().next() else {
-        return 0;
-    };
-    if c == '&' {
-        if let Some(length) = entity_length(rest) {
-            return length;
-        }
-    }
-    c.len_utf8()
 }
 
 #[cfg(test)]
