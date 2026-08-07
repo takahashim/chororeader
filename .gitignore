@@ -3,6 +3,8 @@ macos/build/
 macos/.build/
 # Xcode が package を開いたときに置く各自の状態
 macos/.swiftpm/
+# VSCode の Swift 拡張が置く各自の起動設定
+.vscode/
 
 # 検証用スパイクの生成物
 spikes/*/.build/

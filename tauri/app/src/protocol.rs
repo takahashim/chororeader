@@ -36,6 +36,7 @@ const ASSETS: &[(&str, &str, &str)] = &[
     ("reader.css", include_str!("../ui/reader.css"), CSS),
     ("shelf.css", include_str!("../ui/shelf.css"), CSS),
     ("selftest.js", include_str!("../ui/selftest.js"), JS),
+    ("selftest-checks.js", include_str!("../ui/selftest-checks.js"), JS),
     ("reader.js", include_str!("../ui/reader.js"), JS),
     ("shelf.js", include_str!("../ui/shelf.js"), JS),
     ("chrome.js", include_str!("../ui/chrome.js"), JS),
@@ -45,6 +46,7 @@ const ASSETS: &[(&str, &str, &str)] = &[
     ("lib/mark.js", include_str!("../ui/lib/mark.js"), JS),
     ("readers/paged.js", include_str!("../ui/readers/paged.js"), JS),
     ("readers/reflowable.js", include_str!("../ui/readers/reflowable.js"), JS),
+    ("readers/overlays.js", include_str!("../ui/readers/overlays.js"), JS),
     ("lib/format.js", include_str!("../ui/lib/format.js"), JS),
 ];
 

@@ -10,10 +10,14 @@
 import { $, invoke, showMenu, toast } from "../chrome.js";
 import { chapterOfHref as chapterOfHrefIn } from "../lib/layout.js";
 import { scrollToMark, unwrapMarks } from "../lib/mark.js";
+import { overlays } from "./overlays.js";
 
 /// 本文の振る舞いを作る。窓と分かち合うものは `shared` で受け取る。
 export function reflowableReader(shared) {
   const { state, departing, moved, scrolled, bookUrl, focusContent, onKeyDown, onWheel } = shared;
+
+  /// 本文の上に浮かせる覆い。図版の拡大とリンク先の抜粋。
+  const overlay = overlays({ waitUntil, attachKeys: (doc) => doc.addEventListener("keydown", onKeyDown) });
 
   /// いま出している章の番号。本文だけが持つ。
   /// 窓は「どこにいるか」を at() と position() で尋ねる。
@@ -155,21 +159,9 @@ export function reflowableReader(shared) {
       img.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        showLightbox(img.src);
+        overlay.showImage(img.src);
       });
     }
-  }
-
-
-  function showLightbox(src) {
-    $("lightbox-image").src = src;
-    $("lightbox").hidden = false;
-  }
-
-
-  function hideLightbox() {
-    $("lightbox").hidden = true;
-    $("lightbox-image").src = "";
   }
 
 
@@ -269,7 +261,23 @@ export function reflowableReader(shared) {
       invoke("open_in_new_window", { path: state.book.path, href });
       return;
     }
-    showPopover(anchor, href, fragment || null);
+    showPreview(anchor, href, fragment || null);
+  }
+
+  /// リンク先を、移動せずにその場で見せる。押したときにすることも一緒に渡す。
+  async function showPreview(anchor, href, fragment) {
+    const built = await invoke("preview_link", {
+      id: state.book.id, href, fragment, css: state.style.css,
+    });
+    if (!built) return toast("参照先を読めませんでした");
+
+    overlay.showPreview(anchor, built, [
+      ["ここへ移動", () => {
+        const index = chapterOfHref(href);
+        if (index != null) { departing(); showChapter(index, fragment); }
+      }],
+      ["新しいウィンドウで開く", () => invoke("open_in_new_window", { path: state.book.path, href })],
+    ]);
   }
 
 
@@ -283,68 +291,6 @@ export function reflowableReader(shared) {
       parts.push(part);
     }
     return parts.join("/");
-  }
-
-
-  async function showPopover(anchor, href, fragment) {
-    const built = await invoke("preview_link", {
-      id: state.book.id, href, fragment, css: state.style.css,
-    });
-    if (!built) return toast("参照先を読めませんでした");
-
-    const box = $("popover");
-    const body = $("popover-body");
-    body.textContent = "";
-
-    const frame = document.createElement("iframe");
-    frame.setAttribute("sandbox", "allow-same-origin");
-    body.appendChild(frame);
-
-    const actions = document.createElement("div");
-    actions.setAttribute("style",
-      "display:flex;gap:8px;padding:6px 10px;border-top:1px solid var(--line);background:var(--bar)");
-    const go = document.createElement("button");
-    go.textContent = "ここへ移動";
-    const newWindow = document.createElement("button");
-    newWindow.textContent = "新しいウィンドウで開く";
-    for (const button of [go, newWindow]) {
-      button.setAttribute("style",
-        "font:inherit;padding:3px 10px;border-radius:5px;cursor:pointer;" +
-        "border:1px solid var(--line);background:var(--panel);color:var(--text)");
-    }
-    go.addEventListener("click", () => {
-      hidePopover();
-      const index = chapterOfHref(href);
-      if (index != null) { departing(); showChapter(index, fragment); }
-    });
-    newWindow.addEventListener("click", () => {
-      hidePopover();
-      invoke("open_in_new_window", { path: state.book.path, href });
-    });
-    actions.append(go, newWindow);
-    body.appendChild(actions);
-
-    const rectangle = anchor.getBoundingClientRect();
-    const stage = $("stage").getBoundingClientRect();
-    box.hidden = false;
-    const top = Math.min(stage.height - box.offsetHeight - 10, rectangle.bottom + 8);
-    box.style.top = Math.max(8, top) + "px";
-    box.style.left = Math.max(8, Math.min(stage.width - box.offsetWidth - 8, rectangle.left)) + "px";
-
-    frame.srcdoc = built.html;
-    frame.style.height = built.isFootnote ? "auto" : "100%";
-
-    // 抜粋の中に焦点が移ったままでも操作できるようにする。
-    waitUntil(() => {
-      const d = frame.contentDocument;
-      return d && d.readyState === "complete" && d.body ? d : null;
-    }, "抜粋", 3000).then((d) => d.addEventListener("keydown", onKeyDown)).catch(() => {});
-  }
-
-
-  function hidePopover() {
-    $("popover").hidden = true;
-    $("popover-body").textContent = "";
   }
 
 
@@ -405,7 +351,6 @@ export function reflowableReader(shared) {
   }
 
 
-  $("lightbox").addEventListener("click", hideLightbox);
 
 
   const nav = {
@@ -508,8 +453,7 @@ export function reflowableReader(shared) {
     clearMarks: () => unwrapMarks($("page").contentDocument),
     /// 覆いを閉じる。図版の拡大とリンクの抜粋は、本文から開いたもの。
     dismissOverlays() {
-      hidePopover();
-      hideLightbox();
+      overlay.dismiss();
     },
     /// 表示設定が変わった。いま出ている本文へ当て直す。
     restyle() {
