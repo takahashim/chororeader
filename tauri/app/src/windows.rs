@@ -16,18 +16,31 @@ use chororeader_core::publication::detect_format;
 use crate::protocol;
 
 /// 落とされた経路のうち、開ける形式のものを 1 つずつ窓に開く。
+///
+/// 落とされた知らせは WebView から届くこともある。その最中に窓を作ると、
+/// Windows では枠だけ出来て中身が空になる（lib.rs「窓を増やす」）。
+/// 知らせを受けた場をすぐ離れ、窓は別のスレッドから頼む。
 pub fn open_dropped(app: &tauri::AppHandle, paths: &[std::path::PathBuf]) {
-    for path in paths {
-        let Some(path) = path.to_str() else { continue };
-        if detect_format(path).is_none() {
-            continue;
-        }
-        let n = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let query = format!("path={}", urlencode(path));
-        if let Err(error) = open_window(app, &format!("book-{n}"), &query) {
-            eprintln!("落とされた書籍を開けなかった: {error}");
-        }
+    let opening: Vec<String> = paths
+        .iter()
+        .filter_map(|path| path.to_str())
+        .filter(|path| detect_format(path).is_some())
+        .map(|path| path.to_string())
+        .collect();
+    if opening.is_empty() {
+        return;
     }
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        for path in opening {
+            let label = next_label("book");
+            let query = format!("path={}", urlencode(&path));
+            if let Err(error) = open_window(&app, &label, &query) {
+                eprintln!("落とされた書籍を開けなかった: {error}");
+            }
+        }
+    });
 }
 
 pub fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {

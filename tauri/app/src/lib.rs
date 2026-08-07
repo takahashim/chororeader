@@ -15,6 +15,8 @@ mod protocol;
 mod search_ui;
 pub mod store;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
@@ -85,6 +87,8 @@ pub fn run() {
             open_shelf,
             open_sample,
             window_count,
+            note_awake,
+            awake_count,
             ping_menu,
             selftest_report,
             book_state,
@@ -92,6 +96,7 @@ pub fn run() {
             toggle_bookmark,
             open_external,
             focus_webview,
+            focus_calls,
             ui_log,
         ])
         .on_window_event(|window, event| {
@@ -319,6 +324,23 @@ fn window_count(app: tauri::AppHandle) -> usize {
     app.webview_windows().len()
 }
 
+/// 画面が起き上がった窓の数。窓ができたことと、その窓が動くことは別である。
+///
+/// 窓の枠だけ出来て中身が空、という壊れ方を実際にした。窓の数だけを見ていると、
+/// これが「開けた」として通ってしまう。画面の側から名乗らせて、別に数える。
+static AWAKE: AtomicUsize = AtomicUsize::new(0);
+
+/// 画面が起き上がったという名乗り。土台と話せることを確かめた直後に呼ばれる。
+#[tauri::command]
+fn note_awake() {
+    AWAKE.fetch_add(1, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn awake_count() -> usize {
+    AWAKE.load(Ordering::Relaxed)
+}
+
 /// 献立の道が通っているかを、治具から確かめるための試し撃ち。
 ///
 /// 献立が効かなくなる壊れ方は、窓の権限が足りないときに起きた。
@@ -353,15 +375,38 @@ fn selftest_report(app: tauri::AppHandle, results: serde_json::Value) {
         }
         Err(_) => print!("{report}"),
     }
-    app.exit(if failed == 0 { 0 } else { 1 });
+
+    // **終了コードは自分で返す。`app.exit` では届かない。**
+    //
+    // tauri-runtime-wry は RequestExit を受けたあと `ControlFlow::Exit`
+    // （＝コード 0）を立てており、渡した値を捨てている（2.11.4 で確認）。
+    // つまり不合格でも終了コードは 0 になる。run-selftest.ps1 も CI も
+    // 終了コードだけを見るので、**不合格が緑として通っていた**。
+    // Tauri 自身が exit に失敗したときと同じ手順で、こちらから終わる。
+    app.cleanup_before_exit();
+    std::process::exit(if failed == 0 { 0 } else { 1 });
 }
 
-#[tauri::command]
+// MARK: 窓を増やす
+//
+// **窓を作る命令は async にする。**
+//
+// 同期の命令は主スレッドで、しかも WebView の便りを受けている最中に走る。
+// Windows の WebView2 は自分の呼び返しの最中に次の WebView を作らせない。
+// 呼び返しは外側が返るまで届かず、窓の枠だけが出来て中身が空のまま残る。
+// 「窓は出るのに真っ白」はこれである（書棚から本を開けなかった）。
+//
+// async にすると別のスレッドから頼むことになり、要求は催しの列を通って
+// 落ち着いたところで捌かれる。ダイアログを待たない形にしたのと同じ理由である
+// （pick_book を見よ）。献立から作るときは WebView の呼び返しの外なので、
+// こちらの制約には掛からない。
+
+#[tauri::command(async)]
 fn open_shelf(app: tauri::AppHandle) -> Result<(), String> {
     windows::open_shelf_window(&app).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_in_new_window(
     app: tauri::AppHandle,
     path: String,
@@ -556,7 +601,20 @@ fn toggle_bookmark(
 /// 窓の処理なので、ワーカースレッドへは逃がさない。
 #[tauri::command]
 fn focus_webview(webview: tauri::Webview) -> Result<(), String> {
+    FOCUS_CALLS.fetch_add(1, Ordering::Relaxed);
     webview.set_focus().map_err(|e| e.to_string())
+}
+
+/// 受け手を戻した回数。
+///
+/// `set_focus` は焦点の知らせを呼び返す。その知らせに応じてまた戻すと輪になり、
+/// 毎秒何百回と回って催しの列が詰まる（窓が閉じられなくなる）。この輪は
+/// 2 度踏んでいる。人が押さないと分からない領域だが、**回った回数なら数えられる。**
+static FOCUS_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+#[tauri::command]
+fn focus_calls() -> usize {
+    FOCUS_CALLS.load(Ordering::Relaxed)
 }
 
 #[tauri::command(async)]

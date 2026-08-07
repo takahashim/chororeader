@@ -20,12 +20,21 @@ pub const SCHEME: &str = "choro";
 /// 窓ごとに文書が違う。読書は index.html、書棚は shelf.html で、
 /// 片方にしか要らない道具を、もう片方が読み込まずに済むようにしてある。
 pub fn app_url(page: &str, query: &str) -> String {
-    let base = if cfg!(windows) {
+    format!("{}/app/{page}{query}", origin())
+}
+
+/// 本文と資源が配られてくる生成元。
+///
+/// macOS は `choro://localhost`、Windows は `http://choro.localhost` になる。
+/// **CSP の許し先はここから作る。** `choro:` と書いておくと Windows では
+/// 何にも当たらず、既定の `'none'` が効いて、本文の枠に入った書籍の
+/// 画像も CSS も落ちる（実機で確かめた）。
+fn origin() -> String {
+    if cfg!(windows) {
         format!("http://{SCHEME}.localhost")
     } else {
         format!("{SCHEME}://localhost")
-    };
-    format!("{base}/app/{page}{query}")
+    }
 }
 
 /// 画面を作るファイル。焼き込んで配るので、増やすときはここへ 1 行足す。
@@ -216,16 +225,23 @@ fn percent_decode(value: &str) -> String {
 /// CSP はブラウザが強制するので、書き方の変化に左右されない。
 fn book_html(body: &str) -> Response<Vec<u8>> {
     let nonce = fresh_nonce();
-    let policy = format!(
-        "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline' choro:; \
-         img-src choro: data:; media-src choro:; font-src choro:; connect-src 'none'; \
-         base-uri 'none'; form-action 'none'"
-    );
+    let policy = book_csp(&nonce);
     Response::builder()
         .header("Content-Type", "text/html; charset=utf-8")
         .header("Content-Security-Policy", policy)
         .body(inject_agent(body, &nonce).into_bytes())
         .unwrap()
+}
+
+/// 本文に付ける CSP。走らせる script をこの nonce 1 本に限り、
+/// 資源の取り寄せ先を配信元だけに限る。
+fn book_csp(nonce: &str) -> String {
+    let from = origin();
+    format!(
+        "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline' {from}; \
+         img-src {from} data:; media-src {from}; font-src {from}; connect-src 'none'; \
+         base-uri 'none'; form-action 'none'"
+    )
 }
 
 /// 要求ごとの nonce。当てられては意味がないので、走らせるごとの種と通し番号から作る。
@@ -313,5 +329,32 @@ mod tests {
     #[test]
     fn nonce_は要求ごとに変わる() {
         assert_ne!(fresh_nonce(), fresh_nonce());
+    }
+
+    /// 許し先は配信元そのものでなければならない。
+    ///
+    /// `choro:` と書いておくと macOS では当たるが Windows では当たらず、
+    /// 書籍の画像も CSS も既定の `'none'` で落ちる。手元の OS でだけ通る書き方なので、
+    /// 経路の作り方と同じところから取っていることを確かめる。
+    #[test]
+    fn csp_の許し先は本文の配信元と揃っている() {
+        let policy = book_csp("n");
+        let from = app_url("index.html", "")
+            .strip_suffix("/app/index.html")
+            .unwrap()
+            .to_string();
+        for source in ["style-src 'unsafe-inline'", "img-src", "media-src", "font-src"] {
+            assert!(
+                policy.contains(&format!("{source} {from}")),
+                "{source} が {from} を許していない: {policy}"
+            );
+        }
+    }
+
+    #[test]
+    fn 書籍の_script_は_nonce_でしか走らない() {
+        let policy = book_csp("n");
+        assert!(policy.contains("default-src 'none'"), "{policy}");
+        assert!(policy.contains("script-src 'nonce-n';"), "{policy}");
     }
 }

@@ -166,6 +166,9 @@ export function watchForFailures() {
 }
 
 /// 土台と話せることを確かめる。ここで落ちれば、あとは何を押しても動かない。
+///
+/// 通ったら名乗っておく。窓を作れたことと、その窓の画面が動くことは別で、
+/// 窓の数だけを見ていると「枠は出来たが中身が空」を開けたと数えてしまう。
 export async function ensureBackend() {
   try {
     await invoke("settings");
@@ -173,4 +176,5 @@ export async function ensureBackend() {
     showFailure("土台に届きません（命令が拒まれました）", error);
     throw error;
   }
+  invoke("note_awake").catch(() => {});
 }

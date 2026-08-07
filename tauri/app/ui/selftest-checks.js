@@ -24,6 +24,21 @@ export async function until(check, timeout = 4000) {
 
 export const manualState = {};
 
+/// 窓を開く頼みごとを確かめる。**窓の数だけでは足りない。**
+///
+/// Windows では、枠だけ出来て中身が空のまま残る壊れ方をした。
+/// 窓の数はそれでも増えるので、数えるだけでは開けたことになってしまう。
+/// 開いた窓の画面が土台へ名乗るところまで待つ（chrome.js の ensureBackend）。
+async function opensAWindow(ask) {
+  const windows = await invoke("window_count");
+  const awake = await invoke("awake_count");
+  await ask();
+  const opened = await until(async () => (await invoke("window_count")) > windows, 8000);
+  if (!opened) return { ok: false, detail: "窓が増えない" };
+  const woke = await until(async () => (await invoke("awake_count")) > awake, 15000);
+  return { ok: woke, detail: woke ? "窓が増え、画面も起きた" : "窓は出たが画面が起きない（真っ白）" };
+}
+
 /// 本文の出先に様子を尋ねる。
 ///
 /// 本文は生成元を持たない枠に入っているので、窓からは DOM に触れない。
@@ -257,6 +272,24 @@ export const automatic = [
     only: "reflowable",
   },
   {
+    name: "焦点の輪が回っていない",
+    run: async () => {
+      // 受け手を戻すと焦点の知らせが呼び返る。その知らせでまた戻すと輪になり、
+      // 催しの列が詰まって窓が閉じられなくなる（本文の焦点枠がその速さで明滅する）。
+      // 焦点そのものは人が押さないと確かめられないが、回った回数なら数えられる。
+      // 実際に回っていたときは毎秒 265 回だった。何もしていなければ増えない。
+      const before = await invoke("focus_calls");
+      await sleep(1000);
+      const turned = (await invoke("focus_calls")) - before;
+      return { ok: turned <= 5, detail: `放っておいた 1 秒で ${turned} 回` };
+    },
+  },
+  {
+    // 窓を増やす検査は後ろに置く。焦点が移るので、鍵盤を見る検査と並べない。
+    name: "書棚を開ける",
+    run: () => opensAWindow(() => invoke("open_shelf")),
+  },
+  {
     name: "取りこぼした出来事が無い",
     run: () => {
       // 誰も受けなかった例外や約束は、chrome.js が枠に書き出す。
@@ -315,11 +348,17 @@ export const shelfChecks = [
   },
   {
     name: "サンプルを開ける",
+    run: () => opensAWindow(() => invoke("open_sample", { kind: "reflowable" })),
+  },
+  {
+    name: "書棚から書籍を開ける",
     run: async () => {
-      const before = await invoke("window_count");
-      await invoke("open_sample", { kind: "reflowable" });
-      const opened = await until(async () => (await invoke("window_count")) > before, 8000);
-      return { ok: opened, detail: opened ? "窓が増えた" : "窓が増えない" };
+      // 書棚の押しボタンが通る道。サンプルを開くのとは別の命令なので、別に確かめる。
+      const books = await invoke("library");
+      const book = books.find((b) => b.exists);
+      if (!book) return { ok: null, detail: "開ける書籍が無いので確かめない" };
+      return opensAWindow(() =>
+        invoke("open_in_new_window", { path: book.path, href: "", fragment: "" }));
     },
   },
   {
