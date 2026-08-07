@@ -27,12 +27,17 @@ struct LibraryView: View {
     @State private var queryText = ""
     /// 情報を見せている書籍。書棚では開いていない書籍のことも尋ねられる。
     @State private var showing: ShownFile?
+    @StateObject private var importing = FolderImport()
     @FocusState private var queryFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             searchBar
             Divider()
+            if importing.running || importing.summary != nil {
+                importBar
+                Divider()
+            }
             Group {
                 if !search.query.isEmpty {
                     results
@@ -58,11 +63,19 @@ struct LibraryView: View {
                 .labelsHidden()
             }
             ToolbarItem {
-                Button {
-                    for url in FileOpener.runOpenPanel() { open(url) }
+                Menu {
+                    Button("ファイルを開く…") {
+                        for url in FileOpener.runOpenPanel() { open(url) }
+                    }
+                    Button("フォルダを取り込む…") {
+                        if let folder = FileOpener.runFolderPanel() {
+                            importing.run(folder, into: store)
+                        }
+                    }
                 } label: {
-                    Label("開く", systemImage: "plus")
+                    Label("加える", systemImage: "plus")
                 }
+                .disabled(importing.running)
             }
         }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
@@ -93,6 +106,36 @@ struct LibraryView: View {
         .sheet(item: $showing) { shown in
             PropertiesView(subject: .file(shown.url))
         }
+    }
+
+    /// 取り込みの進み具合。終わったら結果をしばらく出しておく。
+    private var importBar: some View {
+        HStack(spacing: 8) {
+            if importing.running {
+                ProgressView(value: Double(importing.done),
+                             total: Double(max(importing.total, 1)))
+                    .frame(width: 120)
+                Text("\(importing.done) / \(importing.total) 冊")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(importing.current)
+                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+                Button("やめる") { importing.cancel() }
+                    .font(.system(size: 11))
+            } else if let summary = importing.summary {
+                Image(systemName: "checkmark.circle").foregroundStyle(.secondary)
+                Text(summary).font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    importing.summary = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     // MARK: - 横断検索
@@ -207,8 +250,16 @@ struct LibraryView: View {
                 .foregroundStyle(.secondary)
             Text("EPUB か PDF をここにドロップしてください")
                 .foregroundStyle(.secondary)
-            Button("ファイルを開く…") {
-                for url in FileOpener.runOpenPanel() { open(url) }
+            HStack(spacing: 10) {
+                Button("ファイルを開く…") {
+                    for url in FileOpener.runOpenPanel() { open(url) }
+                }
+                // 蔵書がフォルダに溜まっている人には、1 冊ずつ開かせない。
+                Button("フォルダを取り込む…") {
+                    if let folder = FileOpener.runFolderPanel() {
+                        importing.run(folder, into: store)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -364,6 +415,17 @@ enum FileOpener {
         panel.allowedContentTypes = types
         panel.message = "EPUB または PDF を選択してください"
         return panel.runModal() == .OK ? panel.urls : []
+    }
+
+    /// 取り込むフォルダを選ぶ。中の書籍は開かずに書棚へ加える。
+    static func runFolderPanel() -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.message = "書籍の入ったフォルダを選択してください（下の階層も探します）"
+        panel.prompt = "取り込む"
+        return panel.runModal() == .OK ? panel.urls.first : nil
     }
 }
 

@@ -7,6 +7,11 @@ struct LibraryEntry: Codable, Identifiable, Hashable {
     var title: String
     var authors: [String]
     var format: DocumentFormat
+    /// 書棚の並びの基準にする日時。
+    ///
+    /// 開いたときはその時刻。**まとめて取り込んだだけの書籍はファイルの更新日時**を入れる。
+    /// 取り込んだ時刻にすると、何百冊が「いま開いた」ことになって書棚の先頭を埋め、
+    /// 本当に最近読んだ本が押し出される。
     var lastOpenedAt: Date
     var lastLocator: Locator?
     var bookmarks: [Bookmark] = []
@@ -88,6 +93,29 @@ final class LibraryStore: ObservableObject {
                                                            relativeTo: nil)
         }
         upsert(entry)
+    }
+
+    /// 開かずに書棚へ加える。フォルダからまとめて取り込むときに使う。
+    ///
+    /// 既に並んでいる書籍は触らない。読書位置も並び順も、取り込みで動かさない。
+    /// 加えたら true、既にあったか読めなければ false。
+    @discardableResult
+    func register(_ url: URL) -> Bool {
+        if entries.contains(where: { $0.id == BookID(url: url) }) { return false }
+        guard let document = try? BookDocument(url: url) else { return false }
+
+        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
+        var entry = LibraryEntry(id: document.id, path: url.path, bookmarkData: nil,
+                                 title: document.title, authors: document.authors,
+                                 format: document.format,
+                                 lastOpenedAt: modified ?? Date(), lastLocator: nil)
+        entry.coverName = CoverCache.store(from: document)
+        entry.bookmarkData = try? url.bookmarkData(options: [.withSecurityScope],
+                                                   includingResourceValuesForKeys: nil,
+                                                   relativeTo: nil)
+        upsert(entry)
+        return true
     }
 
     func savePosition(_ locator: Locator, for id: BookID) {
