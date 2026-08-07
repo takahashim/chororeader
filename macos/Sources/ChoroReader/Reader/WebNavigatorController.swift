@@ -5,16 +5,11 @@ import WebKit
 /// リフロー型 EPUB のナビゲータ。WKWebView を所有し、SwiftUI View の再生成では作り直さない。
 @MainActor
 final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDelegate,
-                                    WKScriptMessageHandler, WKUIDelegate, ContentSleeper {
+                                    WKScriptMessageHandler, WKUIDelegate {
     let document: BookDocument
     let settings: ReaderSettings
     let schemeHandler: ResourceSchemeHandler
-    /// 画面へ渡す器。中の WKWebView は寝かせるときに捨てるので、器の方を渡す。
-    let host = ContentHostView()
-    /// いま起きている本文。寝ているあいだは nil。
     private(set) var webView: WKWebView!
-    /// 寝る前にいた場所。起きたらここへ戻す。
-    private var sleepingAt: Locator?
 
     @Published private(set) var locator: Locator
     @Published private(set) var isLoading = false
@@ -39,7 +34,7 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
             schemeHandler.mark = mark.map { ($0.query, $0.nth) }
             // 外すだけなら配り直さなくてよい。配り直すと画面がちらつく。
             if mark == nil {
-                webView?.evaluateJavaScript("window.choroClearMarks && window.choroClearMarks()")
+                webView.evaluateJavaScript("window.choroClearMarks && window.choroClearMarks()")
             }
         }
     }
@@ -64,18 +59,6 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         locator = start ?? Locator(href: first, progression: 0)
         super.init()
 
-        host.sleeper = self
-        buildWebView()
-
-        settingsObserver = settings.objectWillChange
-            .debounce(for: .milliseconds(120), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.applyStyleToLivePage() }
-
-        load(locator: locator, pushHistory: false)
-    }
-
-    /// 本文を載せる WKWebView を組む。寝て起きるたびに作り直す。
-    private func buildWebView() {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(schemeHandler, forURLScheme: ResourceSchemeHandler.scheme)
         // 書籍由来の JavaScript は動かさない。注入スクリプトだけが動く。
@@ -86,47 +69,20 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         controller.add(WeakScriptMessageHandler(self), name: "choro")
         config.userContentController = controller
 
-        let web = WKWebView(frame: .zero, configuration: config)
-        web.navigationDelegate = self
-        web.uiDelegate = self
-        web.allowsBackForwardNavigationGestures = false
-        web.setValue(false, forKey: "drawsBackground")
-        webView = web
-        host.hold(web)
+        webView = WKWebView(frame: .zero, configuration: config)
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webView.allowsBackForwardNavigationGestures = false
+        webView.setValue(false, forKey: "drawsBackground")
 
         installUserScripts()
         applyTheme()
-    }
 
-    // MARK: - 寝かせる
+        settingsObserver = settings.objectWillChange
+            .debounce(for: .milliseconds(120), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.applyStyleToLivePage() }
 
-    var isAsleep: Bool { webView == nil }
-
-    /// 覆われているあいだ、本文を手放す。1 つで 34 メガほどと WebContent プロセスを持つ。
-    /// いまの場所は覚えておき、起きたらそこへ戻す。
-    func sleepContent() {
-        guard let web = webView else { return }
-        sleepingAt = locator
-        web.stopLoading()
-        // 受け手は輪にならないよう弱く渡してあるが、外しておけば早く畳まれる。
-        web.configuration.userContentController.removeScriptMessageHandler(forName: "choro")
-        web.navigationDelegate = nil
-        web.uiDelegate = nil
-        host.hold(nil)
-        webView = nil
-        isLoading = false
-        objectWillChange.send()
-    }
-
-    /// 組み直して、覚えていた場所へ戻す。
-    func wakeContent() {
-        guard webView == nil else { return }
-        buildWebView()
-        let target = sleepingAt ?? locator
-        sleepingAt = nil
-        // 覚えていた場所へ戻すだけで、履歴には積まない。動いたわけではない。
-        load(locator: target, pushHistory: false)
-        objectWillChange.send()
+        load(locator: locator, pushHistory: false)
     }
 
     // MARK: - 移動
@@ -138,7 +94,7 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         locator = target
         chapterTitle = title(forHref: href)
         isLoading = true
-        webView?.load(URLRequest(url: url))
+        webView.load(URLRequest(url: url))
     }
 
     func reveal(_ target: Locator) {
@@ -177,7 +133,7 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
     }
 
     func copySelection() {
-        webView?.evaluateJavaScript("window.choroSelectedText()") { value, _ in
+        webView.evaluateJavaScript("window.choroSelectedText()") { value, _ in
             guard let text = value as? String, !text.isEmpty else { return }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
@@ -187,7 +143,7 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
     // MARK: - スタイル
 
     private func installUserScripts() {
-        guard let controller = webView?.configuration.userContentController else { return }
+        let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         let css = settings.userCSS() + "\n" + ReaderScripts.chromeCSS
         controller.addUserScript(WKUserScript(source: ReaderScripts.styleScript(css: css),
@@ -200,27 +156,27 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         installUserScripts()
         applyTheme()
         let css = settings.userCSS() + "\n" + ReaderScripts.chromeCSS
-        webView?.evaluateJavaScript("window.choroSetStyle && window.choroSetStyle(\(ReaderScripts.quote(css)))")
+        webView.evaluateJavaScript("window.choroSetStyle && window.choroSetStyle(\(ReaderScripts.quote(css)))")
         applyForegroundMarking()
     }
 
     /// 文字色を当てる要素を選び直す。テーマを変えたときと、章を読み込んだときに呼ぶ。
     private func applyForegroundMarking() {
         let enabled = settings.needsForegroundMarking
-        webView?.evaluateJavaScript("window.choroApplyForeground && window.choroApplyForeground(\(enabled))")
+        webView.evaluateJavaScript("window.choroApplyForeground && window.choroApplyForeground(\(enabled))")
     }
 
     private func applyTheme() {
         let color = NSColor(hexString: settings.theme.background) ?? .textBackgroundColor
-        webView?.underPageBackgroundColor = color
-        webView?.appearance = settings.theme.appearance
+        webView.underPageBackgroundColor = color
+        webView.appearance = settings.theme.appearance
     }
 
     // MARK: - 復元
 
     private func restore(_ target: Locator) {
         if let fragment = target.fragment, !fragment.isEmpty {
-            webView?.evaluateJavaScript("window.choroScrollToFragment(\(ReaderScripts.quote(fragment)))") { [weak self] ok, _ in
+            webView.evaluateJavaScript("window.choroScrollToFragment(\(ReaderScripts.quote(fragment)))") { [weak self] ok, _ in
                 if (ok as? Bool) != true { self?.restoreByTextOrProgression(target) }
             }
         } else {
@@ -230,13 +186,13 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
 
     private func restoreByTextOrProgression(_ target: Locator) {
         if let text = target.text, !text.isEmpty {
-            webView?.evaluateJavaScript("window.choroScrollToText(\(ReaderScripts.quote(text)))") { [weak self] ok, _ in
+            webView.evaluateJavaScript("window.choroScrollToText(\(ReaderScripts.quote(text)))") { [weak self] ok, _ in
                 if (ok as? Bool) != true {
-                    self?.webView?.evaluateJavaScript("window.choroScrollToProgression(\(target.progression))")
+                    self?.webView.evaluateJavaScript("window.choroScrollToProgression(\(target.progression))")
                 }
             }
         } else if target.progression > 0 {
-            webView?.evaluateJavaScript("window.choroScrollToProgression(\(target.progression))")
+            webView.evaluateJavaScript("window.choroScrollToProgression(\(target.progression))")
         }
     }
 
@@ -317,19 +273,19 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
     private func approachMark() {
         guard markApproach, marksHere else { return }
         markApproach = false
-        webView?.evaluateJavaScript("window.choroApproachMark && window.choroApproachMark()")
+        webView.evaluateJavaScript("window.choroApproachMark && window.choroApproachMark()")
     }
 
     /// 章末に次の章への行き先を出す。最後の章では何も出さない。
     private func showChapterEndAffordance() {
         guard let index = currentIndex, index + 1 < readingOrder.count else {
-            webView?.evaluateJavaScript("window.choroSetChapterEnd && window.choroSetChapterEnd(null)")
+            webView.evaluateJavaScript("window.choroSetChapterEnd && window.choroSetChapterEnd(null)")
             return
         }
         let next = readingOrder[index + 1].href
         let title = document.publication?.title(forHref: next)
         let label = title.map { "次の章へ　\($0)" } ?? "次の章へ"
-        webView?.evaluateJavaScript("window.choroSetChapterEnd && window.choroSetChapterEnd(\(ReaderScripts.quote(label)))")
+        webView.evaluateJavaScript("window.choroSetChapterEnd && window.choroSetChapterEnd(\(ReaderScripts.quote(label)))")
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
