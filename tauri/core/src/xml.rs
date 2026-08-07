@@ -78,9 +78,18 @@ impl Document {
         })
     }
 
-    pub fn first_child_named(&self, index: usize, local_name: &str) -> Option<usize> {
+    /// 直接の子要素のうち、局所名が合うものだけ。
+    pub fn children_named<'a>(
+        &'a self,
+        index: usize,
+        local_name: &'a str,
+    ) -> impl Iterator<Item = usize> + 'a {
         self.child_elements(index)
-            .find(|i| self.elements[*i].name == local_name)
+            .filter(move |i| self.elements[*i].name == local_name)
+    }
+
+    pub fn first_child_named(&self, index: usize, local_name: &str) -> Option<usize> {
+        self.children_named(index, local_name).next()
     }
 
     pub fn first_descendant_named(&self, local_name: &str) -> Option<usize> {
