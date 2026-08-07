@@ -5,7 +5,14 @@ import Foundation
 /// spec-local-ai.md 第 1.2 節でいう本命の機能である。
 /// 意味検索（問いを打つ）と違い、**こちらは何も打たなくても出る**。
 struct RelatedPassage: Identifiable, Hashable {
-    var id: String { "\(book.path)#\(unit.locator.href ?? "")-\(unit.locator.page ?? -1)-\(unit.locator.progression)" }
+    /// 一覧の札。
+    ///
+    /// **本文の目印まで入れる。** PDF では同じ頁の段落が章も頁も位置も同じになるので、
+    /// 目印を落とすと札が重なる。重なると一覧が取り違え、本文の配りも当たらない。
+    var id: String {
+        let where_ = "\(unit.locator.href ?? "")-\(unit.locator.page ?? -1)-\(unit.locator.progression)"
+        return "\(book.path)#\(where_)#\(unit.locator.text ?? "")"
+    }
 
     var book: LibraryEntry
     var unit: SemanticUnit

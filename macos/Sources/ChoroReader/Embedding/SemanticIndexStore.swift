@@ -150,9 +150,10 @@ enum SemanticIndexStore {
     /// 以前は大きさと更新日時をここで、モデルの名前を中身の側で持っていた。
     /// 鍵が 2 層に散っていると、片方だけ見て通す事故になる。
     private struct Head {
+        /// 版 4：抜き書きを控えるのをやめた（本文の 35% が原文のまま入っていた）。
         /// 版 3：モデルの名前を頭へ移した（それ以前は中身にあった）。
         /// 版を上げないと、古いものを新しい読み方で解いて崩れる。
-        static let version: UInt8 = 3
+        static let version: UInt8 = 4
         static let magic = Array("CHVB".utf8)
 
         var size: UInt64

@@ -3,19 +3,21 @@ import PDFKit
 
 /// 意味の索引が載せる単位。**段落ひとつぶん。**
 ///
-/// 本文の全文は持たない（spec-local-ai.md 第 4.2 節）。持つのは
-/// 飛び先・どの節の話か・当たりを見分けるための短い抜き書きだけである。
+/// **本文は控えない**（spec-local-ai.md 第 4.2 節）。持つのは飛び先と、どの節の話かだけ。
+///
+/// 一度は抜き書き 160 字を控えていたが、測ると**本の 35% が原文のまま入っていた**。
+/// 二字組索引は本文を持たず、候補を絞ってから原書を走査し直す（spec.md 第 10.4 節）。
+/// 意味の索引だけが控えるのは筋が通らないので、出すときに原書から切り出す
+/// （`PassageText`）。
 struct SemanticUnit: Hashable {
     /// 飛び先。**表題は入れない**（`heading` と二重の状態になるため）。
     /// 渡すときは `target` を使う。
-    var locator: Locator
-    /// この段落を含む節の見出し。どこの話かを見分けるために添える。
-    var heading: String
-    /// 抜き書き。**段落そのものの頭である。**
     ///
-    /// 節を単位にしていた頃は「節の冒頭」で、当たった理由とは無関係だった。
-    /// 段落なら、出ている文がそのまま当たった場所になる。
-    var excerpt: String
+    /// `locator.text` に段落の頭 30 字を持つ。これは本文の控えではなく、
+    /// **その場所へ寄せるための目印**である（既存の読書位置や検索の印と同じ性質）。
+    var locator: Locator
+    /// この段落を含む節の見出し。目次と同じ性質の情報で、本文ではない。
+    var heading: String
 
     /// 移動に渡す飛び先。表題は見出しから埋める。
     var target: Locator {
@@ -43,8 +45,6 @@ enum SemanticUnits {
     static let defaultLeastCharacters = 100
     /// 区切りが見つからなくても、ここを超えたら切る。
     private static let mostCharacters = 800
-    /// 抜き書きの長さ。一覧で 2〜3 行に収まる程度。
-    private static let excerptCharacters = 160
     /// 飛び先に載せる目印の長さ。**長すぎると綴じ方の違いで一致しない。**
     private static let anchorCharacters = 30
 
@@ -88,8 +88,7 @@ enum SemanticUnits {
                                           fragment: passage.offset == 0 ? section.fragment : nil,
                                           text: anchor(passage.text))
                     made.append(Piece(unit: SemanticUnit(locator: locator,
-                                                         heading: section.heading,
-                                                         excerpt: excerpt(passage.text)),
+                                                         heading: section.heading),
                                       text: passage.text))
                 }
             }
@@ -179,8 +178,7 @@ enum SemanticUnits {
                                       progression: Double(page) / Double(max(1, pdf.pageCount)),
                                       text: anchor(passage.text))
                 made.append(Piece(unit: SemanticUnit(locator: locator,
-                                                     heading: titles[page],
-                                                     excerpt: excerpt(passage.text)),
+                                                     heading: titles[page]),
                                   text: passage.text))
             }
         }
@@ -281,11 +279,6 @@ enum SemanticUnits {
     private static func tidy(_ text: String) -> String {
         text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func excerpt(_ text: String) -> String {
-        guard text.count > excerptCharacters else { return text }
-        return String(text.prefix(excerptCharacters)) + "…"
     }
 
     /// 飛び先に載せる目印。

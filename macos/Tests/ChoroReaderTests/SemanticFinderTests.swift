@@ -20,7 +20,7 @@ final class SemanticFinderTests: XCTestCase {
         var vectors: [Float] = []
         for (at, axis) in axes.enumerated() {
             units.append(SemanticUnit(locator: Locator(page: at, progression: 0),
-                                      heading: "第 \(at) 節", excerpt: "架空の抜き書き \(at)"))
+                                      heading: "第 \(at) 節"))
             var one = [Float](repeating: 0, count: dimension)
             one[axis] = 1
             vectors.append(contentsOf: one)
@@ -97,5 +97,24 @@ final class SemanticFinderTests: XCTestCase {
         let made = SemanticFinder.targets([mine, entry("other")], excluding: mine.id) { _ in nil }
         // どちらも索引は無いが、除いた 1 冊は数にも入らない
         XCTAssertEqual(made.missing, 1)
+    }
+}
+
+/// 一覧の札。
+extension SemanticFinderTests {
+    /// **同じ頁の段落どうしで札が重ならないこと。**
+    ///
+    /// PDF は章も頁も位置も同じになり、違うのは目印だけである。
+    /// 重なると一覧が取り違え、原書から読んだ本文の配りも当たらない。
+    func test_同じ頁の段落でも札が重ならない() {
+        let book = entry("a")
+        func passage(_ anchor: String) -> RelatedPassage {
+            RelatedPassage(book: book,
+                           unit: SemanticUnit(locator: Locator(page: 7, progression: 0.5, text: anchor),
+                                              heading: "第 3 章"),
+                           score: 0.8)
+        }
+        let ids = Set([passage("最初の段落の頭である").id, passage("次の段落の頭である").id])
+        XCTAssertEqual(ids.count, 2, "同じ頁の段落で札が重なっている")
     }
 }

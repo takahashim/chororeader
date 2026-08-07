@@ -14,12 +14,12 @@ final class RelatedPassagesTests: XCTestCase {
 
     private func epub(_ href: String, _ progression: Double, _ heading: String) -> SemanticUnit {
         SemanticUnit(locator: Locator(href: href, progression: progression),
-                     heading: heading, excerpt: "架空の抜き書き")
+                     heading: heading)
     }
 
     private func pdf(_ page: Int, _ heading: String) -> SemanticUnit {
         SemanticUnit(locator: Locator(page: page, progression: Double(page) / 100),
-                     heading: heading, excerpt: "架空の抜き書き")
+                     heading: heading)
     }
 
     // MARK: - EPUB

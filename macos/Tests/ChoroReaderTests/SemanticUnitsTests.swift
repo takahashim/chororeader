@@ -31,20 +31,22 @@ final class SemanticUnitsTests: XCTestCase {
         }
     }
 
-    /// **出す文が、当たった段落そのものであること。**
-    /// 節の冒頭を出していた頃は、当たった理由と無関係だった。
-    func test_抜き書きは段落の頭() throws {
+    /// **索引に本文を控えないこと。**
+    ///
+    /// 一度は抜き書き 160 字を控えていて、測ると本の 35% が原文のまま入っていた。
+    /// 二字組索引が本文を持たないのと揃える。持つのは飛び先の目印（30 字）だけで、
+    /// これは寄せるために要るものである。
+    func test_索引に本文を控えない() throws {
         let body = String(repeating: "先頭の段落である。", count: 60) + "\n"
             + String(repeating: "二つめの段落である。", count: 60)
         let pieces = SemanticUnits.pieces(of: .epub(resources: OneFile("<p>\(body)</p>"),
                                                     publication: publication()))
         XCTAssertGreaterThan(pieces.count, 1)
-        for piece in pieces {
-            let head = piece.unit.excerpt.replacingOccurrences(of: "…", with: "")
-            XCTAssertTrue(piece.text.hasPrefix(head), "抜き書きがその段落の頭になっていない")
-        }
-        XCTAssertTrue(pieces.last!.unit.excerpt.contains("二つめ"),
-                      "後ろの段落なのに先頭の文が出ている")
+
+        let bodyChars = pieces.reduce(0) { $0 + $1.text.count }
+        let keptChars = pieces.reduce(0) { $0 + ($1.unit.locator.text?.count ?? 0) + $1.unit.heading.count }
+        let kept = Double(keptChars) / Double(bodyChars)
+        XCTAssertLessThan(kept, 0.15, "本文を控えすぎている（\(Int(kept * 100))%）")
     }
 
     /// 飛び先に本文の目印が載ること。
@@ -109,7 +111,7 @@ final class SemanticUnitsTests: XCTestCase {
         XCTAssertFalse(pieces.isEmpty)
         for piece in pieces {
             XCTAssertNotNil(piece.unit.locator.href)
-            XCTAssertFalse(piece.unit.excerpt.isEmpty)
+            XCTAssertNotNil(piece.unit.locator.text, "寄せるための目印が無い")
         }
     }
 

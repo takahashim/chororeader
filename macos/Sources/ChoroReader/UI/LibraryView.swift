@@ -35,6 +35,8 @@ struct LibraryView: View {
     @State private var confirmingRemoval = false
     @StateObject private var search = LibrarySearchModel()
     @StateObject private var semantic = SemanticSearchModel()
+    /// 一覧に出す本文。索引には控えていないので、原書から読む。
+    @StateObject private var passages = PassageTextLoader()
     @ObservedObject private var builder = SemanticIndexBuilder.shared
     /// 引き方。**混ぜない**（spec-local-ai.md 第 5.2 節）。
     /// 正確な検索には「当たり」があるが、意味の近さには無い。
@@ -334,7 +336,9 @@ struct LibraryView: View {
                         if !passage.unit.heading.isEmpty {
                             Text(passage.unit.heading).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        Text(passage.unit.excerpt).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        // 索引に本文は控えていない。読めるまでは何も出さない。
+                        Text(passages.texts[passage.id] ?? " ")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(3)
                     }
                     .padding(.vertical, 2)
                     .contentShape(Rectangle())
@@ -342,6 +346,12 @@ struct LibraryView: View {
                         openWindow(value: BookRoute(path: passage.book.path,
                                                     locator: passage.unit.target, query: nil))
                     }
+                }
+                .onChange(of: semantic.found) { _, found in
+                    passages.load(found) { store.resolveURL(for: $0) }
+                }
+                .task(id: semantic.found) {
+                    passages.load(semantic.found) { store.resolveURL(for: $0) }
                 }
             }
         }

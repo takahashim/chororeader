@@ -10,6 +10,8 @@ struct SidebarView: View {
     var searchFocused: FocusState<Bool>.Binding
     /// 関連箇所は**別の書籍**を開く。同じ書籍を開き直す導線（openInNewWindow）では届かない。
     @Environment(\.openWindow) private var openWindow
+    /// 一覧に出す本文。索引には控えていないので、原書から読む。
+    @StateObject private var passages = PassageTextLoader()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -248,6 +250,9 @@ struct SidebarView: View {
                     relatedRow(passage)
                 }
                 .listStyle(.sidebar)
+                .task(id: session.related) {
+                    passages.load(session.related) { LibraryStore.shared.resolveURL(for: $0) }
+                }
             }
         }
     }
@@ -272,7 +277,8 @@ struct SidebarView: View {
                 if !passage.unit.heading.isEmpty {
                     Text(passage.unit.heading).font(.callout).lineLimit(2)
                 }
-                Text(passage.unit.excerpt)
+                // 索引に本文は控えていない。読めるまでは何も出さない。
+                Text(passages.texts[passage.id] ?? " ")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)

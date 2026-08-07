@@ -16,8 +16,7 @@ final class SemanticIndexTests: XCTestCase {
                                  page: at % 2 == 0 ? nil : at,
                                  progression: Double(at) / Double(max(1, count)),
                                  fragment: at % 3 == 0 ? "sec\(at)" : nil),
-                heading: "第 \(at) 節　架空の見出し",
-                excerpt: "これは架空の技術書の一節である。番号は \(at)。"))
+                heading: "第 \(at) 節　架空の見出し"))
             // 単位ごとに向きの違う単位ベクトルを作る
             var one = [Float](repeating: 0, count: dimension)
             one[at % dimension] = 1
@@ -37,7 +36,6 @@ final class SemanticIndexTests: XCTestCase {
         XCTAssertEqual(back.units.count, index.units.count)
         for (a, b) in zip(back.units, index.units) {
             XCTAssertEqual(a.heading, b.heading)
-            XCTAssertEqual(a.excerpt, b.excerpt)
             // 表題は見出しから埋め直される。持ち回らないことを見ておく。
             XCTAssertNil(a.locator.title)
             XCTAssertEqual(a.target.title, b.heading)

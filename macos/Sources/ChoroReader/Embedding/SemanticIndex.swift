@@ -77,7 +77,6 @@ extension SemanticIndex {
             // 本文の目印。これが無いと、着くのは章（ページ）の頭までになる。
             Varint.append(unit.locator.text ?? "", to: &out)
             Varint.append(unit.heading, to: &out)
-            Varint.append(unit.excerpt, to: &out)
         }
         var halves = [UInt16](repeating: 0, count: vectors.count)
         var source = vectors
@@ -105,15 +104,14 @@ extension SemanticIndex {
         for _ in 0 ..< Int(total) {
             guard let href = reader.text(), let page = reader.number(),
                   let progression = reader.number(), let fragment = reader.text(),
-                  let anchor = reader.text(), let heading = reader.text(),
-                  let excerpt = reader.text()
+                  let anchor = reader.text(), let heading = reader.text()
             else { return nil }
             let locator = Locator(href: href.isEmpty ? nil : href,
                                   page: page == 0 ? nil : Int(page) - 1,
                                   progression: Double(progression) / 100_000,
                                   fragment: fragment.isEmpty ? nil : fragment,
                                   text: anchor.isEmpty ? nil : anchor)
-            units.append(SemanticUnit(locator: locator, heading: heading, excerpt: excerpt))
+            units.append(SemanticUnit(locator: locator, heading: heading))
         }
 
         let wanted = Int(total) * Int(dimension)
