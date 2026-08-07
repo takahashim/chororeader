@@ -9,12 +9,15 @@ import WebKit
 /// 本文用のスキームハンドラとテーマ設定をそのまま使い回せる。
 @MainActor
 final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNavigationDelegate,
-                                            WKScriptMessageHandler {
+                                            WKScriptMessageHandler, ContentSleeper {
     typealias PageContent = FixedLayoutPlan.PageContent
 
     let document: BookDocument
     let settings: ReaderSettings
     let schemeHandler: ResourceSchemeHandler
+    /// 画面へ渡す器。中の WKWebView は寝かせるときに捨てるので、器の方を渡す。
+    let host = ContentHostView()
+    /// いま起きている紙面。寝ているあいだは nil。
     private(set) var webView: WKWebView!
 
     @Published private(set) var locator: Locator
@@ -55,6 +58,18 @@ final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNaviga
         }
         spreads = FixedLayoutPlan.spreads(pageCount: pages.count, rtl: isRTL)
 
+        host.sleeper = self
+        buildWebView()
+
+        settingsObserver = settings.objectWillChange
+            .debounce(for: .milliseconds(120), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.render() }
+
+        render()
+    }
+
+    /// 紙面を載せる WKWebView を組む。寝て起きるたびに作り直す。
+    private func buildWebView() {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(schemeHandler, forURLScheme: ResourceSchemeHandler.scheme)
         config.defaultWebpagePreferences.allowsContentJavaScript = false
@@ -66,17 +81,35 @@ final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNaviga
                                               injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         config.userContentController = controller
 
-        webView = WKWebView(frame: .zero, configuration: config)
-        webView.navigationDelegate = self
-        webView.setValue(false, forKey: "drawsBackground")
+        let web = WKWebView(frame: .zero, configuration: config)
+        web.navigationDelegate = self
+        web.setValue(false, forKey: "drawsBackground")
         // ピンチと ⌘+ / ⌘- による拡大は WebKit の機能をそのまま使う。
-        webView.allowsMagnification = true
+        web.allowsMagnification = true
+        webView = web
+        host.hold(web)
+    }
 
-        settingsObserver = settings.objectWillChange
-            .debounce(for: .milliseconds(120), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.render() }
+    // MARK: - 寝かせる
 
+    var isAsleep: Bool { webView == nil }
+
+    /// 覆われているあいだ、紙面を手放す。組み直しは render() が同じ位置から行う。
+    func sleepContent() {
+        guard let web = webView else { return }
+        web.stopLoading()
+        web.configuration.userContentController.removeScriptMessageHandler(forName: "choro")
+        web.navigationDelegate = nil
+        host.hold(nil)
+        webView = nil
+        objectWillChange.send()
+    }
+
+    func wakeContent() {
+        guard webView == nil else { return }
+        buildWebView()
         render()
+        objectWillChange.send()
     }
 
     // MARK: - 移動
@@ -121,9 +154,14 @@ final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNaviga
         }
     }
 
-    func zoomIn() { webView.magnification = min(webView.magnification * 1.25, 8) }
-    func zoomOut() { webView.magnification = max(webView.magnification / 1.25, 0.2) }
-    func zoomToFit() { webView.magnification = 1 }
+    func zoomIn() { magnify { min($0 * 1.25, 8) } }
+    func zoomOut() { magnify { max($0 / 1.25, 0.2) } }
+
+    private func magnify(_ change: (CGFloat) -> CGFloat) {
+        guard let web = webView else { return }
+        web.magnification = change(web.magnification)
+    }
+    func zoomToFit() { webView?.magnification = 1 }
 
     // MARK: - 描画
 
@@ -144,7 +182,7 @@ final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNaviga
         let path = "__choro_fixed_\(syntheticCounter).xhtml"
         schemeHandler.provideSynthetic(path: path, html: html(for: indices))
         if let url = ResourceSchemeHandler.url(forHref: path) {
-            webView.load(URLRequest(url: url))
+            webView?.load(URLRequest(url: url))
         }
         updateLabel()
     }

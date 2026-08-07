@@ -2,10 +2,12 @@ import PDFKit
 import SwiftUI
 import WebKit
 
+/// 本文は器ごと渡す。中の WKWebView は覆われているあいだ捨てられるが、
+/// 器は変わらないので、SwiftUI は作り直しを気にしなくてよい。
 struct WebNavigatorView: NSViewRepresentable {
     let controller: WebNavigatorController
-    func makeNSView(context: Context) -> WKWebView { controller.webView }
-    func updateNSView(_ nsView: WKWebView, context: Context) {}
+    func makeNSView(context: Context) -> ContentHostView { controller.host }
+    func updateNSView(_ nsView: ContentHostView, context: Context) {}
 }
 
 struct PDFNavigatorView: NSViewRepresentable {
@@ -16,8 +18,8 @@ struct PDFNavigatorView: NSViewRepresentable {
 
 struct FixedLayoutNavigatorView: NSViewRepresentable {
     let controller: FixedLayoutNavigatorController
-    func makeNSView(context: Context) -> WKWebView { controller.webView }
-    func updateNSView(_ nsView: WKWebView, context: Context) {}
+    func makeNSView(context: Context) -> ContentHostView { controller.host }
+    func updateNSView(_ nsView: ContentHostView, context: Context) {}
 }
 
 struct ReaderView: View {
