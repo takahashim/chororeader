@@ -67,3 +67,31 @@ final class BookPropertiesTests: XCTestCase {
         XCTAssertTrue(text.contains("ファイル"), text)
     }
 }
+
+/// 書棚からは、開いていない書籍のことも尋ねられる。
+@MainActor
+final class BookPropertiesFromFileTests: XCTestCase {
+    private func value(_ properties: BookProperties, _ label: String) -> String? {
+        properties.sections.flatMap(\.items).first { $0.label == label }?.value
+    }
+
+    func test_開かずにファイルから読める() throws {
+        let url = TestPaths.fixture("epub3-basic.epub")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path))
+        let found = BookProperties.read(url)
+        XCTAssertEqual(value(found, "題名"), "基本の書籍")
+        XCTAssertEqual(value(found, "名前"), "epub3-basic.epub")
+    }
+
+    /// 開けない書籍でも、ファイルの素性までは出す。何も出ないより手掛かりになる。
+    func test_開けない書籍でもファイルの素性は出す() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("choro-壊れた.epub")
+        try Data("これは EPUB ではない".utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let found = BookProperties.read(url)
+        XCTAssertEqual(value(found, "名前"), "choro-壊れた.epub")
+        XCTAssertNil(value(found, "題名"), "開けていないのに書誌が出ている")
+    }
+}

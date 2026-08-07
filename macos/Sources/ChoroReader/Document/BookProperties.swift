@@ -35,7 +35,19 @@ struct BookProperties: Equatable {
 
 @MainActor
 extension BookProperties {
-    /// 書籍から組み立てる。`file` はファイルそのものの素性で、書籍の中身とは別に読む。
+    /// ファイルから組み立てる。書棚のように、開いていない書籍から読むとき用。
+    ///
+    /// 書籍を開くのと同じだけ読むので、主スレッドから直に呼ばない。
+    /// 開けなければ、ファイルの素性だけを返す。
+    static func read(_ url: URL) -> BookProperties {
+        let file = FileFacts.read(url)
+        guard let document = try? BookDocument(url: url) else {
+            return BookProperties(sections: [file].compactMap { $0 }.map(fileSection))
+        }
+        return make(document: document, file: file)
+    }
+
+    /// 開いている書籍から組み立てる。`file` はファイルそのものの素性で、中身とは別に読む。
     static func make(document: BookDocument, file: FileFacts?) -> BookProperties {
         var sections: [Section] = []
 

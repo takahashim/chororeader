@@ -1,6 +1,12 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// 情報を見せる相手。sheet(item:) が同一性を要るので包む。
+struct ShownFile: Identifiable {
+    let url: URL
+    var id: String { url.path }
+}
+
 /// 書棚の見せ方。表紙を並べるか、表で並べるか。
 enum ShelfMode: String, CaseIterable {
     case cover
@@ -19,6 +25,8 @@ struct LibraryView: View {
     @State private var selection: LibraryEntry.ID?
     @StateObject private var search = LibrarySearchModel()
     @State private var queryText = ""
+    /// 情報を見せている書籍。書棚では開いていない書籍のことも尋ねられる。
+    @State private var showing: ShownFile?
     @FocusState private var queryFocused: Bool
 
     var body: some View {
@@ -80,6 +88,10 @@ struct LibraryView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .choroFocusLibrarySearch)) { _ in
             queryFocused = true
+        }
+        // 書棚では開いていない書籍のことも尋ねられる。開かずにファイルから読む。
+        .sheet(item: $showing) { shown in
+            PropertiesView(subject: .file(shown.url))
         }
     }
 
@@ -147,6 +159,7 @@ struct LibraryView: View {
                                     .onTapGesture(count: 2) { openHit(hit, in: book) }
                                     .contextMenu {
                                         Button("新しいウィンドウで開く") { openHit(hit, in: book) }
+                                        Button("情報を見る") { showing = ShownFile(url: URL(fileURLWithPath: book.path)) }
                                     }
                             }
                             // 打ち切った本は、その本を開いて全件を見る道を出す。
@@ -249,6 +262,7 @@ struct LibraryView: View {
     @ViewBuilder
     private func menu(for entry: LibraryEntry) -> some View {
         Button("新しいウィンドウで開く") { openEntry(entry) }
+        Button("情報を見る") { showing = store.resolveURL(for: entry).map(ShownFile.init) }
         Button("Finder で表示") {
             if let url = store.resolveURL(for: entry) {
                 NSWorkspace.shared.activateFileViewerSelecting([url])

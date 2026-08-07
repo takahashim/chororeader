@@ -6,7 +6,20 @@ import SwiftUI
 /// こちらは読む人が知りたいこと——誰が書いたか、いつ作られたか、何ページか——を出す。
 /// 出す中身は BookProperties が決める。ここは並べるだけにする。
 struct PropertiesView: View {
-    @ObservedObject var session: ReaderSession
+    /// 何の情報を出すか。読書の窓からは開いている書籍、書棚からはファイル。
+    enum Subject {
+        case opened(ReaderSession)
+        case file(URL)
+
+        var title: String {
+            switch self {
+            case let .opened(session): return session.document.title
+            case let .file(url): return url.lastPathComponent
+            }
+        }
+    }
+
+    let subject: Subject
     @Environment(\.dismiss) private var dismiss
 
     @State private var properties: BookProperties?
@@ -33,11 +46,16 @@ struct PropertiesView: View {
         }
         .frame(width: 480, height: 460)
         .task {
-            if properties == nil {
+            guard properties == nil else { return }
+            switch subject {
+            case let .opened(session):
                 properties = BookProperties.make(
                     document: session.document,
                     file: BookProperties.FileFacts.read(session.document.url)
                 )
+            case let .file(url):
+                // 書籍を開くのと同じだけ読む。主スレッドを止めないよう、いったん降りる。
+                properties = await Task.detached { @MainActor in BookProperties.read(url) }.value
             }
         }
     }
@@ -45,7 +63,7 @@ struct PropertiesView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("書籍の情報").font(.headline)
-            Text(session.document.title).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            Text(subject.title).font(.caption).foregroundStyle(.secondary).lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
