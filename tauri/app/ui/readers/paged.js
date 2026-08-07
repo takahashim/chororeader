@@ -16,12 +16,18 @@ import { scrollToMark, unwrapMarks } from "../lib/mark.js";
 export function pagedReader(shared) {
   const { state, departing, moved, setZoom, bookUrl, encodePath } = shared;
 
+  /// いま出しているページと、その寸法。紙面だけが持つ。
+  /// 窓は「どこにいるか」を at() と position() で尋ねる。
+  /// 引数の page と紛れないよう、持ち物の側に別の名前を付けておく。
+  let shownPage = 0;
+  let shownSize = null;
+
   // 固定レイアウトかどうかは、この中でだけ効く違い。
   const isFixed = () => isFixedBook(state.book);
   /// 目次や当たりは経路で言ってくる。いまの書籍を当ててページ番号へ読み替える。
   const pageOfHref = (href) => pageOfHrefIn(state.book, href);
   const visiblePages = (total) =>
-    pagesToShow(state.settings.pageLayout, state.page, total, state.book.spreads);
+    pagesToShow(state.settings.pageLayout, shownPage, total, state.book.spreads);
   const isContinuous = () => state.settings.pageLayout === "continuousScroll";
 
   function onPdfScroll() {
@@ -30,7 +36,7 @@ export function pagedReader(shared) {
     const top = box.scrollTop;
     for (const img of pageParts(box)) {
       if (img.offsetTop + img.offsetHeight > top) {
-        state.page = Number(img.dataset.page);
+        shownPage = Number(img.dataset.page);
         break;
       }
     }
@@ -108,11 +114,11 @@ export function pagedReader(shared) {
 
 
   async function showFixed(page) {
-    state.page = Math.max(0, Math.min(state.book.pages.length - 1, page));
+    shownPage = Math.max(0, Math.min(state.book.pages.length - 1, page));
     buildFixed();
     refreshMarkedPage();
     const box = $("pdf");
-    const target = pageElement(box, state.page);
+    const target = pageElement(box, shownPage);
     if (target) box.scrollTop = isContinuous() ? target.offsetTop - 16 : 0;
     layoutMarks();
     markCurrentThumb();
@@ -125,7 +131,7 @@ export function pagedReader(shared) {
   /// 大きさを与えないと画像がすべて同じ位置に積まれ、loading="lazy" が効かない。
   function layoutPdf() {
     const box = $("pdf");
-    const [width, height] = state.pageSize || [0, 0];
+    const [width, height] = shownSize || [0, 0];
     const parts = pageParts(box);
     if (width <= 0 || parts.length === 0) return;
     const anchor = box.scrollHeight > 0 ? box.scrollTop / box.scrollHeight : 0;
@@ -156,10 +162,10 @@ export function pagedReader(shared) {
 
 
   async function showPdf(page) {
-    state.page = Math.max(0, Math.min(state.book.pageCount - 1, page));
+    shownPage = Math.max(0, Math.min(state.book.pageCount - 1, page));
     buildPdf();
     const box = $("pdf");
-    const target = pageElement(box, state.page);
+    const target = pageElement(box, shownPage);
     if (target) box.scrollTop = isContinuous() ? target.offsetTop - 16 : 0;
     layoutMarks();
     markCurrentThumb();
@@ -170,8 +176,8 @@ export function pagedReader(shared) {
 
   /// 合わせ方から倍率を決める。PDF でページの大きさが分かっているときだけ計算できる。
   function zoomForFit(fit) {
-    if (!state.pageSize) return null;
-    const [width, height] = state.pageSize;
+    if (!shownSize) return null;
+    const [width, height] = shownSize;
     const box = $("pdf").getBoundingClientRect();
     switch (fit) {
       case "width": return (box.width - 32) / width;
@@ -209,7 +215,7 @@ export function pagedReader(shared) {
         const page = state.book.pages[index];
         // 本文を持つページは絵にできない。枠だけ置いて番号で選ばせる。
         if (page.kind === "image") img.src = `/book/${state.book.id}/${encodePath(page.href)}`;
-        else img.style.aspectRatio = String((state.pageSize || [800, 1130])[0] / (state.pageSize || [800, 1130])[1]);
+        else img.style.aspectRatio = String((shownSize || [800, 1130])[0] / (shownSize || [800, 1130])[1]);
       } else {
         img.src = `/pdf/${state.book.id}/${index}/${THUMB_ZOOM}`;
       }
@@ -228,7 +234,7 @@ export function pagedReader(shared) {
   function markCurrentThumb() {
     const box = $("thumbs");
     for (const figure of box.children) {
-      const on = Number(figure.dataset.page) === state.page;
+      const on = Number(figure.dataset.page) === shownPage;
       figure.classList.toggle("current", on);
       if (on) figure.scrollIntoView({ block: "nearest" });
     }
@@ -327,14 +333,14 @@ export function pagedReader(shared) {
     locate: (href) => pageOfHref(href),
     show: (page) => showPage(page),
     currentHref: () =>
-      (isFixed() ? (state.book.pages[state.page] || {}).href : String(state.page)),
+      (isFixed() ? (state.book.pages[shownPage] || {}).href : String(shownPage)),
 
-    position: () => ({ href: "", progression: 0, page: state.page, fragment: "", text: "" }),
+    position: () => ({ href: "", progression: 0, page: shownPage, fragment: "", text: "" }),
     reveal: (position) => showPage(position.page),
 
     step(delta) {
       departing();
-      showPage(pageAfterStep(state.settings.pageLayout, state.page, delta, state.book.spreads));
+      showPage(pageAfterStep(state.settings.pageLayout, shownPage, delta, state.book.spreads));
     },
 
     scrollBy(amount, byScreen) {
@@ -351,15 +357,15 @@ export function pagedReader(shared) {
     /// 当たりの目当て。紙面はページ番号で指す。
     markTarget: (href) => ({ href: "", page: Number(href) || 0 }),
     hitTarget: (hit) => (isFixed() ? pageOfHref(hit.href) : hit.page),
-    label: () => `p.${state.page + 1}`,
-    hereHref: () => String(state.page),
+    label: () => `p.${shownPage + 1}`,
+    hereHref: () => String(shownPage),
 
     /// 紙面の当たりは絵の上に重ねるので、開いてから土台に枠を尋ね直す。
     /// 固定レイアウトは本文が HTML なので、印は配られたものがそのまま入っている。
     async paintMark(query) {
       if (isFixed()) return;
       state.mark.rects = await invoke("page_marks", {
-        id: state.book.id, page: state.page, query,
+        id: state.book.id, page: shownPage, query,
       }).catch(() => []);
       layoutMarks();
     },
@@ -375,14 +381,14 @@ export function pagedReader(shared) {
 
     async prepareFixed(saved, href) {
       // 寸法は meta viewport から来る。名乗っていない書籍のために当てを置く。
-      state.pageSize = state.book.pageSize || [800, 1130];
+      shownSize = state.book.pageSize || [800, 1130];
       this.fitFirst(state.settings.zoom || 1);
       await showFixed(href ? Number(href) : saved.position.page || 0);
     },
 
     async preparePdf(saved, href) {
       // 合わせ方を計算するにはページの大きさが要る。1 ページ目で代表させる。
-      state.pageSize = await invoke("page_size", { id: state.book.id, page: 0 }).catch(() => null);
+      shownSize = await invoke("page_size", { id: state.book.id, page: 0 }).catch(() => null);
       this.fitFirst(state.settings.zoom);
       await showPdf(href ? Number(href) : saved.position.page || 0);
     },
@@ -400,6 +406,11 @@ export function pagedReader(shared) {
       }
     },
 
+    /// いまどこにいるか。紙面はページ番号で言う。
+    at: () => String(shownPage),
+    /// 次があるか。終端では送っても動かない。
+    canGoNext: () => shownPage < pageCountOf(state.book) - 1,
+
     /// 覆いは本文の側のもの。紙面には無い。
     dismissOverlays: () => {},
     /// 表示設定は本文の見た目に効く。紙面は絵なので当てるものが無い。
@@ -413,7 +424,7 @@ export function pagedReader(shared) {
     /// 並べ方が変わった。組み直してからいまのページへ戻す。
     relayout() {
       $("pdf").dataset.key = "";
-      showPage(state.page);
+      showPage(shownPage);
     },
 
     /// 合わせ方から決まる倍率。

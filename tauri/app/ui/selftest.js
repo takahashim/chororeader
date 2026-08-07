@@ -134,8 +134,7 @@
           detail: marked
             ? `枠 ${framed()} ／ 語 ${wrapped()}`
             : `囲めない（目当て ${JSON.stringify(window.choro.state.mark)}`
-              + ` 居場所 ${(window.choro.state.book.chapters[window.choro.state.index] || {}).href}`
-              + ` / ${window.choro.state.page}）`,
+              + ` 居場所 ${window.choro.nav.currentHref()} / ${window.choro.nav.at()}）`,
         };
       },
     },
@@ -249,10 +248,9 @@
 
   const headless = () => new URLSearchParams(location.search).get("selftest") === "1";
 
+  /// いまどこにいるか。章の番号かページ番号かは読み手が決める。
   function place() {
-    const state = window.choro.state;
-    if (!state.book) return "";
-    return state.book.format === "reflowableEPUB" ? String(state.index) : String(state.page);
+    return window.choro.state.book ? window.choro.nav.at() : "";
   }
 
   /// いま終端にいるか。
@@ -261,15 +259,7 @@
   /// 最後まで読んだ本を開くと、そこから先へは進めず、検査が「動かない」と言う。
   /// 動かないのは正しい振る舞いなので、終端では向きを変えて確かめる。
   function atEnd() {
-    const state = window.choro.state;
-    if (!state.book) return false;
-    if (state.book.format === "reflowableEPUB") {
-      return state.index >= (state.book.chapters || []).length - 1;
-    }
-    const total = state.book.format === "pdf"
-      ? state.book.pageCount
-      : (state.book.pages || []).length;
-    return state.page >= total - 1;
+    return !!window.choro.state.book && !window.choro.nav.canGoNext();
   }
 
   /// この書籍で必ず当たる語。日本語の書籍なら助詞が必ず出る。

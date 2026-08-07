@@ -24,12 +24,9 @@ import {
 
 const state = {
   book: null,
-  index: 0,
-  page: 0,
   /// いまの倍率。EPUB では本文全体に、PDF では描画の倍率に効く。
+  /// どこにいるか（章の番号・ページ番号）は読み手が持つ。窓は nav.at() で尋ねる。
   zoom: 1,
-  /// PDF のページの大きさ（ポイント）。合わせ方の計算に要る。
-  pageSize: null,
   settings: { ...DEFAULT_SETTINGS },
   // 移動の履歴。読んだ順ではなく、飛んだ順を覚える。
   back: [],
@@ -89,6 +86,8 @@ const emptyReader = {
   dismissOverlays: () => {},
   restyle: () => {},
   loading: () => false,
+  at: () => "",
+  canGoNext: () => false,
 };
 
 /// 窓と読み手が分かち合うもの。読み手はこれ以外を窓から取らない。
@@ -508,7 +507,7 @@ window.addEventListener("focus", focusContent);
 // 矢印キーは移動、上下とスペースは読むための送り。軸ごとに意味を 1 つに定める。
 function onKeyDown(event) {
   const editing = event.target && /input|textarea/i.test(event.target.tagName || "");
-  trace(`key=${event.key} loading=${nav.loading()} index=${state.index} `
+  trace(`key=${event.key} loading=${nav.loading()} at=${nav.at()} `
       + `target=${event.target && event.target.nodeName} `
       + `sameDoc=${event.target && event.target.ownerDocument === document}`);
   const command = event.metaKey || event.ctrlKey;
@@ -627,7 +626,7 @@ function updateHistoryButtons() {
 /// 1 つ送る。紙面の送りも履歴に載せる。
 /// 目次から飛んだあと、元のページへ帰れるようにするため。
 function step(delta) {
-  trace(`step(${delta}) loading=${nav.loading()} index=${state.index}`);
+  trace(`step(${delta}) loading=${nav.loading()} at=${nav.at()}`);
   nav.step(delta);
 }
 
@@ -733,6 +732,8 @@ async function main() {
 window.choro = {
   kind: "reader",
   state,
+  /// いま使っている読み手。治具が居場所を尋ねるために要る。
+  get nav() { return nav; },
   step,
   goBack,
   goForward,

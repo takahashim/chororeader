@@ -15,6 +15,11 @@ import { scrollToMark, unwrapMarks } from "../lib/mark.js";
 export function reflowableReader(shared) {
   const { state, departing, moved, scrolled, bookUrl, focusContent, onKeyDown, onWheel } = shared;
 
+  /// いま出している章の番号。本文だけが持つ。
+  /// 窓は「どこにいるか」を at() と position() で尋ねる。
+  /// 局所の index と紛れないよう、持ち物の側に別の名前を付けておく。
+  let shownIndex = 0;
+
   /// 行き先（章の番号）。目次や当たりは経路で言ってくる。
   const chapterOfHref = (href) => chapterOfHrefIn(state.book, href);
 
@@ -38,7 +43,7 @@ export function reflowableReader(shared) {
     const chapter = state.book.chapters[index];
     if (!chapter) return;
     const token = ++loadTokens;
-    state.index = index;
+    shownIndex = index;
     arriving = { token, goTo, queuedSteps: 0 };
 
     const frame = $("page");
@@ -225,8 +230,8 @@ export function reflowableReader(shared) {
   // 縦は読む軸、横は移動する軸。スクロールでは章を跨がないため、章末に導線を置く。
   function addChapterFooter(doc) {
     if (doc.getElementById("choro-footer") || !doc.body) return;
-    const next = state.book.chapters[state.index + 1];
-    if (!next) return;
+    if (!nav.canGoNext()) return;
+    const next = state.book.chapters[shownIndex + 1];
     const footer = doc.createElement("div");
     footer.id = "choro-footer";
     footer.setAttribute("style", "margin:3em 0 1em;text-align:center");
@@ -237,7 +242,7 @@ export function reflowableReader(shared) {
     button.setAttribute("style",
       "font:inherit;padding:8px 18px;border-radius:6px;cursor:pointer;" +
       "border:1px solid rgba(127,127,127,.5);background:transparent;color:inherit");
-    button.addEventListener("click", () => { departing(); showChapter(state.index + 1); });
+    button.addEventListener("click", () => { departing(); showChapter(shownIndex + 1); });
     footer.appendChild(button);
     doc.body.appendChild(footer);
   }
@@ -258,7 +263,7 @@ export function reflowableReader(shared) {
     }
 
     const [path, fragment] = raw.split("#");
-    const href = path ? resolveHref(state.book.chapters[state.index].href, path) : state.book.chapters[state.index].href;
+    const href = path ? resolveHref(state.book.chapters[shownIndex].href, path) : state.book.chapters[shownIndex].href;
 
     if (event.metaKey || event.ctrlKey) {
       invoke("open_in_new_window", { path: state.book.path, href });
@@ -412,7 +417,7 @@ export function reflowableReader(shared) {
     /// 行き先（章の番号）。目次や当たりは経路で言ってくる。
     locate: (href) => chapterOfHref(href),
     show: (index, options = {}) => showChapter(index, options.fragment || null, options.goTo || null),
-    currentHref: () => (state.book.chapters[state.index] || {}).href,
+    currentHref: () => (state.book.chapters[shownIndex] || {}).href,
 
     position() {
       const doc = $("page").contentDocument;
@@ -437,7 +442,7 @@ export function reflowableReader(shared) {
     step(delta) {
       // 読み込み中の分は取っておき、着いてからまとめて動かす。
       if (arriving) { arriving.queuedSteps += delta; return; }
-      const index = state.index + delta;
+      const index = shownIndex + delta;
       if (index < 0 || index >= state.book.chapters.length) return;
       departing();
       showChapter(index);
@@ -461,11 +466,16 @@ export function reflowableReader(shared) {
     /// 検索の当たりの行き先。
     hitTarget: (hit) => chapterOfHref(hit.href),
     /// しおりに付ける名前。
-    label: () => (state.book.chapters[state.index] || {}).title || "",
+    label: () => (state.book.chapters[shownIndex] || {}).title || "",
     /// いま読んでいるところを、別の窓で開くときの言い方。
-    hereHref: () => (state.book.chapters[state.index] || {}).href || "",
+    hereHref: () => (state.book.chapters[shownIndex] || {}).href || "",
     /// 別の窓で開いたときの枠。リフローは印が本文に入って配られるので、何も要らない。
     paintMark: async () => {},
+    /// いまどこにいるか。本文は章の番号で言う。
+    at: () => String(shownIndex),
+    /// 次の章があるか。章末の行き先を出すかどうかも、これで決まる。
+    canGoNext: () => shownIndex + 1 < (state.book.chapters || []).length,
+
     /// 印を外す。本文は 1 つの文書なので、そこだけ見ればよい。
     clearMarks: () => unwrapMarks($("page").contentDocument),
     /// ページの一覧はリフローには無い。並べ方も窓の大きさも本文には効かない。
@@ -482,13 +492,17 @@ export function reflowableReader(shared) {
       $("page").hidden = false;
       $("fit").hidden = true;
       $("layout").hidden = true;
-      state.pageSize = null;
       state.zoom = state.settings.epubZoom || 1;
       $("zoom-level").textContent = Math.round(state.zoom * 100) + "%";
       const index = this.locate(href || saved.position.href) ?? 0;
       // 章を名指しで開くときは、覚えていた場所ではなく、指された場所へ着く。
       return showChapter(index, fragment || null, href ? null : saved.position);
     },
+
+    /// いまどこにいるか。本文は章の番号で言う。
+    at: () => String(shownIndex),
+    /// 次の章があるか。章末の行き先を出すかどうかも、これで決まる。
+    canGoNext: () => shownIndex + 1 < (state.book.chapters || []).length,
 
     /// 印を外す。本文は 1 つの文書なので、そこだけ見ればよい。
     clearMarks: () => unwrapMarks($("page").contentDocument),
