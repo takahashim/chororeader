@@ -94,18 +94,7 @@ pub fn run() {
             focus_webview,
             ui_log,
         ])
-        // 窓が鍵盤を得たら、WebView を受け手に戻す。
-        // ファイルダイアログが受け手を奪ったまま返さないことがあり、
-        // そうなると画面側では焦点が当たって見えるのにキーが 1 つも届かない。
         .on_window_event(|window, event| {
-            // ただし戻した拍子にまた知らせが来るので、続けざまには戻さない。
-            if let tauri::WindowEvent::Focused(true) = event {
-                if should_refocus(window.label()) {
-                    for webview in window.webviews() {
-                        let _ = webview.set_focus();
-                    }
-                }
-            }
             // 落とされた書籍は、1 冊につき 1 つの窓で開く。
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
                 windows::open_dropped(&window.app_handle().clone(), paths);
@@ -328,29 +317,6 @@ fn library(store: tauri::State<'_, Store>) -> Vec<Shelved> {
 #[tauri::command]
 fn window_count(app: tauri::AppHandle) -> usize {
     app.webview_windows().len()
-}
-
-/// いま受け手を戻してよいか。
-///
-/// `set_focus` は焦点の知らせを呼び返し、その知らせにまた応じると際限がなくなる。
-/// Windows では実際に毎秒何百回と回り、イベントの列が詰まって画面からの命令が
-/// 数十秒遅れた（動作確認が 120 秒で打ち切られていたのはこれである）。
-/// 自分で戻した直後の知らせは自分の呼び返しとみなし、一定のあいだ応じない。
-fn should_refocus(label: &str) -> bool {
-    use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
-    use std::time::{Duration, Instant};
-    static LAST: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
-    let last = LAST.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut last = last.lock().unwrap();
-    let now = Instant::now();
-    match last.get(label) {
-        Some(t) if now.duration_since(*t) < Duration::from_millis(1000) => false,
-        _ => {
-            last.insert(label.to_string(), now);
-            true
-        }
-    }
 }
 
 /// 献立の道が通っているかを、治具から確かめるための試し撃ち。
