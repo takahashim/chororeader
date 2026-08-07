@@ -229,6 +229,17 @@ struct AppCommands: Commands {
             .disabled(session == nil)
         }
 
+        // 情報は ⌘I。Finder の「情報を見る」と同じ割り当てにする。
+        // 診断（⌘⌥I）とは役目が違う。あちらは表示がおかしいときの切り分け。
+        CommandGroup(after: .newItem) {
+            Divider()
+            Button("この書籍の情報…") {
+                NotificationCenter.default.post(name: .choroShowProperties, object: nil)
+            }
+            .keyboardShortcut("i", modifiers: .command)
+            .disabled(session == nil)
+        }
+
         CommandGroup(after: .sidebar) {
             Button("サイドバーの表示を切り替え") {
                 NotificationCenter.default.post(name: .choroToggleSidebar, object: nil)

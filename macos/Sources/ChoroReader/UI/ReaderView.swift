@@ -26,6 +26,7 @@ struct ReaderView: View {
     @State private var sidebarVisible: NavigationSplitViewVisibility = .automatic
     @State private var showSettings = false
     @State private var showDiagnostics = false
+    @State private var showProperties = false
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -62,8 +63,14 @@ struct ReaderView: View {
         .onReceive(NotificationCenter.default.publisher(for: .choroShowDiagnostics)) { _ in
             showDiagnostics = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .choroShowProperties)) { _ in
+            showProperties = true
+        }
         .sheet(isPresented: $showDiagnostics) {
             DiagnosticsView(session: session)
+        }
+        .sheet(isPresented: $showProperties) {
+            PropertiesView(session: session)
         }
     }
 
@@ -194,6 +201,7 @@ extension Notification.Name {
     static let choroFocusLibrarySearch = Notification.Name("choroFocusLibrarySearch")
     static let choroToggleSidebar = Notification.Name("choroToggleSidebar")
     static let choroShowDiagnostics = Notification.Name("choroShowDiagnostics")
+    static let choroShowProperties = Notification.Name("choroShowProperties")
 }
 
 struct ReaderSessionFocusKey: FocusedValueKey {
