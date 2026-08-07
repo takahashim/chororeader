@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 
 enum SidebarTab: String, CaseIterable, Identifiable {
-    case toc, thumbnails, search, bookmarks
+    case toc, thumbnails, search, related, bookmarks
     var id: String { rawValue }
 
     var label: String {
@@ -11,6 +11,7 @@ enum SidebarTab: String, CaseIterable, Identifiable {
         case .toc: return "目次"
         case .thumbnails: return "ページ"
         case .search: return "検索"
+        case .related: return "関連"
         case .bookmarks: return "しおり"
         }
     }
@@ -19,6 +20,7 @@ enum SidebarTab: String, CaseIterable, Identifiable {
         case .toc: return "list.bullet.indent"
         case .thumbnails: return "square.grid.2x2"
         case .search: return "magnifyingglass"
+        case .related: return "point.3.connected.trianglepath.dotted"
         case .bookmarks: return "bookmark"
         }
     }
@@ -44,6 +46,10 @@ final class ReaderSession: ObservableObject {
     /// いまの一覧を出した語。欄の文字は引いたあとにも書き換わるので、別に覚えておく。
     private(set) var searchedQuery = ""
     @Published var isSearching = false
+    /// いま読んでいる場所に関連する、他の書籍の箇所。
+    @Published var related: [RelatedPassage] = []
+    /// 関連箇所が出せない理由。無ければ出せている。
+    @Published var relatedReason: String?
     @Published var searchTruncated = false
     @Published var status: String?
 
@@ -67,7 +73,14 @@ final class ReaderSession: ObservableObject {
     var isPaged: Bool { pdf != nil || fixed != nil }
     /// サイドバーに出すタブ。形式によって使えないものは並べない。
     var availableTabs: [SidebarTab] {
-        SidebarTab.allCases.filter { $0 != .thumbnails || thumbnails != nil }
+        SidebarTab.allCases.filter {
+            switch $0 {
+            case .thumbnails: return thumbnails != nil
+            // 意味の層を入にしていなければ、そんな考え方があること自体を見せない。
+            case .related: return SemanticIndexBuilder.shared.enabled
+            default: return true
+            }
+        }
     }
 
     init(document: BookDocument, startLocator: Locator?) {
@@ -134,6 +147,36 @@ final class ReaderSession: ObservableObject {
                 self?.pdf?.applyLayout()
             }
             .store(in: &cancellables)
+
+        // 関連箇所は場所が変わるたびに引き直す。位置の保存より粗くてよい。
+        publisher
+            .debounce(for: .milliseconds(600), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshRelated() }
+            .store(in: &cancellables)
+        refreshRelated()
+    }
+
+    // MARK: - 関連箇所
+
+    /// いまの場所に関連する箇所を引き直す。
+    ///
+    /// **推論は回さない。** いまの節のベクトルは既に索引にあるので、
+    /// 読むのはほどいた索引だけである。前の筋で呼んでよい。
+    func refreshRelated() {
+        guard SemanticIndexBuilder.shared.enabled else {
+            related = []
+            relatedReason = nil
+            return
+        }
+        guard let here = SemanticIndexStore.cached(for: document.url) else {
+            related = []
+            relatedReason = SemanticIndexBuilder.shared.working != nil
+                ? "この本を読み込んでいます"
+                : "この本はまだ読み込んでいません"
+            return
+        }
+        related = RelatedPassages.find(near: locator, in: here, excluding: document.id)
+        relatedReason = related.isEmpty ? "近い箇所は見つかりませんでした" : nil
     }
 
     // MARK: - 移動

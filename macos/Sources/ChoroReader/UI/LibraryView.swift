@@ -23,6 +23,7 @@ enum ShelfMode: String, CaseIterable {
 struct LibraryView: View {
     @ObservedObject private var store = LibraryStore.shared
     @Environment(\.openWindow) private var openWindow
+    @State private var showSemantic = false
     @AppStorage("shelfMode") private var mode: ShelfMode = .cover
     @State private var dropTargeted = false
     /// 選んでいる書籍。表でも表紙でも同じものを使う。
@@ -89,6 +90,14 @@ struct LibraryView: View {
                     Label("加える", systemImage: "plus")
                 }
                 .disabled(importing.running)
+            }
+            ToolbarItem {
+                Button { showSemantic.toggle() } label: {
+                    Label("意味の層", systemImage: "point.3.connected.trianglepath.dotted")
+                }
+                .popover(isPresented: $showSemantic, arrowEdge: .bottom) {
+                    SemanticSettingsView().frame(width: 340).padding(16)
+                }
             }
         }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in

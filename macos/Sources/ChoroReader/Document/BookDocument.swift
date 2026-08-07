@@ -213,6 +213,8 @@ final class DocumentRegistry {
         documents[id] = doc
         LibraryStore.shared.record(doc)
         IndexBuilder.scheduleIfNeeded(for: url)
+        // 意味の索引は入にしていなければ何もしない。入なら、開いた本を先に作る。
+        SemanticIndexBuilder.shared.prioritize(url)
         return doc
     }
 

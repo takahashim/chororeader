@@ -8,6 +8,8 @@ extension TOCEntry {
 struct SidebarView: View {
     @ObservedObject var session: ReaderSession
     var searchFocused: FocusState<Bool>.Binding
+    /// 関連箇所は**別の書籍**を開く。同じ書籍を開き直す導線（openInNewWindow）では届かない。
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,6 +28,7 @@ struct SidebarView: View {
             case .toc: tocList
             case .thumbnails: thumbnailList
             case .search: searchPane
+            case .related: relatedList
             case .bookmarks: bookmarkList
             }
         }
@@ -196,6 +199,63 @@ struct SidebarView: View {
                 .listStyle(.inset)
             }
         }
+    }
+
+    // MARK: - 関連
+
+    /// いま読んでいる場所に関連する、他の書籍の箇所。
+    ///
+    /// **検索と見せ方を分ける**（spec-local-ai.md 第 2 章）。
+    /// 検索には「当たり」があるが、意味の近さには無い。
+    /// 当たった語を囲むこともできないので、近さを添えて「候補」として並べる。
+    private var relatedList: some View {
+        Group {
+            if let reason = session.relatedReason {
+                placeholder(reason)
+            } else {
+                List {
+                    Section {
+                        ForEach(session.related) { passage in
+                            relatedRow(passage)
+                        }
+                    } header: {
+                        Text("この場所に近い \(session.related.count) 件")
+                    }
+                }
+                .listStyle(.sidebar)
+            }
+        }
+    }
+
+    private func relatedRow(_ passage: RelatedPassage) -> some View {
+        Button {
+            openWindow(value: BookRoute(path: passage.book.path,
+                                        locator: passage.unit.target, query: nil))
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(passage.book.displayTitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    // 近さを出す。当たりではないので、どれくらい近いのかを人が測れるようにする。
+                    Text(String(format: "%.2f", passage.score))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+                if !passage.unit.heading.isEmpty {
+                    Text(passage.unit.heading).font(.callout).lineLimit(2)
+                }
+                Text(passage.unit.excerpt)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func placeholder(_ text: String) -> some View {
