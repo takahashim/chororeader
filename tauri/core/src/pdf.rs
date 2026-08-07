@@ -93,10 +93,6 @@ impl PdfDocument {
         Some(png)
     }
 
-    pub fn search(&self, needle: &str, limit: usize) -> Vec<PageHit> {
-        self.search_within(needle, limit, None)
-    }
-
     /// `only` に挙がったページだけを見る。`None` なら全部。
     ///
     /// 索引で絞った候補を渡すための入り口。索引は候補を減らすだけで当たりは決めないので、
@@ -269,10 +265,7 @@ impl PdfWorker {
             .unwrap_or((0.0, 0.0))
     }
 
-    pub fn search(&self, needle: &str, limit: usize) -> Vec<PageHit> {
-        self.search_within(needle, limit, None)
-    }
-
+    /// `only` に挙がったページだけを見る。`None` なら全部。
     pub fn search_within(&self, needle: &str, limit: usize, only: Option<Vec<u32>>) -> Vec<PageHit> {
         self.ask(|reply| Job::Search {
             needle: needle.to_string(),

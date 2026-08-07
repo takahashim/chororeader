@@ -42,10 +42,10 @@ pub struct BookReport {
     pub has_encryption_metadata: bool,
 }
 
-/// 書庫を 1 回だけ舐めて数えるもの。
+/// 書庫の中身を種類ごとに数えたもの。
 ///
-/// ZIP からの取り出しは高いので、走査は 1 度で済ませる。
-/// そのぶん数え上げが 1 か所に集まるため、器を分けて `make` から追い出す。
+/// 名前の一覧を 1 度だけ辿り、取り出す必要のある項目（CSS と XHTML）だけを読む。
+/// 同じ項目を二度読むことはない。数え上げが一か所に集まるので、`make` から器を分ける。
 #[derive(Default)]
 struct Tally {
     css_files: usize,

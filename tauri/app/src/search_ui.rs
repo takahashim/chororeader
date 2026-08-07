@@ -60,7 +60,7 @@ pub fn search_book(
             Ok(epub_hits(outcome.results))
         }
         Content::Pdf { worker, .. } => Ok(worker
-            .search(&query, search::RESULT_LIMIT)
+            .search_within(&query, search::RESULT_LIMIT, None)
             .into_iter()
             .map(pdf_hit)
             .collect()),
