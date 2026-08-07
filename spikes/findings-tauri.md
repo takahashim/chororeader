@@ -323,3 +323,24 @@ window の focus → invoke("focus_webview") → set_focus() → window の focu
 
 焦点そのものは人が押さないと確かめられないが、**回った回数なら数えられる**。
 放っておいた 1 秒の `focus_webview` の回数を動作確認に入れた（輪があると 303 回）。
+
+## 動作確認の不合格が、終了コードに出ていなかった（2026-08-07）
+
+上の輪を検査に入れたところ、不合格 1 と報告しているのに終了コードが 0 だった。
+`run-selftest.ps1` も CI も終了コードだけを見るので、**不合格が緑として通る**。
+
+`AppHandle::exit(1)` は届かない。tauri-runtime-wry は `RequestExit` を受けたあと
+`ControlFlow::Exit`（＝コード 0）を立てており、渡した値を捨てている（2.11.4）。
+
+```rust
+Message::RequestExit(code) => {
+  ...
+  if !should_prevent {
+    *control_flow = ControlFlow::Exit;   // code が使われない
+  }
+}
+```
+
+`App::run_return` は値を返すが、上流がここで捨てているので 0 のままである。
+動作確認の結果を受けたところで、Tauri 自身が exit に失敗したときと同じ手順
+（`cleanup_before_exit` のあと `std::process::exit`）で終わるようにした。

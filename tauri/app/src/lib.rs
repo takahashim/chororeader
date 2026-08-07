@@ -376,7 +376,15 @@ fn selftest_report(app: tauri::AppHandle, results: serde_json::Value) {
         Err(_) => print!("{report}"),
     }
 
-    app.exit(if failed == 0 { 0 } else { 1 });
+    // **終了コードは自分で返す。`app.exit` では届かない。**
+    //
+    // tauri-runtime-wry は RequestExit を受けたあと `ControlFlow::Exit`
+    // （＝コード 0）を立てており、渡した値を捨てている（2.11.4 で確認）。
+    // つまり不合格でも終了コードは 0 になる。run-selftest.ps1 も CI も
+    // 終了コードだけを見るので、**不合格が緑として通っていた**。
+    // Tauri 自身が exit に失敗したときと同じ手順で、こちらから終わる。
+    app.cleanup_before_exit();
+    std::process::exit(if failed == 0 { 0 } else { 1 });
 }
 
 // MARK: 窓を増やす
