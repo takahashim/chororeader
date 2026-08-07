@@ -1,17 +1,20 @@
 import Foundation
 import PDFKit
 
-/// 意味の索引が載せる単位。節ひとつぶん。
+/// 意味の索引が載せる単位。**段落ひとつぶん。**
 ///
 /// 本文の全文は持たない（spec-local-ai.md 第 4.2 節）。持つのは
-/// 飛び先・見出しの道筋・候補を見分けるための短い抜き書きだけである。
+/// 飛び先・どの節の話か・当たりを見分けるための短い抜き書きだけである。
 struct SemanticUnit: Hashable {
     /// 飛び先。**表題は入れない**（`heading` と二重の状態になるため）。
     /// 渡すときは `target` を使う。
     var locator: Locator
-    /// 見出しの道筋（章 → 節）。無ければ空。
+    /// この段落を含む節の見出し。どこの話かを見分けるために添える。
     var heading: String
-    /// 代表文。一覧で人が見分けるためのもので、検索には使わない。
+    /// 抜き書き。**段落そのものの頭である。**
+    ///
+    /// 節を単位にしていた頃は「節の冒頭」で、当たった理由とは無関係だった。
+    /// 段落なら、出ている文がそのまま当たった場所になる。
     var excerpt: String
 
     /// 移動に渡す飛び先。表題は見出しから埋める。
@@ -22,30 +25,37 @@ struct SemanticUnit: Hashable {
     }
 }
 
-/// 書籍を節に切る。
+/// 書籍を段落に切る。
 ///
-/// 既存の切り方をそのまま使い、新しい文書モデルは作らない（第 4.1 節）。
-/// 二字組索引の単位（EPUB は読み順の 1 項目、PDF は 1 ページ）より細かい。
-/// 意味の索引は「この節は何の話か」を 1 本のベクトルにするので、
-/// ページで切ると話の途中で切れ、章で切ると話が混ざるためである。
+/// **節ではなく段落にする。** 節を 1 本のベクトルにすると、3 つの話題に触れた節が
+/// そのどれでもない平均になる。着いた先も節の頭で、なぜ当たったのかも見えない。
+/// 段落なら、飛び先がその段落になり、出す文がその段落そのものになる。
+///
+/// なお spikes/findings-unit-size.md の「割らない方がよい」は**この話ではない**。
+/// あれは割った片を最大値で節にまとめ直し、節を順位付けする設定の話で、
+/// 片の多い節ほど得をするのが悪さの正体だった。片そのものを単位にすれば、
+/// まとめ直しが無いのでその仕組みは働かない。
 enum SemanticUnits {
-    /// 短すぎるものは載せない。扉・奥付・章番号だけの頁が拾われる。
-    static let defaultLeastCharacters = 200
+    /// 1 段落の狙い。日本語で 400 字はおよそ 200 トークン、技術書の 1〜2 段落にあたる。
+    /// 小さくするほど的は絞れるが、文脈が減り、索引も膨らむ。ここが釣り合いである。
+    static let targetCharacters = 400
+    /// これ未満は独り立ちさせない。前の段落に足すか、捨てる。
+    static let defaultLeastCharacters = 100
+    /// 区切りが見つからなくても、ここを超えたら切る。
+    private static let mostCharacters = 800
+    /// 抜き書きの長さ。一覧で 2〜3 行に収まる程度。
+    private static let excerptCharacters = 160
+    /// 飛び先に載せる目印の長さ。**長すぎると綴じ方の違いで一致しない。**
+    private static let anchorCharacters = 30
 
-    /// 抜き書きの長さ。一覧に 1 行で出す前提。
-    private static let excerptCharacters = 120
-
-    /// 切り出した節と、埋め込みに渡す本文。
+    /// 切り出した段落と、埋め込みに渡す本文。
     ///
     /// 本文を `SemanticUnit` に持たせないのは、索引に書かないものだからである。
-    /// 作るときだけ要るので、組にして返す。
     struct Piece {
         var unit: SemanticUnit
         var text: String
     }
 
-    /// 下限を渡せるようにしてあるのは検査のためである
-    /// （同梱のサンプルは読み方を見せるためのもので、既定の下限には届かない）。
     static func pieces(of source: SearchIndexStore.Source,
                        leastCharacters: Int = defaultLeastCharacters) -> [Piece] {
         switch source {
@@ -59,39 +69,32 @@ enum SemanticUnits {
 
     // MARK: - EPUB
 
-    /// 読み順の 1 項目を、見出し（h1〜h3）で割る。
-    ///
-    /// 章がそのまま 1 単位になる本もあれば、1 章に 10 節ある本もある。
-    /// 見出しが無ければ章まるごとを 1 単位とする。
     private static func epubPieces(resources: ResourceProvider,
                                    publication: EPUBPublication,
                                    leastCharacters: Int) -> [Piece] {
         var made: [Piece] = []
         for link in publication.readingOrder {
             guard let data = try? resources.read(link.href) else { continue }
-            let html = CSSCompat.decodeText(data)
-            let sections = split(html)
+            let sections = split(CSSCompat.decodeText(data))
 
-            // 章の中での位置は、取り出した本文の長さで測る。
-            // 綴じ方（タグの量）に左右されないようにするためである。
-            let lengths = sections.map { HTMLText.extract($0.html).text.count }
-            let total = max(1, lengths.reduce(0, +))
+            // 章の中での位置は、取り出した本文の長さで測る。綴じ方に左右されないため。
+            let texts = sections.map { tidy(HTMLText.extract($0.html).text) }
+            let total = max(1, texts.reduce(0) { $0 + $1.count })
             var passed = 0
 
             for (at, section) in sections.enumerated() {
-                let text = HTMLText.extract(section.html).text
-                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let progression = Double(passed) / Double(total)
-                passed += lengths[at]
-                guard text.count >= leastCharacters else { continue }
-                let locator = Locator(href: link.href,
-                                      progression: progression,
-                                      fragment: section.fragment)
-                made.append(Piece(unit: SemanticUnit(locator: locator,
-                                                     heading: section.heading,
-                                                     excerpt: excerpt(text)),
-                                  text: text))
+                for passage in passages(in: texts[at], leastCharacters: leastCharacters) {
+                    let locator = Locator(href: link.href,
+                                          progression: min(1, Double(passed + passage.offset) / Double(total)),
+                                          // 節の頭の段落なら見出しの id へ、そうでなければ本文で探す
+                                          fragment: passage.offset == 0 ? section.fragment : nil,
+                                          text: anchor(passage.text))
+                    made.append(Piece(unit: SemanticUnit(locator: locator,
+                                                         heading: section.heading,
+                                                         excerpt: excerpt(passage.text)),
+                                      text: passage.text))
+                }
+                passed += texts[at].count
             }
         }
         return made
@@ -99,12 +102,14 @@ enum SemanticUnits {
 
     private struct Section {
         var heading: String
-        /// 見出しに id があれば、そこへ直に飛べる。
         var fragment: String?
         var html: String
     }
 
     /// 見出しの位置で HTML を割る。見出しが無ければ丸ごと 1 つ。
+    ///
+    /// 段落に切るのはこの後だが、**見出しは先に拾っておく**。
+    /// どの節の話かが分からないと、一覧で見分けが付かない。
     private static func split(_ html: String) -> [Section] {
         guard let re = try? NSRegularExpression(
             pattern: #"(?is)<h[1-3]\b([^>]*)>(.*?)</h[1-3]>"#) else {
@@ -123,9 +128,7 @@ enum SemanticUnits {
         for (at, match) in matches.enumerated() {
             let to = at + 1 < matches.count ? matches[at + 1].range.location : text.length
             let range = NSRange(location: match.range.location, length: to - match.range.location)
-            let heading = HTMLText.extract(text.substring(with: match.range(at: 2))).text
-                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let heading = tidy(HTMLText.extract(text.substring(with: match.range(at: 2))).text)
             made.append(Section(heading: heading,
                                 fragment: identifier(in: text.substring(with: match.range(at: 1))),
                                 html: text.substring(with: range)))
@@ -143,64 +146,138 @@ enum SemanticUnits {
 
     // MARK: - PDF
 
-    /// アウトラインの項目で切る。無ければ固定のページ窓で代える。
-    ///
-    /// スパイクでは 52 冊すべてがアウトラインを持っていたが、
-    /// 持たない本もあるので窓も残す（第 4.1 節）。
+    /// **ページごとに切る。** 節の範囲でまとめると、着いた先が節の頭になってしまう。
+    /// ページ単位なら飛び先のページが正確に決まり、目印で行まで寄せられる。
     private static func pdfPieces(_ pdf: PDFKit.PDFDocument, leastCharacters: Int) -> [Piece] {
-        var pages: [String] = []
-        for at in 0 ..< pdf.pageCount { pages.append(pdf.page(at: at)?.string ?? "") }
-
-        var marks = outlineMarks(pdf)
-        if marks.count < 3 {
-            // 窓は 8 ページとする。節の見当が付かないので、話の切れ目は諦めて等分する。
-            marks = stride(from: 0, to: pdf.pageCount, by: 8).map { (page: $0, title: "") }
-        }
-
+        let titles = sectionTitles(pdf)
         var made: [Piece] = []
-        for (at, mark) in marks.enumerated() {
-            let to = at + 1 < marks.count ? marks[at + 1].page : pdf.pageCount
-            guard mark.page >= 0, mark.page < to, to <= pages.count else { continue }
-            let text = pages[mark.page ..< to].joined(separator: "\n")
-                .replacingOccurrences(of: "[ \t]+", with: " ", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard text.count >= leastCharacters else { continue }
-            let locator = Locator(page: mark.page,
-                                  progression: Double(mark.page) / Double(max(1, pdf.pageCount)))
-            made.append(Piece(unit: SemanticUnit(locator: locator,
-                                                 heading: mark.title,
-                                                 excerpt: excerpt(text)),
-                              text: text))
+        for page in 0 ..< pdf.pageCount {
+            let text = tidy(pdf.page(at: page)?.string ?? "")
+            guard !text.isEmpty else { continue }
+            for passage in passages(in: text, leastCharacters: leastCharacters) {
+                let locator = Locator(page: page,
+                                      progression: Double(page) / Double(max(1, pdf.pageCount)),
+                                      text: anchor(passage.text))
+                made.append(Piece(unit: SemanticUnit(locator: locator,
+                                                     heading: titles[page],
+                                                     excerpt: excerpt(passage.text)),
+                                  text: passage.text))
+            }
         }
         return made
     }
 
-    /// アウトラインを、ページ順に並んだ目印にほどく。
-    private static func outlineMarks(_ pdf: PDFKit.PDFDocument) -> [(page: Int, title: String)] {
-        guard let root = pdf.outlineRoot else { return [] }
-        var made: [(page: Int, title: String)] = []
+    /// ページごとの「いまどの節か」。アウトラインから引く。
+    private static func sectionTitles(_ pdf: PDFKit.PDFDocument) -> [String] {
+        var titles = [String](repeating: "", count: pdf.pageCount)
+        guard let root = pdf.outlineRoot else { return titles }
+
+        var marks: [(page: Int, title: String)] = []
         var stack = [root]
         while let node = stack.popLast() {
             for at in (0 ..< node.numberOfChildren).reversed() {
                 guard let child = node.child(at: at) else { continue }
                 if let page = child.destination?.page {
-                    made.append((pdf.index(for: page), child.label ?? ""))
+                    marks.append((pdf.index(for: page), child.label ?? ""))
                 }
                 stack.append(child)
             }
         }
-        // 同じページに複数の項目が刺さることがある。最初のものを残す。
-        made.sort { $0.page < $1.page }
-        var seen = Set<Int>()
-        return made.filter { seen.insert($0.page).inserted }
+        marks.sort { $0.page < $1.page }
+
+        var current = ""
+        var next = 0
+        for page in 0 ..< pdf.pageCount {
+            while next < marks.count, marks[next].page <= page {
+                current = marks[next].title
+                next += 1
+            }
+            titles[page] = current
+        }
+        return titles
+    }
+
+    // MARK: - 段落に切る
+
+    private struct Passage {
+        /// 元の本文の中での位置。章内の位置を測るのに使う。
+        var offset: Int
+        var text: String
+    }
+
+    /// 文の切れ目で詰めて、狙いの長さの段落にする。
+    ///
+    /// **短い切れ端は前に足す。** 見出しだけの行や 1 文だけの段落を独り立ちさせると、
+    /// 文脈の無いベクトルが索引を埋める。
+    private static func passages(in text: String, leastCharacters: Int) -> [Passage] {
+        guard text.count >= leastCharacters else { return [] }
+
+        var made: [Passage] = []
+        var current = ""
+        var start = 0
+        var seen = 0
+
+        for chunk in chunks(of: text) {
+            if current.isEmpty { start = seen }
+            current += chunk
+            seen += chunk.count
+            if current.count >= targetCharacters {
+                made.append(Passage(offset: start, text: tidy(current)))
+                current = ""
+            }
+        }
+        if !current.isEmpty {
+            let last = tidy(current)
+            if last.count >= leastCharacters {
+                made.append(Passage(offset: start, text: last))
+            } else if var previous = made.popLast() {
+                // 端数は前に足す。独り立ちさせない。
+                previous.text = tidy(previous.text + last)
+                made.append(previous)
+            }
+        }
+        return made
+    }
+
+    /// 詰める前の切れ端。改行か句点で割り、長すぎるものは力尽くで切る。
+    private static func chunks(of text: String) -> [String] {
+        var made: [String] = []
+        var current = ""
+        for character in text {
+            current.append(character)
+            let breaks = character == "\n" || character == "。" || character == "．"
+                || character == "！" || character == "？"
+            if breaks || current.count >= mostCharacters {
+                made.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { made.append(current) }
+        return made
     }
 
     // MARK: - 共通
 
-    private static func excerpt(_ text: String) -> String {
-        let trimmed = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    private static func tidy(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > excerptCharacters else { return trimmed }
-        return String(trimmed.prefix(excerptCharacters)) + "…"
+    }
+
+    private static func excerpt(_ text: String) -> String {
+        guard text.count > excerptCharacters else { return text }
+        return String(text.prefix(excerptCharacters)) + "…"
+    }
+
+    /// 飛び先に載せる目印。
+    ///
+    /// 読み手はこれを本文の中から探して、そこへ寄せる
+    /// （EPUB は `choroScrollToText`、PDF は `findString`）。
+    /// **長いほど外れやすい。** 取り出した本文と画面上の本文は、
+    /// 空白や組み方の都合で完全には一致しないためである。
+    /// 見つからなければ章内の位置（EPUB）やページ（PDF）へ落ちる。
+    private static func anchor(_ text: String) -> String? {
+        let trimmed = tidy(text)
+        guard trimmed.count >= 8 else { return nil }
+        return String(trimmed.prefix(anchorCharacters))
     }
 }

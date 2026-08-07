@@ -74,6 +74,8 @@ extension SemanticIndex {
             // 位置は 10 万分の 1 まで。1,000 ページの本で 0.01 ページぶんの粗さで足りる。
             appendNumber(&out, UInt64((unit.locator.progression * 100_000).rounded()))
             append(&out, unit.locator.fragment ?? "")
+            // 本文の目印。これが無いと、着くのは章（ページ）の頭までになる。
+            append(&out, unit.locator.text ?? "")
             append(&out, unit.heading)
             append(&out, unit.excerpt)
         }
@@ -122,12 +124,14 @@ extension SemanticIndex {
         units.reserveCapacity(Int(total))
         for _ in 0 ..< Int(total) {
             guard let href = string(), let page = number(), let progression = number(),
-                  let fragment = string(), let heading = string(), let excerpt = string()
+                  let fragment = string(), let anchor = string(),
+                  let heading = string(), let excerpt = string()
             else { return nil }
             let locator = Locator(href: href.isEmpty ? nil : href,
                                   page: page == 0 ? nil : Int(page) - 1,
                                   progression: Double(progression) / 100_000,
-                                  fragment: fragment.isEmpty ? nil : fragment)
+                                  fragment: fragment.isEmpty ? nil : fragment,
+                                  text: anchor.isEmpty ? nil : anchor)
             units.append(SemanticUnit(locator: locator, heading: heading, excerpt: excerpt))
         }
 

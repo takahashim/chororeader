@@ -1,36 +1,101 @@
 import XCTest
 @testable import ChoroReader
 
-/// 節への切り分け。
+/// 段落への切り分け。
 ///
-/// 二字組索引より細かく切る（章ではなく節）ので、既存の検査では守られない。
-/// 同梱のサンプルで実際に切ってみる。
+/// **粒度が粗くても症状は出ない。** 索引はできるし検索も返る。
+/// ただ節を単位にしていた頃は、着いた先が節の頭で、一覧に出る文も節の冒頭だった。
+/// なぜ当たったのかが見えないので、渡る理由が立たない。
+///
+/// 段落であること・飛び先が段落を指すこと・出す文が当たった段落そのものであること、を押さえる。
 final class SemanticUnitsTests: XCTestCase {
     private func sample(_ name: String) throws -> URL {
-        let url = try XCTUnwrap(Bundle.module.url(forResource: name, withExtension: nil))
-        return url
+        try XCTUnwrap(Bundle.module.url(forResource: name, withExtension: nil))
     }
 
-    func test_EPUBを節に切る() throws {
-        let source = try XCTUnwrap(SearchIndexStore.open(sample("sample-reflowable.epub")))
-        // 同梱のサンプルは読み方を見せるためのもので短い。下限を下げて中身を見る。
-        let pieces = SemanticUnits.pieces(of: source, leastCharacters: 40)
-        XCTAssertFalse(pieces.isEmpty, "1 つも切り出せていない")
-
+    /// 節ではなく段落に切れていること。
+    func test_節を段落に割る() throws {
+        // 狙いの長さ（400 字）の何倍かにする。短いと 1 つに収まって、割れているか分からない。
+        let body = (0 ..< 24)
+            .map { "これは架空の技術書の第 \($0) 段落である。" + String(repeating: "説明が続く。", count: 12) }
+            .joined(separator: "\n")
+        let pieces = SemanticUnits.pieces(of: .epub(resources: OneFile("<h2>架空の節</h2><p>\(body)</p>"),
+                                                    publication: publication()))
+        XCTAssertGreaterThan(pieces.count, 3, "節がまるごと 1 単位になっている")
         for piece in pieces {
-            XCTAssertNotNil(piece.unit.locator.href, "EPUB なのに飛び先に章が無い")
-            XCTAssertNil(piece.unit.locator.page)
-            XCTAssertFalse(piece.text.isEmpty)
-            XCTAssertFalse(piece.unit.excerpt.isEmpty, "見分けるための抜き書きが無い")
-            XCTAssertLessThanOrEqual(piece.unit.excerpt.count, 121)
-            XCTAssertTrue((0 ... 1).contains(piece.unit.locator.progression),
-                          "章内の位置が範囲の外：\(piece.unit.locator.progression)")
+            XCTAssertEqual(piece.unit.heading, "架空の節", "どの節の話かが失われている")
+            // 極端に長い単位は「平均されたベクトル」になり、的が絞れない
+            XCTAssertLessThan(piece.text.count, SemanticUnits.targetCharacters * 3,
+                              "段落が長すぎる：\(piece.text.count) 字")
+            XCTAssertGreaterThanOrEqual(piece.text.count, SemanticUnits.defaultLeastCharacters)
         }
     }
 
-    func test_PDFを節に切る() throws {
+    /// **出す文が、当たった段落そのものであること。**
+    /// 節の冒頭を出していた頃は、当たった理由と無関係だった。
+    func test_抜き書きは段落の頭() throws {
+        let body = String(repeating: "先頭の段落である。", count: 60) + "\n"
+            + String(repeating: "二つめの段落である。", count: 60)
+        let pieces = SemanticUnits.pieces(of: .epub(resources: OneFile("<p>\(body)</p>"),
+                                                    publication: publication()))
+        XCTAssertGreaterThan(pieces.count, 1)
+        for piece in pieces {
+            let head = piece.unit.excerpt.replacingOccurrences(of: "…", with: "")
+            XCTAssertTrue(piece.text.hasPrefix(head), "抜き書きがその段落の頭になっていない")
+        }
+        XCTAssertTrue(pieces.last!.unit.excerpt.contains("二つめ"),
+                      "後ろの段落なのに先頭の文が出ている")
+    }
+
+    /// 飛び先に本文の目印が載ること。
+    /// **これが無いと、着くのは章やページの頭までである。**
+    func test_飛び先に本文の目印が載る() throws {
+        let body = String(repeating: "架空の一節である。", count: 30)
+        let pieces = SemanticUnits.pieces(of: .epub(resources: OneFile("<p>\(body)</p>"),
+                                                    publication: publication()))
+        let first = try XCTUnwrap(pieces.first)
+        let anchor = try XCTUnwrap(first.unit.locator.text)
+        XCTAssertTrue(first.text.hasPrefix(anchor), "目印が段落の頭と一致しない")
+        // 長すぎる目印は、組み方の違いで一致しなくなる
+        XCTAssertLessThanOrEqual(anchor.count, 30)
+    }
+
+    /// 章の中で位置が進むこと。目印が外れたときの落ち先になる。
+    func test_章の中で位置が進む() throws {
+        let body = (0 ..< 8).map { _ in String(repeating: "架空の一節である。", count: 30) }
+            .joined(separator: "\n")
+        let pieces = SemanticUnits.pieces(of: .epub(resources: OneFile("<p>\(body)</p>"),
+                                                    publication: publication()))
+        let progressions = pieces.map(\.unit.locator.progression)
+        XCTAssertEqual(progressions, progressions.sorted(), "位置が進んでいない")
+        XCTAssertEqual(progressions.first ?? -1, 0, accuracy: 1e-6)
+        XCTAssertLessThan(progressions.last ?? 2, 1)
+    }
+
+    /// 短い切れ端を独り立ちさせないこと。
+    /// **させると、文脈の無いベクトルが索引を埋める。**
+    func test_短い切れ端は前に足す() throws {
+        let body = String(repeating: "本体の段落である。", count: 50) + "\n短い。"
+        let pieces = SemanticUnits.pieces(of: .epub(resources: OneFile("<p>\(body)</p>"),
+                                                    publication: publication()))
+        XCTAssertFalse(pieces.contains { $0.text.count < SemanticUnits.defaultLeastCharacters },
+                       "短い切れ端が独り立ちしている")
+        XCTAssertTrue(pieces.last!.text.hasSuffix("短い。"), "端数が捨てられている")
+    }
+
+    func test_短すぎる本文は載せない() throws {
+        let pieces = SemanticUnits.pieces(of: .epub(resources: OneFile("<h2>扉</h2><p>短い。</p>"),
+                                                    publication: publication()))
+        XCTAssertTrue(pieces.isEmpty)
+    }
+
+    // MARK: - 実物
+
+    /// PDF はページごとに切ること。
+    /// **節の範囲でまとめると、着いた先が節の頭になる。**
+    func test_PDFはページごとに切る() throws {
         let source = try XCTUnwrap(SearchIndexStore.open(sample("sample.pdf")))
-        let pieces = SemanticUnits.pieces(of: source, leastCharacters: 40)
+        let pieces = SemanticUnits.pieces(of: source, leastCharacters: 20)
         XCTAssertFalse(pieces.isEmpty)
         for piece in pieces {
             XCTAssertNotNil(piece.unit.locator.page, "PDF なのに飛び先に頁が無い")
@@ -38,41 +103,14 @@ final class SemanticUnitsTests: XCTestCase {
         }
     }
 
-    /// 節は章より細かいこと。
-    ///
-    /// **ここが崩れても動く。** 章のまま切っていても索引はでき、検索も返る。
-    /// ただ「この節は何の話か」が混ざるので、静かに質が落ちるだけである。
-    func test_見出しで割れている() throws {
-        let html = """
-        <html><body>
-        <p>\(String(repeating: "前書きの文である。", count: 40))</p>
-        <h2 id="one">はじめの節</h2>
-        <p>\(String(repeating: "はじめの節の本文である。", count: 40))</p>
-        <h2>つぎの節</h2>
-        <p>\(String(repeating: "つぎの節の本文である。", count: 40))</p>
-        </body></html>
-        """
-        let pieces = SemanticUnits.pieces(of: .epub(resources: OneFile(html: html),
-                                                    publication: publication()))
-        XCTAssertEqual(pieces.count, 3, "見出しで割れていない")
-        XCTAssertEqual(pieces.map(\.unit.heading), ["", "はじめの節", "つぎの節"])
-        // 見出しに id があれば、そこへ直に飛ぶ
-        XCTAssertEqual(pieces[1].unit.locator.fragment, "one")
-        XCTAssertNil(pieces[2].unit.locator.fragment)
-        // 位置は章の中で進む
-        XCTAssertLessThan(pieces[0].unit.locator.progression, pieces[1].unit.locator.progression)
-        XCTAssertLessThan(pieces[1].unit.locator.progression, pieces[2].unit.locator.progression)
-        // 節の本文だけが入っていて、隣の節は混ざらない
-        XCTAssertTrue(pieces[1].text.contains("はじめの節の本文"))
-        XCTAssertFalse(pieces[1].text.contains("つぎの節の本文"))
-    }
-
-    /// 短すぎるものは載せない。扉や章番号だけの頁を拾わないため。
-    func test_短すぎる節は載せない() throws {
-        let html = "<html><body><h2>扉</h2><p>短い。</p></body></html>"
-        let pieces = SemanticUnits.pieces(of: .epub(resources: OneFile(html: html),
-                                                    publication: publication()))
-        XCTAssertTrue(pieces.isEmpty)
+    func test_EPUBを切れる() throws {
+        let source = try XCTUnwrap(SearchIndexStore.open(sample("sample-reflowable.epub")))
+        let pieces = SemanticUnits.pieces(of: source, leastCharacters: 40)
+        XCTAssertFalse(pieces.isEmpty)
+        for piece in pieces {
+            XCTAssertNotNil(piece.unit.locator.href)
+            XCTAssertFalse(piece.unit.excerpt.isEmpty)
+        }
     }
 
     // MARK: - 差し替え
@@ -86,22 +124,8 @@ final class SemanticUnitsTests: XCTestCase {
 
     private final class OneFile: ResourceProvider {
         let html: String
-        init(html: String) { self.html = html }
+        init(_ body: String) { html = "<html><body>\(body)</body></html>" }
         func read(_ path: String) throws -> Data { Data(html.utf8) }
         func contains(_ path: String) -> Bool { true }
-    }
-}
-
-extension SemanticUnitsTests {
-    /// 既定の下限が本当に効いていること。
-    /// **下限が 0 になっていても、索引はできるし検索も返る。**
-    /// 扉や章番号だけの節が候補に湧くだけなので、検査で押さえる。
-    func test_既定の下限が効いている() throws {
-        let url = try XCTUnwrap(Bundle.module.url(forResource: "sample-reflowable.epub",
-                                                  withExtension: nil))
-        let source = try XCTUnwrap(SearchIndexStore.open(url))
-        XCTAssertGreaterThan(SemanticUnits.pieces(of: source, leastCharacters: 40).count, 0)
-        XCTAssertEqual(SemanticUnits.pieces(of: source).count, 0,
-                       "サンプルは既定の下限（\(SemanticUnits.defaultLeastCharacters) 字）に届かないはず")
     }
 }

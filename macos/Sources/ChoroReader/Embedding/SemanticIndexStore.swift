@@ -135,7 +135,9 @@ enum SemanticIndexStore {
     private static func write(_ index: SemanticIndex, for url: URL) {
         guard let (size, modified) = stamp(of: url) else { return }
         var out = Data("CHVB".utf8)
-        out.append(1)
+        // 版 2：単位を節から段落へ変え、飛び先に本文の目印を足した。
+        // 版を上げないと、古い sidecar を新しい読み方で解いて崩れる。
+        out.append(2)
         append(&out, size)
         append(&out, modified)
         out.append(index.encoded())
@@ -147,7 +149,7 @@ enum SemanticIndexStore {
 
     private static func unwrap(_ data: Data) -> (UInt64, UInt64, Data)? {
         let bytes = [UInt8](data)
-        guard bytes.count > 5, Array(bytes[0 ..< 4]) == Array("CHVB".utf8), bytes[4] == 1 else { return nil }
+        guard bytes.count > 5, Array(bytes[0 ..< 4]) == Array("CHVB".utf8), bytes[4] == 2 else { return nil }
         var cursor = 5
         func get() -> UInt64? {
             var value: UInt64 = 0
