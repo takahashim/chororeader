@@ -59,7 +59,12 @@ enum SemanticUnits {
                                    leastCharacters: Int) -> [Piece] {
         var made: [Piece] = []
         var at = 0   // 節の通し番号
-        for link in publication.readingOrder {
+        // **巻末の索引は載せない**（`BackIndex`）。語がひたすら並ぶ紙面は
+        // 何にでも少しずつ似てしまい、意味検索の上位を埋める。
+        // 二字組の検索は別の索引なので、語で引くことは今までどおりできる。
+        let skip = BackIndex.range(in: publication)
+        for (place, link) in publication.readingOrder.enumerated() {
+            if skip?.contains(place) == true { continue }
             guard let data = try? resources.read(link.href) else { continue }
             // 章の中での位置は、取り出した本文の長さで測る。綴じ方に左右されないため。
             // **足し込みを外へ出す**（変数を跨いで進めると、書き忘れても動いてしまう）。
@@ -157,11 +162,14 @@ enum SemanticUnits {
     /// ページ単位なら飛び先のページが正確に決まり、目印で行まで寄せられる。
     private static func pdfPieces(_ pdf: PDFKit.PDFDocument, leastCharacters: Int) -> [Piece] {
         let titles = sectionTitles(pdf)
+        // **巻末の索引は載せない**（`BackIndex`）。EPUB と同じ扱いである。
+        let skip = BackIndex.range(pageTitles: titles)
         var made: [Piece] = []
         // 節はアウトラインの区切り。見出しが変わるまでは同じ節とする。
         var at = 0
         var previous: String?
         for page in 0 ..< pdf.pageCount {
+            if skip?.contains(page) == true { continue }
             if previous != titles[page] {
                 if previous != nil { at += 1 }
                 previous = titles[page]

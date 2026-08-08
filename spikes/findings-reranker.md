@@ -132,5 +132,7 @@ choro-convert --model-id hotchpotch/japanese-reranker-xsmall-v2 \
 1. ~~kohagi に分類頭の出口を足す~~ → Swift で変換器を書いた（`choroconvert`）
 2. ~~Swift 側に組の詰め方と score を足し、照合検査を凍結する~~ → 済み
 3. ~~「並べ直しの有無で上位が変わったか」を画面でどう見せるか~~ → 動いた幅を行に添える
-4. 巻末（解答・演習・索引）は reranker では直らない。別件として残る
+4. 巻末（解答・演習・索引）は reranker では直らない。
+   → **索引は片付いた**（目次の項目名で範囲を取り、意味の索引に載せない。
+   spec-local-ai.md 第 5.5 節）。解答・演習はまだ残っている
 5. 蔵書 60 冊・15 問での効き目を、Core ML 版でも測り直す（Python 版でしか測っていない）
