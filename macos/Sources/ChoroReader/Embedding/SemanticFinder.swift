@@ -29,30 +29,37 @@ enum SemanticFinder {
         static let search = Limits(perBook: 3, leastScore: 0.5, total: 40)
     }
 
-    /// 索引の載っている書籍と、載っていない数。
+    /// 引いた結果と、索引の載っていなかった数。
     ///
     /// **載っていない数を返すのは、隠さないためである。** 「蔵書に無い」のか
     /// 「まだ見ていない」のかで、人が次にすることが変わる。
-    struct Targets {
-        var ready: [(entry: LibraryEntry, index: SemanticIndex)] = []
+    struct Found {
+        var passages: [RelatedPassage] = []
         var missing = 0
     }
 
-    /// 引ける書籍を集める。
+    /// 蔵書を引く。
+    ///
+    /// **1 冊ずつ読んで、1 冊ずつ捨てる。** 先に全冊ぶんを集めてから並べると、
+    /// 蔵書 500 冊（29 万段落）で 500 MB を抱えることになる（実測）。
+    /// ほどいた索引に上限を付けてあっても、集めた配列が握っていれば追い出されない。
     ///
     /// 蔵書と道筋の解き方を**渡してもらう**。ここが `LibraryStore.shared` を
     /// 直に見ていると差し替えられず、検査が書けない。
-    static func targets(_ entries: [LibraryEntry],
-                        excluding current: BookID? = nil,
-                        resolve: (LibraryEntry) -> URL?) -> Targets {
-        var made = Targets()
+    static func search(_ query: [Float], over entries: [LibraryEntry],
+                       excluding current: BookID? = nil,
+                       limits: Limits,
+                       resolve: (LibraryEntry) -> URL?) -> Found {
+        var made = Found()
+        guard !query.isEmpty else { return made }
         for entry in entries where entry.id != current {
             guard let url = resolve(entry), let index = SemanticIndexStore.cached(for: url) else {
                 made.missing += 1
                 continue
             }
-            made.ready.append((entry, index))
+            made.passages.append(contentsOf: rank(query, over: [(entry, index)], limits: limits))
         }
+        made.passages = Array(made.passages.sorted { $0.score > $1.score }.prefix(limits.total))
         return made
     }
 

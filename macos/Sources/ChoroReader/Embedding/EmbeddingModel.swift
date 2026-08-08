@@ -66,3 +66,20 @@ struct EmbeddingModel {
         }
     }
 }
+
+/// 本文を 1 本のベクトルにするもの。
+///
+/// **抽象を 1 枚だけ置く**（spec-local-ai.md 第 4.6 節）。理由は 2 つある。
+///
+/// 1. 検査で決定的な偽物を差せる。モデルが手元に無い機械でも、
+///    単位の切り出し・sidecar の失効・候補から原文への解決・Locator の往復を固められる
+///    （第 8 章の 1）。実物を使う検査は飛んでしまう
+/// 2. 蔵書が増えたときの振る舞いを、推論を回さずに測れる
+///
+/// これ以上の抽象（Reranker、Analyzer …）は Level 2 以降で必要になってから作る。
+protocol Embedding {
+    var dimension: Int { get }
+    /// これを超えたら頭から切り詰める。
+    var maximumTokens: Int { get }
+    func embed(_ text: String, as prefix: EmbeddingModel.Prefix) throws -> (vector: [Float], truncated: Bool)
+}

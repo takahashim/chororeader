@@ -3,8 +3,9 @@ import XCTest
 
 /// 索引を作って、置いて、読み直して、引く。
 ///
-/// 実物のモデルを使う。手元に無ければ飛ばす。
-@available(macOS 15, *)
+/// **決定的な偽物で回す。** 実物を使うと、モデルの無い機械で飛んでしまい、
+/// 配管（切り出し・失効・往復）が守られない（spec-local-ai.md 第 8 章の 1）。
+/// 実物との一致は `CoreMLEmbedderTests` が別に見ている。
 @MainActor
 final class SemanticIndexStoreTests: XCTestCase {
     /// 検査ごとに使い捨ての書籍を作る。中身は架空のもの。
@@ -75,16 +76,11 @@ final class SemanticIndexStoreTests: XCTestCase {
         try FileManager.default.removeItem(at: staging)
     }
 
-    private func embedder() throws -> CoreMLEmbedder {
-        guard let model = EmbeddingModelStore.installed() else {
-            throw XCTSkip("手元に Ruri v3 の Core ML 変換物がありません")
-        }
-        return try CoreMLEmbedder(model: model)
-    }
+    private func embedder() -> some Embedding { FakeEmbedder(dimension: 8, maximumTokens: 400) }
 
     /// 作ったものが置かれ、読み直せ、意味で引けること。
     func test_作って置いて引ける() throws {
-        let embedder = try embedder()
+        let embedder = embedder()
         let url = try book([
             ("非同期処理", String(repeating: "待っている間に他の仕事を進める書き方について述べる。", count: 12)),
             ("文字列の扱い", String(repeating: "文字の並びから一部を取り出す方法について述べる。", count: 12)),
@@ -108,18 +104,21 @@ final class SemanticIndexStoreTests: XCTestCase {
         XCTAssertEqual(back.count, made.count)
         XCTAssertEqual(back.units.map(\.heading), ["非同期処理", "文字列の扱い", "バックアップ"])
 
-        // 問いから引ける。文字が一致しない問いで当てる。
-        let query = try embedder.embed("並行して仕事をさばく", as: .query).vector
-        let found = back.nearest(to: query, limit: 3)
-        XCTAssertEqual(found.count, 3)
-        XCTAssertEqual(back.units[found[0].unit].heading, "非同期処理",
-                       "意味で引けていない（出たのは \(back.units[found[0].unit].heading)）")
+        // 引ける。**どれが当たるかは偽物では見ない**（それは評価セットの仕事）。
+        // ここで見るのは、節ごとに 1 件返り、飛び先が揃っていること。
+        let query = try embedder.embed("架空の問い", as: .query).vector
+        let found = back.nearest(to: query, limit: 5)
+        XCTAssertEqual(found.count, 3, "節の数だけ返っていない")
+        for hit in found {
+            XCTAssertNotNil(back.units[hit.unit].locator.href, "飛び先に章が無い")
+            XCTAssertNotNil(back.units[hit.unit].locator.text, "寄せるための目印が無い")
+        }
     }
 
     /// **モデルが変われば使わない。** ここが崩れると、古いベクトルを新しい問いと
     /// 突き合わせることになり、見た目は何も変わらないまま順位だけが狂う。
     func test_モデルが違えば使わない() throws {
-        let embedder = try embedder()
+        let embedder = embedder()
         let url = try book([("架空の節", String(repeating: "架空の技術書の一節である。", count: 20))])
         defer { SemanticIndexStore.discard(for: url) }
 
@@ -134,7 +133,7 @@ final class SemanticIndexStoreTests: XCTestCase {
 
     /// 書籍が入れ替われば使わない。二字組索引と同じ判断。
     func test_書籍が変われば使わない() throws {
-        let embedder = try embedder()
+        let embedder = embedder()
         let url = try book([("架空の節", String(repeating: "架空の技術書の一節である。", count: 20))])
         defer { SemanticIndexStore.discard(for: url) }
 
@@ -148,7 +147,7 @@ final class SemanticIndexStoreTests: XCTestCase {
 
     /// 途中でやめられること。**書きかけを置かない。**
     func test_途中でやめれば何も置かない() throws {
-        let embedder = try embedder()
+        let embedder = embedder()
         let url = try book((0 ..< 6).map {
             ("第 \($0) 節", String(repeating: "架空の技術書の一節である。", count: 20))
         })

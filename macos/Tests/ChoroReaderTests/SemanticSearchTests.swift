@@ -24,9 +24,18 @@ final class SemanticSearchTests: XCTestCase {
     }
 
     /// 索引がまだ 1 冊も無ければ、そう言う。
-    func test_読み込んでいなければそう言う() {
+    ///
+    /// 数えるのは**引きながら**なので、返るのを待つ（1 冊ずつ読んで捨てるため、
+    /// 先に全冊を見に行かない）。
+    func test_読み込んでいなければそう言う() throws {
+        try XCTSkipUnless(EmbeddingModelStore.installed() != nil, "手元にモデルがありません")
         let model = SemanticSearchModel()
         model.run("架空の問い", over: [entry("a"), entry("b")]) { _ in nil }
+
+        let done = expectation(description: "返る")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { done.fulfill() }
+        wait(for: [done], timeout: 10)
+
         XCTAssertTrue(model.found.isEmpty)
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.missing, 2, "未読み込みの数を数えていない")

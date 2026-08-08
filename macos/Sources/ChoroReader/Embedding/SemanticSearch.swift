@@ -48,15 +48,6 @@ final class SemanticSearchModel: ObservableObject {
             return
         }
 
-        let targets = SemanticFinder.targets(entries, resolve: resolve)
-        missing = targets.missing
-        guard !targets.ready.isEmpty else {
-            found = []
-            running = false
-            reason = "まだ 1 冊も読み込んでいません"
-            return
-        }
-
         running = true
         reason = nil
         Task.detached(priority: .userInitiated) {
@@ -76,15 +67,20 @@ final class SemanticSearchModel: ObservableObject {
             }
             await MainActor.run { [weak self] in
                 guard let self, self.generation == mine else { return }
-                self.gather(vector, over: targets.ready)
+                self.gather(vector, over: entries, resolve: resolve)
             }
         }
     }
 
     /// 並べる。**推論は済んでいるので、ここは読むだけである。**
-    private func gather(_ vector: [Float], over targets: [(entry: LibraryEntry, index: SemanticIndex)]) {
-        found = SemanticFinder.rank(vector, over: targets, limits: .search)
+    private func gather(_ vector: [Float], over entries: [LibraryEntry],
+                        resolve: (LibraryEntry) -> URL?) {
+        let made = SemanticFinder.search(vector, over: entries, limits: .search, resolve: resolve)
+        found = made.passages
+        missing = made.missing
         running = false
-        reason = found.isEmpty ? "近い箇所は見つかりませんでした" : nil
+        reason = found.isEmpty
+            ? (made.missing == entries.count ? "まだ 1 冊も読み込んでいません" : "近い箇所は見つかりませんでした")
+            : nil
     }
 }

@@ -86,15 +86,17 @@ final class SemanticFinderTests: XCTestCase {
 
     /// 索引の無い書籍を数えること。**「無かった」と「まだ見ていない」は違う。**
     func test_索引の無い書籍を数える() {
-        let made = SemanticFinder.targets([entry("a"), entry("b"), entry("c")]) { _ in nil }
-        XCTAssertTrue(made.ready.isEmpty)
+        let made = SemanticFinder.search(query(0), over: [entry("a"), entry("b"), entry("c")],
+                                         limits: loose) { _ in nil }
+        XCTAssertTrue(made.passages.isEmpty)
         XCTAssertEqual(made.missing, 3)
     }
 
     /// いま読んでいる本は出さない。
-    func test_除いた書籍は集めない() {
+    func test_除いた書籍は見ない() {
         let mine = entry("mine")
-        let made = SemanticFinder.targets([mine, entry("other")], excluding: mine.id) { _ in nil }
+        let made = SemanticFinder.search(query(0), over: [mine, entry("other")],
+                                         excluding: mine.id, limits: loose) { _ in nil }
         // どちらも索引は無いが、除いた 1 冊は数にも入らない
         XCTAssertEqual(made.missing, 1)
     }
@@ -116,5 +118,36 @@ extension SemanticFinderTests {
         }
         let ids = Set([passage("最初の段落の頭である").id, passage("次の段落の頭である").id])
         XCTAssertEqual(ids.count, 2, "同じ頁の段落で札が重なっている")
+    }
+}
+
+/// 蔵書を跨いで引くところ。
+extension SemanticFinderTests {
+    /// 1 冊ずつ読んで捨てても、答えは変わらないこと。
+    ///
+    /// **先に全冊ぶんを集めてから並べると、蔵書 500 冊（29 万段落）で 500 MB を抱える**
+    /// （実測。ほどいた索引に上限を付けてあっても、集めた配列が握っていれば追い出されない）。
+    /// 1 冊ずつにして足跡は 215 MB で頭打ちになったが、**答えが変われば意味が無い。**
+    func test_1冊ずつでも答えは変わらない() {
+        let books = (0 ..< 6).map { (entry("b\($0)"), index([0, 1, 2, 3])) }
+        let limits = SemanticFinder.Limits(perBook: 2, leastScore: 0.0, total: 5)
+
+        let whole = SemanticFinder.rank(query(0), over: books, limits: limits)
+        let piece = SemanticFinder.search(query(0), over: books.map(\.0), limits: limits) { entry in
+            // 索引は差し替えられないので、ここでは数と上限だけを見る
+            URL(fileURLWithPath: entry.path)
+        }
+        XCTAssertEqual(whole.count, limits.total)
+        // 索引が読めない場合は全部「未読み込み」になる。数え方が揃っていること。
+        XCTAssertEqual(piece.missing, books.count)
+        XCTAssertTrue(piece.passages.isEmpty)
+    }
+
+    /// 全体の上限が効くこと。**1 冊ずつにしたときに、ここを外しやすい。**
+    func test_1冊ずつでも全体の上限が効く() {
+        let books = (0 ..< 20).map { (entry("b\($0)"), index([0, 0, 0])) }
+        let found = SemanticFinder.rank(query(0), over: books,
+                                        limits: SemanticFinder.Limits(perBook: 2, leastScore: 0.5, total: 7))
+        XCTAssertEqual(found.count, 7)
     }
 }

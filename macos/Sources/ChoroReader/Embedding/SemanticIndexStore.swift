@@ -49,6 +49,21 @@ enum SemanticIndexStore {
         cached(for: url, model: model) != nil
     }
 
+    /// 置いてあるものの大きさ。無ければ nil。
+    static func sizeOnDisk(for url: URL) -> Int? {
+        try? location(for: url).resourceValues(forKeys: [.fileSizeKey]).fileSize
+    }
+
+    /// ほどいたものを全部忘れる。**冷えた状態から測るために要る。**
+    static func forgetMemory() {
+        memory.removeAllObjects()
+    }
+
+    /// 作らずに置く。索引づくりを通さずに置きたいとき（規模の測定など）に使う。
+    static func store(_ index: SemanticIndex, for url: URL) {
+        write(index, for: url)
+    }
+
     static func discard(for url: URL) {
         try? FileManager.default.removeItem(at: location(for: url))
         memory.removeObject(forKey: url.standardizedFileURL.path as NSString)
@@ -88,11 +103,10 @@ enum SemanticIndexStore {
     /// 節ごとに推論を回すので、1 冊で数十秒かかることがある。
     ///
     /// `shouldStop` が真を返したらそこで諦める。書きかけは置かない。
-    @available(macOS 15, *)
     @discardableResult
     static func build(for url: URL,
                       source: SearchIndexStore.Source,
-                      embedder: CoreMLEmbedder,
+                      embedder: any Embedding,
                       model: String = EmbeddingModelStore.defaultName,
                       progress: ((Progress) -> Void)? = nil,
                       shouldStop: (() -> Bool)? = nil) throws -> SemanticIndex? {

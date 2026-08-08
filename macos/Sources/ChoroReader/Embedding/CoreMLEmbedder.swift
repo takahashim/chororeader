@@ -16,7 +16,7 @@ import Foundation
 /// 出力の並べ方・詰め方・平均の取り方は kohagi と揃える。ずれると黙って違う
 /// ベクトルが出るので、cosine の一致を検査で固める。
 @available(macOS 15, *)
-final class CoreMLEmbedder {
+final class CoreMLEmbedder: Embedding {
     private let tokenizer: UnigramTokenizer
     private let model: EmbeddingModel
     private let pooling: EmbeddingModel.Pooling

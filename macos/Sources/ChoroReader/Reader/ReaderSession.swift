@@ -201,15 +201,14 @@ final class ReaderSession: ObservableObject {
                     self.relatedReason = "うまく引けませんでした"
                     return
                 }
-                let targets = SemanticFinder.targets(LibraryStore.shared.entries, excluding: mine) {
+                let made = SemanticFinder.search(vector, over: LibraryStore.shared.entries,
+                                                 excluding: mine, limits: .related) {
                     LibraryStore.shared.resolveURL(for: $0)
                 }
-                self.related = SemanticFinder.rank(vector, over: targets.ready, limits: .related)
-                self.relatedReason = self.related.isEmpty
+                self.related = made.passages
+                self.relatedReason = made.passages.isEmpty
                     // 「無かった」のか「まだ見ていない」のかで、次にすることが変わる。
-                    ? (targets.ready.isEmpty
-                       ? "まだ 1 冊も読み込んでいません"
-                       : "近い箇所は見つかりませんでした（未読み込み \(targets.missing) 冊）")
+                    ? "近い箇所は見つかりませんでした（未読み込み \(made.missing) 冊）"
                     : nil
             }
         }
