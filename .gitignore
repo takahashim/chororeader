@@ -24,3 +24,5 @@ tauri/app/gen/
 
 *.o
 .DS_Store
+
+notes/
