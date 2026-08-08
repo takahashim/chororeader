@@ -3,8 +3,18 @@ using System.Xml;
 
 namespace ChoroReader.Core;
 
-/// <summary>配信する 1 つ。本文の応答には <see cref="ContentSecurityPolicy"/> を添える。</summary>
-public sealed record DeliveredResource(byte[] Body, string ContentType, string? ContentSecurityPolicy);
+/// <summary>
+/// 配信する 1 つ。
+///
+/// <para>
+/// <b><see cref="ContentSecurityPolicy"/> は必ず付く。</b>
+/// C# 版で書籍の script を止めるのは CSP だけなので、これが唯一の層である。
+/// 「文書かどうか」を種類で見分けて付けると、見分け損ねたものが漏れる。
+/// SVG は画像の顔をして文書として開かれうるし（固定レイアウトの SVG ページ型、spec.md 3 章）、
+/// 拡張子を持たない章もある。下位資源に付いていても無害なので、全部に付ける。
+/// </para>
+/// </summary>
+public sealed record DeliveredResource(byte[] Body, string ContentType, string ContentSecurityPolicy);
 
 /// <summary>
 /// 本文とその周辺リソースを WebView へ供給する。供給範囲は <see cref="IResourceProvider"/> が決める。
@@ -191,7 +201,7 @@ public sealed class ResourceDelivery
         {
             "css" => Css(raw, href),
             "xhtml" or "html" or "htm" => Xhtml(raw, href, wanted),
-            _ => new DeliveredResource(raw, MimeType(extension), null),
+            _ => new DeliveredResource(raw, MimeType(extension), ContentSecurityPolicy),
         };
 
         Store(key, extension, made);
@@ -220,7 +230,8 @@ public sealed class ResourceDelivery
     {
         var result = CssCompat.Rewrite(CssCompat.DecodeText(raw));
         Record(result.Changes, href);
-        return new DeliveredResource(Encoding.UTF8.GetBytes(result.Css), "text/css; charset=utf-8", null);
+        return new DeliveredResource(Encoding.UTF8.GetBytes(result.Css), "text/css; charset=utf-8",
+                                     ContentSecurityPolicy);
     }
 
     private DeliveredResource Xhtml(byte[] raw, string href, (string Query, int Nth)? wanted)

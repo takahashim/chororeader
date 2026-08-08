@@ -119,14 +119,13 @@ public partial class ReaderWindow : Window
             return;
         }
 
-        var headers = new StringBuilder();
-        headers.Append("Content-Type: ").Append(made.ContentType);
-        if (made.ContentSecurityPolicy is { } policy)
-        {
-            headers.Append("\nContent-Security-Policy: ").Append(policy);
-        }
-        // 覚え直しはこちらが決める。書籍を差し替えたときに古い本文を出さない。
-        headers.Append("\nCache-Control: no-store");
+        // CSP は配るものすべてに付く。書籍の script を止める唯一の層なので、
+        // ここで条件を挟まない（挟むと、挟み損ねたものが漏れる）。
+        var headers = new StringBuilder()
+            .Append("Content-Type: ").Append(made.ContentType)
+            .Append("\nContent-Security-Policy: ").Append(made.ContentSecurityPolicy)
+            // 覚え直しはこちらが決める。書籍を差し替えたときに古い本文を出さない。
+            .Append("\nCache-Control: no-store");
 
         e.Response = _environment.CreateWebResourceResponse(
             new MemoryStream(made.Body), 200, "OK", headers.ToString());

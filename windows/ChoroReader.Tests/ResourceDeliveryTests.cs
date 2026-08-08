@@ -133,6 +133,64 @@ public class ResourceDeliveryTests
     }
 
     /// <summary>
+    /// <b>配るものはすべて CSP を持つ。</b>
+    ///
+    /// <para>
+    /// C# 版では書籍の script を止めるのは CSP だけである
+    /// （エンジンの段では止めない。止めると注入したスクリプトのリスナまで死ぬ）。
+    /// **唯一の層なので、1 つでも付け忘れた経路があればそこから書籍の script が動く。**
+    /// 「文書かどうか」を種類で見分けて付けると、見分け損ねたものが漏れる。
+    /// 下位資源に付いていても無害なので、全部に付ける。
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData("epub3-basic.epub")]
+    [InlineData("legacy-css.epub")]
+    [InlineData("footnotes.epub")]
+    [InlineData("fixed-layout.epub")]
+    [InlineData("encoded-paths.epub")]
+    public void 配るものはすべて_CSP_を持つ(string name)
+    {
+        var path = TestPaths.Fixture(name);
+        Assert.True(File.Exists(path), $"{name} がありません。choroconf generate を先に走らせてください");
+
+        using var archive = new EpubArchive(path);
+        var delivery = new ResourceDelivery(archive);
+
+        var delivered = 0;
+        foreach (var entry in archive.Names)
+        {
+            if (delivery.DeliverHref(entry) is not { } made)
+            {
+                continue;
+            }
+            delivered++;
+            // 「空でない」では足りない。配るのは決めた値そのものであること。
+            Assert.True(made.ContentSecurityPolicy == ResourceDelivery.ContentSecurityPolicy,
+                        $"{entry}（{made.ContentType}）の CSP が違う: 「{made.ContentSecurityPolicy}」");
+        }
+        Assert.True(delivered > 0, "1 つも配れていない");
+    }
+
+    /// <summary>
+    /// SVG は文書として開かれると script を実行できる。
+    /// 固定レイアウト EPUB には SVG ページ型がある（spec.md 3 章）ので、実際に開かれうる。
+    /// </summary>
+    [Fact]
+    public void SVG_にも_CSP_を付ける()
+    {
+        var provider = new FolderResourceProvider(Path.GetTempPath());
+        provider.ProvideSynthetic("page.svg",
+            """<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>"""u8.ToArray());
+        var delivery = new ResourceDelivery(provider);
+
+        var made = delivery.DeliverHref("page.svg");
+        Assert.NotNull(made);
+        Assert.Equal("image/svg+xml", made.ContentType);
+        Assert.Equal(ResourceDelivery.ContentSecurityPolicy, made.ContentSecurityPolicy);
+    }
+
+    /// <summary>
     /// 許し先は、経路を組み立てるのと同じところから取る。
     /// Tauri 版は別に書いていて、Windows でだけ何にも当たらなかった。
     /// </summary>
