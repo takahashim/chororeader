@@ -6,13 +6,11 @@ struct LibraryHit: Identifiable, Hashable {
     var result: SearchResult
 }
 
-/// 1 冊ぶんの当たり。
 struct LibraryBookHits: Identifiable, Hashable {
     var id: BookID
     var title: String
     var path: String
     var hits: [LibraryHit]
-    /// 上限で打ち切ったか。打ち切ったときは、その本を開いて全件を見る道を出す。
     var truncated: Bool
 }
 
@@ -117,7 +115,6 @@ final class LibrarySearchModel: ObservableObject {
     // MARK: - 1 冊を引く
 
     private nonisolated static func hits(query: String, entry: LibraryEntry, url: URL) -> LibraryBookHits? {
-        // 索引があるうちは書籍を開かない。当たらない本には触らずに済む。
         var source: SearchIndexStore.Source?
         var index = SearchIndexStore.cached(for: url)
         if index == nil {

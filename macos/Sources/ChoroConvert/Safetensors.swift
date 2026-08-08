@@ -13,10 +13,8 @@ import Foundation
 /// **読むのは変換のときだけ**なので、速さより読み違えないことを優先する。
 /// 中身は 1 度だけ mmap で開き、要る重みだけを Float へ広げる。
 public struct Safetensors {
-    /// 1 つの重み。
     struct Tensor {
         var name: String
-        /// 元の形（`[出力, 入力]` など）。
         var shape: [Int]
         var dataType: String
         var start: Int
@@ -59,7 +57,6 @@ public struct Safetensors {
         }
 
         for (name, value) in json {
-            // `__metadata__` は重みではない。
             guard name != "__metadata__", let entry = value as? [String: Any],
                   let dataType = entry["dtype"] as? String,
                   let shape = entry["shape"] as? [Int],

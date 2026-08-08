@@ -1,36 +1,11 @@
 import Foundation
 
-/// Unigram（SentencePiece）方式のトークナイザ。
-///
-/// Ruri v3 の `tokenizer.json` をそのまま読む。30m / 130m / 310m で同じファイルなので、
-/// モデルの大きさを替えてもここは替わらない。
-///
-/// 段は 4 つ。
-///   1. 特殊トークン（added_tokens）で切り分ける。中身は素通し
-///   2. Metaspace：空白を ▁ に置き換える（prepend_scheme=never なので頭には足さない）
-///   3. Viterbi：語彙の並びで最も点の高い分け方を選ぶ
-///   4. 語彙に無い文字は byte fallback で <0xXX> に落とす
-///
-/// **食い違っても例外は出ず、黙って違うベクトルになる。** 参照実装（kohagi、
-/// Rust の tokenizers crate）とトークン ID が一致することを検査で固める以外に、
-/// 守る手立てが無い。実際に次の 3 つで黙って間違えた（spikes/findings-swift-tokenizer.md）。
-///
-/// - **String は正準等価で比べる。** 語彙を String の鍵にすると「が」（1 符号位置）と
-///   「か」＋濁点（2 符号位置）が同じ鍵になり、片方が消える。この語彙には 15 組ある。
-///   空白の置き換えも同じで、空白＋結合文字は 1 つの Character になるため当たらない。
-///   → **すべてバイト列で扱う**
-/// - **点の足し込みは Double で行う。** 語彙の点は f32 だが参照は f64 で積む。
-///   同じ点の分け方が並ぶと（目次の点線のような連なり）丸めで順位が入れ替わる
-/// - **同点は開始位置の小さい方（長い語彙）を採る。** バイト位置を昇順に進め、
-///   等号を含まない比較で更新すれば参照と同じになる
 struct UnigramTokenizer {
     /// 語彙。UTF-8 のバイト列から引く。
     private let scores: [[UInt8]: (id: Int, score: Double)]
     private let unkId: Int
     private let byteFallback: Bool
-    /// 0…255 → `<0xXX>` の id。無ければ -1。
     private let byteToken: [Int]
-    /// 特殊トークン。長い順に見る。
     private let added: [(content: [UInt8], id: Int)]
     private let bos: Int
     private let eos: Int
@@ -38,7 +13,6 @@ struct UnigramTokenizer {
     /// 語彙に載る最長のバイト数。Viterbi の探索幅を切る。
     private let maxPieceBytes: Int
 
-    /// 語彙に無い 1 文字に与える点。tokenizers の K_UNK_PENALTY と同じ。
     private static let unkPenalty: Double = 10.0
 
     enum Failure: Error, LocalizedError {
@@ -77,7 +51,6 @@ struct UnigramTokenizer {
         byteFallback = (model["byte_fallback"] as? Bool) ?? false
         byteToken = (0 ... 255).map { table[Array(String(format: "<0x%02X>", $0).utf8)]?.0 ?? -1 }
 
-        // 短いものが先に当たると取りこぼす。長い順に見る。
         added = ((json["added_tokens"] as? [[String: Any]]) ?? [])
             .compactMap { entry in
                 guard let content = entry["content"] as? String, let id = entry["id"] as? Int
@@ -86,7 +59,6 @@ struct UnigramTokenizer {
             }
             .sorted { $0.0.count > $1.0.count }
 
-        // post_processor は TemplateProcessing で <s> … </s> を足すだけ。
         let post = (json["post_processor"] as? [String: Any]) ?? [:]
         let special = (post["special_tokens"] as? [String: Any]) ?? [:]
         func specialId(_ name: String) -> Int {
@@ -98,7 +70,6 @@ struct UnigramTokenizer {
         eos = specialId("</s>")
     }
 
-    /// 文字列をトークン ID の並びにする。`special` が真なら `<s>` … `</s>` で挟む。
     func encode(_ text: String, addSpecialTokens special: Bool = true) -> [Int] {
         var out: [Int] = []
         if special, bos >= 0 { out.append(bos) }
@@ -112,14 +83,6 @@ struct UnigramTokenizer {
         return out
     }
 
-    /// 問いと本文の**組**を 1 本の並びにする。reranker（cross-encoder）が食う形。
-    ///
-    /// 詰め方は推測せず、`tokenizer.json` の post_processor から写した。
-    /// `pair` は `<s> A </s> <s> B </s>` である（特殊トークン 4 つ）。
-    ///
-    /// **上限を越えたら長い側から 1 つずつ削る**（tokenizers の longest_first。
-    /// truncation を指定しないときの既定で、参照実装もこれで詰めている）。
-    /// 本文だけを削る形にすると、問いが長い組で参照実装と食い違う。
     func encodePair(_ first: String, _ second: String, limit: Int) -> [Int] {
         var a = encode(first, addSpecialTokens: false)
         var b = encode(second, addSpecialTokens: false)
@@ -187,19 +150,16 @@ struct UnigramTokenizer {
 
     // MARK: - 段 3：Viterbi
 
-    /// 最も点の高い分け方を選ぶ。バイト位置で進み、文字の頭だけを節点にする。
     private func viterbi(_ bytes: [UInt8]) -> [Int] {
         guard !bytes.isEmpty else { return [] }
         let count = bytes.count
 
-        // 継続バイト（10xxxxxx）は節点にしない。
         var isBoundary = [Bool](repeating: false, count: count + 1)
         isBoundary[count] = true
         for i in 0 ..< count where bytes[i] & 0xC0 != 0x80 { isBoundary[i] = true }
 
         var best = [Double](repeating: -.greatestFiniteMagnitude, count: count + 1)
         var from = [Int](repeating: -1, count: count + 1)
-        /// その節点へ入った語彙 id。-1 は語彙に無かった 1 文字。
         var arrived = [Int](repeating: -1, count: count + 1)
         best[0] = 0
 
@@ -218,7 +178,6 @@ struct UnigramTokenizer {
                 }
                 j += 1
             }
-            // その位置の 1 文字が語彙に無ければ、罰つきで進める（あとで byte fallback にする）
             if !matchedWholeChar, i + width <= count {
                 let j = i + width
                 let value = best[i] + unkScore
@@ -234,7 +193,6 @@ struct UnigramTokenizer {
             if arrived[at] >= 0 {
                 ids.append(arrived[at])
             } else if byteFallback {
-                // 語彙に無い 1 文字は、UTF-8 のバイトごとに落とす
                 for byte in bytes[previous ..< at].reversed() {
                     let id = byteToken[Int(byte)]
                     ids.append(id >= 0 ? id : unkId)

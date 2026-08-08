@@ -1,25 +1,11 @@
 import Foundation
 
-/// 意味検索の候補を、本文を読み直して並べ直す。
-///
-/// **押されたときにだけ走る。** 勝手に並べ替えない理由は 2 つある。
-///
-/// 1. **悪くなる問いが実在する**（spikes/findings-reranker.md）。日本語 reranker は
-///    クイズ形式の傾向を学んでいて、解答や演習の紙面を正解の説明と取り違える。
-///    黙って並べ替えて戻せないのは筋が悪い
-/// 2. 候補の数だけ推論が要る。索引と違い、**開くたびに払う値段**である
-///
-/// 元の順位を控えておき、行に添える。効いたかどうかを人が見て決められるようにする。
 @MainActor
 final class RerankModel: ObservableObject {
-    /// 並べ直した結果。**まだなら nil**（素の並びを出す）。
     @Published private(set) var passages: [RelatedPassage]?
     @Published private(set) var running = false
-    /// できない理由。無ければ押せる。
     @Published private(set) var reason: String?
-    /// 札 → 元は何位だったか（0 始まり）。
     @Published private(set) var wasAt: [String: Int] = [:]
-    /// 札 → 0〜1 に均した点。
     @Published private(set) var relevance: [String: Float] = [:]
 
     private var generation = 0
@@ -39,7 +25,6 @@ final class RerankModel: ObservableObject {
         relevance = [:]
     }
 
-    /// 素の並びへ戻す。**推論はやり直さない**（点は控えてある）。
     func reset() {
         generation += 1
         passages = nil
@@ -55,7 +40,6 @@ final class RerankModel: ObservableObject {
             reason = "並べ直しは macOS 15 以降で、モデルを入れてから使えます"
             return
         }
-        // 本文の読めていない候補は、点を付けようがない。
         let ready = candidates.filter { !(texts[$0.id] ?? "").isEmpty }
         guard !ready.isEmpty else {
             reason = "本文をまだ読めていません"
@@ -73,7 +57,6 @@ final class RerankModel: ObservableObject {
             do {
                 made = try RerankerHolder.shared.use {
                     try $0.scores(query: query, passages: bodies) {
-                        // 問いが変わったら降りる。40 件を回し切ると次が待たされる。
                         MainActor.assumeIsolated { self?.generation != mine }
                     }
                 } ?? nil
@@ -108,9 +91,7 @@ final class RerankModel: ObservableObject {
 enum Reranking {
     struct Ordered {
         var passages: [RelatedPassage] = []
-        /// 札 → 元は何位だったか（0 始まり）。
         var wasAt: [String: Int] = [:]
-        /// 札 → 0〜1 に均した点。
         var relevance: [String: Float] = [:]
     }
 

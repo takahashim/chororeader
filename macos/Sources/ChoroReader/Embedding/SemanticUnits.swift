@@ -3,14 +3,8 @@ import PDFKit
 
 /// 意味の索引が載せる単位。本文は控えない
 struct SemanticUnit: Hashable {
-    /// 飛び先。表題は`heading`のみ
     var locator: Locator
-    /// この段落を含む節の見出し
     var heading: String
-    /// この段落が属する節の番号（書籍の中で通し）。
-    ///
-    /// **順位は節で決め、着地は段落でする**（spec-local-ai.md 第 5.1 節）。
-    /// 段落だけで順位を付けると話題の芯を失い、巻末や一般論に流れる（実測 8/15 対 11/15）。
     var section: Int
 
     /// 移動に渡す飛び先。表題は見出しから埋める。
@@ -21,16 +15,12 @@ struct SemanticUnit: Hashable {
     }
 }
 
-/// 書籍を段落に区切る
 enum SemanticUnits {
-    /// 日本語で 400 字はおよそ 200 トークン、技術書の 1〜2 段落にあたる。
-    /// 小さくするほど的は絞れるが、文脈が減り、索引も膨らむ
     static let targetCharacters = 400
     /// これ未満は独り立ちさせない。前の段落に足すか、捨てる。
     static let defaultLeastCharacters = 100
     /// 区切りが見つからなくても、ここを超えたら切る。
     private static let mostCharacters = 800
-    /// 飛び先に載せる目印の長さ。**長すぎると綴じ方の違いで一致しない。**
     private static let anchorCharacters = 30
 
     /// 切り出した段落と、埋め込みに渡す本文。
@@ -158,14 +148,10 @@ enum SemanticUnits {
 
     // MARK: - PDF
 
-    /// **ページごとに切る。** 節の範囲でまとめると、着いた先が節の頭になってしまう。
-    /// ページ単位なら飛び先のページが正確に決まり、目印で行まで寄せられる。
     private static func pdfPieces(_ pdf: PDFKit.PDFDocument, leastCharacters: Int) -> [Piece] {
         let titles = pageTitles(pdf)
-        // **巻末の索引は載せない**（`BackIndex`）。EPUB と同じ扱いである。
         let skip = BackIndex.range(in: pdf, pageTitles: titles)
         var made: [Piece] = []
-        // 節はアウトラインの区切り。見出しが変わるまでは同じ節とする。
         var at = 0
         var previous: String?
         for page in 0 ..< pdf.pageCount {
@@ -224,15 +210,10 @@ enum SemanticUnits {
     // MARK: - 段落に切る
 
     private struct Passage {
-        /// 元の本文の中での位置。章内の位置を測るのに使う。
         var offset: Int
         var text: String
     }
 
-    /// 文の切れ目で詰めて、狙いの長さの段落にする。
-    ///
-    /// **短い切れ端は前に足す。** 見出しだけの行や 1 文だけの段落を独り立ちさせると、
-    /// 文脈の無いベクトルが索引を埋める。
     private static func passages(in text: String, leastCharacters: Int) -> [Passage] {
         guard text.count >= leastCharacters else { return [] }
 
@@ -255,7 +236,6 @@ enum SemanticUnits {
             if last.count >= leastCharacters {
                 made.append(Passage(offset: start, text: last))
             } else if var previous = made.popLast() {
-                // 端数は前に足す。独り立ちさせない。
                 previous.text = tidy(previous.text + last)
                 made.append(previous)
             }
@@ -263,7 +243,6 @@ enum SemanticUnits {
         return made
     }
 
-    /// 詰める前の切れ端。改行か句点で割り、長すぎるものは力尽くで切る。
     private static func chunks(of text: String) -> [String] {
         var made: [String] = []
         var current = ""

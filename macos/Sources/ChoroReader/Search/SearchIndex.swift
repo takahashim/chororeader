@@ -20,9 +20,7 @@ struct SearchIndex {
     private static let sentinel: UInt32 = 0
 
     private(set) var unitCount: Int
-    /// 昇順に並べた鍵。
     private var keys: [UInt64]
-    /// `keys[i]` の単位番号は `units[offsets[i] ..< offsets[i + 1]]`。
     private var offsets: [UInt32]
     private var units: [UInt32]
 
@@ -89,7 +87,6 @@ struct SearchIndex {
         return units[Int(offsets[low]) ..< Int(offsets[low + 1])]
     }
 
-    /// その字で始まる二字組をすべて合併する。
     private func byFirstScalar(_ scalar: UInt32) -> [Int] {
         let from = UInt64(scalar) << 21
         let to = from + (1 << 21)
@@ -132,7 +129,6 @@ struct SearchIndex {
         return found
     }
 
-    /// 2 文字を 1 つの数にする。Unicode の符号位置は 21 bit に収まる。
     private static func key(_ first: UInt32, _ second: UInt32) -> UInt64 {
         (UInt64(first) << 21) | UInt64(second)
     }

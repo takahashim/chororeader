@@ -69,7 +69,6 @@ final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNaviga
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
         webView.setValue(false, forKey: "drawsBackground")
-        // ピンチと ⌘+ / ⌘- による拡大は WebKit の機能をそのまま使う。
         webView.allowsMagnification = true
 
         settingsObserver = settings.objectWillChange
@@ -172,7 +171,6 @@ final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNaviga
             switch pages[safe: index] {
             case let .image(href):
                 let url = ResourceSchemeHandler.url(forHref: href)?.absoluteString ?? ""
-                // 連続表示では見えているページだけ復号させる。
                 element = "<img class=\"choro-page\" src=\"\(url)\"\(continuous ? " loading=\"lazy\"" : "") alt=\"\"/>"
             case let .document(href):
                 let url = ResourceSchemeHandler.url(forHref: href)?.absoluteString ?? ""
@@ -183,7 +181,6 @@ final class FixedLayoutNavigatorController: NSObject, ObservableObject, WKNaviga
             return "<div class=\"choro-slot\" id=\"choro-page-\(index)\">\(element)</div>"
         }
 
-        // 見開きは綴じ方向に従って左右を入れ替える。
         let ordered = spreadMode && isRTL ? items.reversed().joined() : items.joined()
 
         let fit: String

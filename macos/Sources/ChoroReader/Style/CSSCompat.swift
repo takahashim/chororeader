@@ -3,7 +3,6 @@ import Foundation
 /// 古い EPUB の CSS を、配信の瞬間に解釈可能な形へ書き換える。
 /// 元ファイルには触れない。意味を変える書き換えはせず、解釈できるようにするだけに限る。
 enum CSSCompat {
-    /// プロパティ名だけを標準形へ移せるもの。
     private static let propertyMap: [String: String] = [
         "-epub-writing-mode": "writing-mode",
         "-epub-text-orientation": "text-orientation",
@@ -45,7 +44,6 @@ enum CSSCompat {
                 out += segment.text
             case .code:
                 var s = segment.text
-                // 値の読み替えが要るものを先に処理する。
                 s = replace(s, pattern: #"-epub-text-combine-horizontal\s*:\s*[^;}]*"#,
                             with: "text-combine-upright: all", label: "-epub-text-combine-horizontal",
                             changes: &changes)
@@ -62,7 +60,6 @@ enum CSSCompat {
         return Result(css: out, changes: changes)
     }
 
-    /// XHTML 内の <style> ブロックにも同じ変換をかける。書籍側の要素構造には触れない。
     static func rewriteXHTML(_ html: String) -> Result {
         guard html.range(of: "-epub-") != nil else { return Result(css: html, changes: []) }
         var changes: [Change] = []
@@ -147,7 +144,6 @@ enum CSSCompat {
         return out
     }
 
-    /// UTF-8 以外で書かれたリソースを読めるようにする。
     static func decodeText(_ data: Data) -> String {
         if let s = String(data: data, encoding: .utf8) { return s }
         for encoding in [String.Encoding.shiftJIS, .japaneseEUC, .isoLatin1] {

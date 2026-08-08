@@ -1,25 +1,6 @@
 import Foundation
 
-/// MIL のプログラムを組み立てる。
-///
-/// **小さく作ってある。** 1 つの関数の 1 つのブロックに、型の付いた値と演算を
-/// 並べられれば足りる。慣例は実物の束（`takahashim/ruri-v3-130m-coreml`）から
-/// 読み取ったもので、当て推量ではない（kohagi の `mil.rs` から移した）。
-/// schema からは読み取れない決まりごとは次の 5 つ。
-///
-/// - `Program.version` は 1。モデル側の `specificationVersion` は 9（macOS 15 向け）
-/// - opset は文字列 `"CoreML8"`。関数が唯一のブロックを収める鍵でもある
-///   （`.mlmodelc` の中の文字で書かれた MIL は同じものを `ios18` と表す）
-/// - 関数は入力を宣言し、**ブロックは出力だけ**を宣言する
-/// - どの演算も `name` 属性に文字列テンソルを持つ。`const` は中身を `val` 属性に持ち、
-///   即値か、`weights/weight.bin` の**目録の位置**への参照のどちらかである
-/// - **形の推論はしない。** すべての値の型は作るところで書く。入力と食い違う演算は
-///   呼ぶ側の誤りであり、Core ML が組み立てのときにそう言う（間違った数を出すのではなく）
-///
-/// field の番号は kohagi の `proto/MIL.proto`（coremltools からそのまま持ってきたもの）
-/// から写した。写し間違えると Core ML が読めずにその場で落ちる。
 struct MILProgram {
-    /// `MIL.proto` の `DataType`。使うものだけ。
     enum DataType: UInt64 {
         case bool = 1
         case string = 2
@@ -47,16 +28,12 @@ struct MILProgram {
         var type: TensorType
     }
 
-    /// 演算の中身（`val` 属性）。即値か、blob への参照。
     enum Payload {
-        /// fp32 として置く。**fp16 の値をここへ入れてはいけない**（下記）。
         case floats([Float])
         case ints([Int32])
         case bools([Bool])
         case strings([String])
-        /// `weights/weight.bin` の目録の位置。
         case blob(offset: UInt64)
-        /// fp16 として置く。中身は生のバイト列になる。
         case halves([Float])
     }
 
@@ -82,10 +59,6 @@ struct MILProgram {
         return made
     }
 
-    /// 定数を置く。
-    ///
-    /// 中身が大きいものは blob（`weight.bin`）へ、小さいものは即値へ置く。
-    /// どちらでも `const` の形は同じである。
     mutating func constant(_ name: String, _ type: TensorType, _ payload: Payload) -> Value {
         let out = Value(name: name, type: type)
         names.insert(name)
@@ -108,7 +81,6 @@ struct MILProgram {
         return out
     }
 
-    /// 入力の 1 つが値の並びを取る演算（`concat` の `values` など）。
     @discardableResult
     mutating func op(_ kind: String, out: Value,
                      inputs: [(String, Value)], variadic: (String, [Value])) -> Value {
@@ -120,10 +92,6 @@ struct MILProgram {
         return out
     }
 
-    /// 出力が複数の演算（`split`）。
-    ///
-    /// **出力の並びが割った順である。** ここを取り違えると、
-    /// 問いと鍵と値が入れ替わったまま変換が通る。
     @discardableResult
     mutating func split(_ kind: String, outs: [Value],
                         inputs: [(String, Value)]) -> [Value] {
@@ -134,37 +102,24 @@ struct MILProgram {
         return outs
     }
 
-    /// 組み上げた `Program`。
-    ///
-    /// - Parameters:
-    ///   - inputs: 関数の入力。**関数が宣言する**
-    ///   - outputs: ブロックの出力。**ブロックが宣言する**
     func program(functionName: String, inputs: [Value], outputs: [Value]) -> Protowire {
         let block = Protowire.message { block in
-            // Block.outputs = 2（文字列の並び）。入力はブロックでは宣言しない。
             for value in outputs { block.field(2, string: value.name) }
-            // Block.operations = 3
             for operation in operations { block.field(3, message: operation) }
         }
 
         let function = Protowire.message { function in
-            // Function.inputs = 1
             for value in inputs { function.field(1, message: Self.namedValueType(value)) }
-            // Function.opset = 2
             function.field(2, string: Self.opset)
-            // Function.block_specializations = 3（map<string, Block>）
             function.field(3, message: Self.mapEntry(key: Self.opset, value: block))
         }
 
         return Protowire.message { program in
-            // Program.version = 1
             program.field(1, varint: 1)
-            // Program.functions = 2（map<string, Function>）
             program.field(2, message: Self.mapEntry(key: functionName, value: function))
         }
     }
 
-    /// 複数の関数を 1 つのプログラムに収める（multi-function の束）。
     static func program(functions: [(name: String, function: Protowire)]) -> Protowire {
         Protowire.message { program in
             program.field(1, varint: 1)
@@ -189,7 +144,6 @@ struct MILProgram {
 
     // MARK: - 形
 
-    /// 演算の opset。**関数が唯一のブロックを収める鍵でもある。**
     static let opset = "CoreML8"
 
     private static func operation(type: String,
@@ -197,24 +151,18 @@ struct MILProgram {
                                   outputs: [Value],
                                   attributes: [(String, Protowire)]) -> Protowire {
         Protowire.message { operation in
-            // Operation.type = 1
             operation.field(1, string: type)
-            // Operation.inputs = 2（map<string, Argument>）
             for input in inputs {
                 let argument = Protowire.message { argument in
-                    // Argument.arguments = 1（Binding の並び）
                     for name in input.1 {
                         argument.field(1, message: Protowire.message { binding in
-                            // Binding.name = 1
                             binding.field(1, string: name)
                         })
                     }
                 }
                 operation.field(2, message: mapEntry(key: input.0, value: argument))
             }
-            // Operation.outputs = 3
             for value in outputs { operation.field(3, message: namedValueType(value)) }
-            // Operation.attributes = 5（map<string, Value>）
             for attribute in attributes {
                 operation.field(5, message: mapEntry(key: attribute.0, value: attribute.1))
             }
@@ -223,7 +171,6 @@ struct MILProgram {
 
     private static func namedValueType(_ value: Value) -> Protowire {
         Protowire.message { named in
-            // NamedValueType.name = 1、type = 2
             named.field(1, string: value.name)
             named.field(2, message: valueType(value.type))
         }
@@ -231,14 +178,11 @@ struct MILProgram {
 
     private static func valueType(_ type: TensorType) -> Protowire {
         Protowire.message { wrapper in
-            // ValueType.tensorType = 1
             wrapper.field(1, message: Protowire.message { tensor in
-                // TensorType.dataType = 1、rank = 2、dimensions = 3
                 tensor.field(1, varint: type.dataType.rawValue)
                 tensor.field(2, varint: UInt64(type.shape.count))
                 for size in type.shape {
                     tensor.field(3, message: Protowire.message { dimension in
-                        // Dimension.constant = 1 → ConstantDimension.size = 1
                         dimension.field(1, message: Protowire.message { constant in
                             constant.field(1, varint: UInt64(size))
                         })
@@ -248,21 +192,16 @@ struct MILProgram {
         }
     }
 
-    /// `Value`（中身を持つ側）。即値か blob への参照。
     private static func value(_ type: TensorType, _ payload: Payload) -> Protowire {
         Protowire.message { value in
-            // Value.type = 2
             value.field(2, message: valueType(type))
             switch payload {
             case let .blob(offset):
-                // Value.blobFileValue = 5
                 value.field(5, message: Protowire.message { blob in
-                    // BlobFileValue.fileName = 1、offset = 2
                     blob.field(1, string: "@model_path/weights/weight.bin")
                     blob.field(2, varint: offset)
                 })
             default:
-                // Value.immediateValue = 3 → ImmediateValue.tensor = 1
                 value.field(3, message: Protowire.message { immediate in
                     immediate.field(1, message: tensorValue(payload))
                 })
@@ -274,7 +213,6 @@ struct MILProgram {
         Protowire.message { tensor in
             switch payload {
             case let .floats(values):
-                // TensorValue.floats = 1 → RepeatedFloats.values = 1（packed）
                 tensor.field(1, message: Protowire.message { $0.packed(1, floats: values) })
             case let .halves(values):
                 // **fp16 の即値は生のバイト列で置く。** floats に入れると
@@ -289,17 +227,14 @@ struct MILProgram {
                 }
                 tensor.field(7, message: Protowire.message { $0.field(1, bytes: raw) })
             case let .ints(values):
-                // TensorValue.ints = 2 → RepeatedInts.values = 1（packed）
                 tensor.field(2, message: Protowire.message {
                     $0.packed(1, varints: values.map { UInt64(bitPattern: Int64($0)) })
                 })
             case let .bools(values):
-                // TensorValue.bools = 3
                 tensor.field(3, message: Protowire.message {
                     $0.packed(1, varints: values.map { $0 ? 1 : 0 })
                 })
             case let .strings(values):
-                // TensorValue.strings = 4 → RepeatedStrings.values = 1
                 tensor.field(4, message: Protowire.message { repeated in
                     for value in values { repeated.field(1, string: value) }
                 })
@@ -313,7 +248,6 @@ struct MILProgram {
         value(TensorType(.string, []), .strings([text]))
     }
 
-    /// protobuf の map は「key=1、value=2 を持つ入れ子」の並びとして符号化される。
     private static func mapEntry(key: String, value: Protowire) -> Protowire {
         Protowire.message { entry in
             entry.field(1, string: key)

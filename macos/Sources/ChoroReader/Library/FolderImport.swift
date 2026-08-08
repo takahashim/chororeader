@@ -10,20 +10,12 @@ import Foundation
 @MainActor
 final class FolderImport: ObservableObject {
     @Published private(set) var running = false
-    /// 見つかった冊数。走査が終わった時点で決まる。
     @Published private(set) var total = 0
-    /// 触り終わった冊数。既に並んでいたものも数える。
     @Published private(set) var done = 0
-    /// 新しく加わった冊数。
     @Published private(set) var added = 0
-    /// 既に書棚にあった冊数。
     @Published private(set) var already = 0
-    /// 書籍として読めなかった数。**「既にある」と混ぜない。**
-    /// 混ぜると、落としたのに増えない理由が言えなくなる。
     @Published private(set) var failed = 0
-    /// いま触っている書籍の名前。
     @Published private(set) var current = ""
-    /// 終わったときの言葉。しばらく出しておく。
     @Published var summary: String?
 
     private var cancelled = false
@@ -60,7 +52,6 @@ final class FolderImport: ObservableObject {
             } else if BookFinder.extensions.contains(url.pathExtension.lowercased()) {
                 found.append(url)
             } else {
-                // 拡張子で先に外す。中身を読むまでもない。
                 others += 1
             }
         }
@@ -113,7 +104,6 @@ final class FolderImport: ObservableObject {
         summary = nil
     }
 
-    /// 1 冊を書棚へ。**加わったのか、既にあったのか、読めなかったのかを分けて数える。**
     private func take(_ url: URL, into store: LibraryStore) {
         let known = store.entry(for: BookID(url: url)) != nil
         if store.register(url) {
@@ -130,7 +120,6 @@ final class FolderImport: ObservableObject {
         reset()
         current = "探しています…"
 
-        // 走査そのものはファイルの中身を読まない。数が多くても速い。
         let found = BookFinder.books(in: folder)
         total = found.count
 
@@ -138,7 +127,6 @@ final class FolderImport: ObservableObject {
             if cancelled { break }
             current = url.lastPathComponent
             take(url, into: store)
-            // 主スレッドを握り続けない。ここで描き直しが入る。
             await Task.yield()
         }
 

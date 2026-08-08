@@ -23,19 +23,10 @@ struct RerankerModel {
 }
 
 enum RerankerModelStore {
-    /// 既定のモデル。スパイクで選んだもの（spikes/findings-reranker.md）。
-    ///
-    /// 10 層・256 次元で ruri-v3-30m と同じ形。MIT。
-    /// 質の王者は 310m だが 1 問あたり秒級になり、押すたびには重い。
     static let defaultName = "japanese-reranker-xsmall-v2-coreml"
 
-    /// 埋め込みと同じ棚に置く。取り替えるときの手順を 2 つに割らない。
     static var directory: URL { EmbeddingModelStore.directory }
 
-    /// 手元に入っているもの。無ければ nil。
-    ///
-    /// **束と、分類頭の印まで見る。** 埋め込みの束を名前だけ変えて置かれると、
-    /// 出力に score が無いまま使う段まで進んでしまう。
     static func installed(_ name: String = defaultName) -> RerankerModel? {
         let place = directory.appendingPathComponent(name, isDirectory: true)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: place.path)) ?? []

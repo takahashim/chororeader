@@ -36,7 +36,6 @@ enum TOCParser {
     }
 }
 
-/// 組み立て中の 1 項目。
 private struct Frame {
     var title = ""
     var href: String?
@@ -46,7 +45,6 @@ private struct Frame {
 
 private final class NavDelegate: NSObject, XMLParserDelegate {
     private let base: String
-    /// nav ごとの結果。epub:type に toc を持つものを優先し、無ければ最初のものを使う。
     private var collected: [(isTOC: Bool, entries: [TOCEntry])] = []
 
     private var navDepth = 0
@@ -85,7 +83,6 @@ private final class NavDelegate: NSObject, XMLParserDelegate {
 
         case "a", "span":
             guard navDepth > 0, !itemStack.isEmpty else { return }
-            // 入れ子の目次では、a より先に子の ol が来ることはない。
             if itemStack[itemStack.count - 1].href == nil {
                 let target = TOCParser.target(base: base, rawHref: attributes["href"])
                 itemStack[itemStack.count - 1].href = target.href
@@ -125,7 +122,6 @@ private final class NavDelegate: NSObject, XMLParserDelegate {
             guard !listStack.isEmpty else { return }
             let finished = listStack.removeLast()
             if itemStack.isEmpty {
-                // いちばん外側の ol。ここまでが目次の本体。
                 if roots.isEmpty { roots = finished } else { roots.append(contentsOf: finished) }
             } else {
                 itemStack[itemStack.count - 1].children.append(contentsOf: finished)

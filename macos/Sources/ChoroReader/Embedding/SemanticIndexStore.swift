@@ -1,15 +1,6 @@
 import CryptoKit
 import Foundation
 
-/// 意味の索引の置き場所と、作り直しの判断。
-///
-/// 二字組索引（`SearchIndexStore`）と同じ場所・同じ考え方である
-/// （spec-local-ai.md 第 4.3 節）。書籍そのものから何度でも作り直せるので、
-/// 消えても困らない。
-///
-/// **失効の鍵にモデルの名前が足してある。** ファイルの大きさと更新日時だけだと、
-/// モデルを入れ替えたときに古いベクトルをそのまま使い続け、
-/// 見た目は何も変わらないまま順位だけが狂う。
 enum SemanticIndexStore {
     private static let directory: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -64,16 +55,11 @@ enum SemanticIndexStore {
         return Head(head)?.model
     }
 
-    /// 置いてあるが、いまのモデルとは版が違うもの。
-    ///
-    /// 「まだ作っていない」のと「作ったが版が変わった」のは、人にとって違う。
-    /// 前者は待てば済むが、後者は**全量が作り直しになる**（第 4.4 節）。
     static func isStale(for url: URL, model: String = EmbeddingModelStore.defaultName) -> Bool {
         guard let recorded = recordedModel(for: url) else { return false }
         return recorded != model
     }
 
-    /// 置いてあるものの大きさ。無ければ nil。
     static func sizeOnDisk(for url: URL) -> Int? {
         try? location(for: url).resourceValues(forKeys: [.fileSizeKey]).fileSize
     }
@@ -83,7 +69,6 @@ enum SemanticIndexStore {
         memory.removeAllObjects()
     }
 
-    /// 作らずに置く。索引づくりを通さずに置きたいとき（規模の測定など）に使う。
     static func store(_ index: SemanticIndex, for url: URL) {
         write(index, for: url)
     }
@@ -145,7 +130,6 @@ enum SemanticIndexStore {
 
         for (at, piece) in pieces.enumerated() {
             if shouldStop?() == true { return nil }
-            // 見出しを頭に付ける。節の途中だけを見ても何の話か分かるようにする。
             let body = piece.unit.heading.isEmpty ? piece.text : piece.unit.heading + "。" + piece.text
             let made = try embedder.embed(body, as: .document)
             if made.truncated { truncated += 1 }
@@ -184,24 +168,13 @@ enum SemanticIndexStore {
                          cost: index.count * index.dimension * 2)
     }
 
-    /// sidecar の頭。**失効の鍵をここに全部置く。**
-    ///
-    /// 以前は大きさと更新日時をここで、モデルの名前を中身の側で持っていた。
-    /// 鍵が 2 層に散っていると、片方だけ見て通す事故になる。
     private struct Head {
-        /// 版 6：引くものと当たってから要るものを分けた。文字列は表で 1 度だけ書き、
-        /// ベクトルは fp16 のまま持つ。モデルの入れ替え検査は頭だけで済む。
-        /// 版 5：段落に節の番号を持たせた（順位を節で決めるため）。
-        /// 版 4：抜き書きを控えるのをやめた（本文の 35% が原文のまま入っていた）。
-        /// 版 3：モデルの名前を頭へ移した（それ以前は中身にあった）。
-        /// 版を上げないと、古いものを新しい読み方で解いて崩れる。
         static let version: UInt8 = 6
         static let magic = Array("CHVB".utf8)
 
         var size: UInt64
         var modified: UInt64
         var model: String
-        /// 中身の始まる位置。
         var cursor = 0
 
         init(size: UInt64, modified: UInt64, model: String) {

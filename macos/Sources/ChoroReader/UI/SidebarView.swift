@@ -8,7 +8,6 @@ extension TOCEntry {
 struct SidebarView: View {
     @ObservedObject var session: ReaderSession
     var searchFocused: FocusState<Bool>.Binding
-    /// 関連箇所は**別の書籍**を開く。同じ書籍を開き直す導線（openInNewWindow）では届かない。
     @Environment(\.openWindow) private var openWindow
     /// 一覧に出す本文。索引には控えていないので、原書から読む。
     @StateObject private var passages = PassageTextLoader()
@@ -205,14 +204,6 @@ struct SidebarView: View {
 
     // MARK: - 関連
 
-    /// 選んだところに関連する、他の書籍の箇所。
-    ///
-    /// **勝手に出さない。** 常時出ている情報は、当たらなければ視界の邪魔にしかならない。
-    /// 本文を選んで頼んだときにだけ引く。
-    ///
-    /// **検索と見せ方を分ける**（spec-local-ai.md 第 2 章）。
-    /// 検索には「当たり」があるが、意味の近さには無い。
-    /// 当たった語を囲むこともできないので、近さを添えて「候補」として並べる。
     private var relatedList: some View {
         VStack(spacing: 0) {
             HStack {
@@ -277,7 +268,6 @@ struct SidebarView: View {
                 if !passage.unit.heading.isEmpty {
                     Text(passage.unit.heading).font(.callout).lineLimit(2)
                 }
-                // 索引に本文は控えていない。読めるまでは何も出さない。
                 Text(passages.texts[passage.id] ?? " ")
                     .font(.caption)
                     .foregroundStyle(.secondary)

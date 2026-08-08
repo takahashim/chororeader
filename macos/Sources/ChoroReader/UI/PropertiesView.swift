@@ -1,15 +1,6 @@
 import PDFKit
 import SwiftUI
 
-/// 書籍の情報。見るのと、書棚での名前を付けるのを 1 つの画面でやる。
-///
-/// 診断（DiagnosticsView）とは役目が違う。あちらは表示がおかしいときの切り分けで、
-/// こちらは読む人が知りたいこと——誰が書いたか、何ページか——を出し、
-/// 名乗りが使えない書籍には**その場で名前を付けられる**ようにする。
-///
-/// 名前は打たせない。1 ページ目に刷ってある行を押して入れる（NameCandidates）。
-/// 複数の書籍で開けば、保存するたびに次へ進む流しになる。
-/// 入口は 1 つずつの情報と同じ（⌘I、道具帯、書棚の右クリック）。
 struct PropertiesView: View {
     /// 何の情報を出すか。読書の窓からは開いている書籍、書棚からはファイル。
     enum Subject {
@@ -92,7 +83,6 @@ struct PropertiesView: View {
 
     private var footer: some View {
         HStack {
-            // 目で見るだけでは書き写せない。押した時点で写す（診断と同じ）。
             Button(copied ? "コピーしました" : "コピー") {
                 guard let properties else { return }
                 NSPasteboard.general.clearContents()
@@ -208,7 +198,6 @@ struct PropertiesView: View {
         if candidate.isAuthor {
             authorsText = authorsText.isEmpty ? candidate.text : authorsText + "、" + candidate.text
         } else {
-            // 題名は行の切れ目に空白を挟まない。日本語の題名は語の途中で折り返される。
             titleText += candidate.text
         }
     }
@@ -253,7 +242,6 @@ struct PropertiesView: View {
             properties = nil
             let pdf = url.pathExtension.lowercased() == "pdf" ? PDFKit.PDFDocument(url: url) : nil
             prepareAids(pdf: pdf)
-            // 書籍を開くのと同じだけ読む。主スレッドを止めないよう、いったん降りる。
             properties = await Task.detached { @MainActor in BookProperties.read(url) }.value
         }
     }
@@ -270,7 +258,6 @@ struct PropertiesView: View {
                                            for: .mediaBox)
             }
         } else if let name = currentEntry?.coverName {
-            // EPUB は候補を出さない。名乗りを持つことが多く、表紙だけで足りる。
             pageImage = CoverCache.image(named: name)
         }
     }
@@ -283,7 +270,6 @@ struct PropertiesView: View {
                     Text(item.label)
                         .foregroundStyle(.secondary)
                         .frame(width: 110, alignment: .trailing)
-                    // 識別子や場所は書き写したくなる。選べるようにしておく。
                     Text(item.value)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)

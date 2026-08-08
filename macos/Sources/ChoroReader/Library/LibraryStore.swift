@@ -17,12 +17,7 @@ struct LibraryEntry: Codable, Identifiable, Hashable {
     var bookmarks: [Bookmark] = []
     /// 出版社・発行日・ISBN・副題。**古い書棚には無い**ので、既定は空。
     var bibliography = Bibliography()
-    /// 書棚に並べる表紙の置き場所。取れなかった書籍では nil。
     var coverName: String?
-    /// 人が付けた名前。書籍の名乗りより優先する。消せば名乗りに戻る。
-    ///
-    /// 書籍の名乗り（title / authors）は書き換えない。名乗りは書籍の情報で
-    /// そのまま見せ続けるし、「消せば戻る」は別に持たないと作れない。
     var customTitle: String?
     var customAuthors: [String]?
 
@@ -30,7 +25,6 @@ struct LibraryEntry: Codable, Identifiable, Hashable {
     var fileExists: Bool { FileManager.default.fileExists(atPath: path) }
 }
 
-/// 蔵書と読書位置の保存。元ファイルは複製せず、参照だけを持つ。
 @MainActor
 final class LibraryStore: ObservableObject {
     static let shared = LibraryStore()
@@ -73,7 +67,6 @@ final class LibraryStore: ObservableObject {
         entries.sorted { $0.lastOpenedAt > $1.lastOpenedAt }
     }
 
-    /// Security-Scoped Bookmark を優先して復元する。移動されたファイルもこれで追える。
     func resolveURL(for entry: LibraryEntry) -> URL? {
         if let data = entry.bookmarkData {
             var stale = false
@@ -103,7 +96,6 @@ final class LibraryStore: ObservableObject {
         // **前に取り込んだ本にも後から入る。** 書誌を拾うようになる前に
         // 並べた本は空のままなので、開いたときに埋める。
         entry.bibliography = doc.bibliography
-        // 表紙は開いたときに 1 度だけ取り出す。書棚を開くたびに書籍を触らずに済む。
         if entry.coverName == nil { entry.coverName = CoverCache.store(from: doc) }
         if entry.bookmarkData == nil {
             entry.bookmarkData = try? doc.url.bookmarkData(options: [.withSecurityScope],
@@ -137,7 +129,6 @@ final class LibraryStore: ObservableObject {
         return true
     }
 
-    /// 人が付けた名前を覚える。nil や空は「付けない」＝名乗りに戻す。
     func setCustomName(_ id: BookID, title: String?, authors: [String]?) {
         guard var entry = entries.first(where: { $0.id == id }) else { return }
         entry.customTitle = title.flatMap { $0.isEmpty ? nil : $0 }
@@ -161,10 +152,6 @@ final class LibraryStore: ObservableObject {
         remove([id])
     }
 
-    /// まとめて外す。
-    ///
-    /// 1 冊ずつ呼ぶと、書棚がその数だけ描き直され、保存もその数だけ積まれる。
-    /// 何百冊を掃除するときに効く。
     func remove(_ ids: Set<BookID>) {
         guard !ids.isEmpty else { return }
         for entry in entries where ids.contains(entry.id) {

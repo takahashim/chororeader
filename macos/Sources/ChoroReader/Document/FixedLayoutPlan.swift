@@ -1,10 +1,6 @@
 import Foundation
 
-/// 固定レイアウトの組み立てのうち、画面に依らない部分。
-/// ページの種別の見分けと、見開きの組み方を扱う。
-/// Windows 実装と突き合わせる対象になる（conformance/CONTRACT.md）。
 enum FixedLayoutPlan {
-    /// ページの中身。画像 1 枚で構成されるページと、そうでないページを区別する。
     enum PageContent: Equatable {
         case image(href: String)
         case document(href: String)
@@ -22,8 +18,6 @@ enum FixedLayoutPlan {
         }
     }
 
-    /// ページが画像 1 枚で構成されているなら、その画像を直接表示する。
-    /// 文字が固定座標で置かれているページは、元の XHTML をそのまま埋め込む。
     static func pageContent(for href: String, resources: ResourceProvider) -> PageContent {
         guard let data = try? resources.read(href) else { return .document(href: href) }
         let source = CSSCompat.decodeText(data)
@@ -52,7 +46,6 @@ enum FixedLayoutPlan {
                 found.append(String(html[range]))
             }
         }
-        // 画像が複数あるページは、単純な 1 枚もののページではない。
         return found.count == 1 ? found.first : nil
     }
 
@@ -87,8 +80,6 @@ enum FixedLayoutPlan {
         return (w, h)
     }
 
-    /// 見開きの組み方。表紙は単独で見せ、以降を 2 枚ずつまとめる。
-    /// 綴じ方向は左右の並べ方だけに効き、組み方そのものは変えない。
     static func spreads(pageCount: Int, rtl: Bool) -> [[Int]] {
         guard pageCount > 0 else { return [] }
         var result: [[Int]] = [[0]]

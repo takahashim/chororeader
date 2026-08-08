@@ -20,7 +20,6 @@ struct SearchResult: Identifiable, Hashable {
 struct SearchMark: Codable, Hashable {
     var query: String
     var nth: Int
-    /// 当たりのあった場所。ほかの章やページへ移ったら囲まない。
     var target: Locator
 }
 
@@ -33,7 +32,6 @@ struct SearchMark: Codable, Hashable {
 enum HTMLText {
     struct Extracted {
         var text: String
-        /// コードブロックが占める範囲。検索結果の種別表示に使う。
         var codeRanges: [Range<Int>]
 
         func isCode(at offset: Int) -> Bool {
@@ -48,8 +46,6 @@ enum HTMLText {
 
     static func extract(_ html: String) -> Extracted {
         var source = html
-        // head は画面に出ない。題名（title）を本文として数えると、検索が
-        // 「見えないところに当たった」と言い、飛んでも何も無いことになる。
         source = remove(pattern: #"(?is)<head\b[^>]*>.*?</head>"#, from: source)
         source = remove(pattern: #"(?is)<script\b[^>]*>.*?</script>"#, from: source)
         source = remove(pattern: #"(?is)<style\b[^>]*>.*?</style>"#, from: source)
@@ -165,8 +161,6 @@ enum DocumentSearch {
             let extracted = HTMLText.extract(CSSCompat.decodeText(data))
             let text = extracted.text
             guard !text.isEmpty else { continue }
-            // **スカラーで数える。** 書記素で数えると、結合文字のある本文で
-            // 位置も progression も他の実装と食い違う。
             let chars = Array(text.unicodeScalars)
 
             // 章ごとに当たりの通し番号を振る。走査は読み順なので、章の頭で数え直せばよい。
@@ -197,9 +191,6 @@ enum DocumentSearch {
                 nth += 1
 
                 if results.count >= limit { truncated = true; break outer }
-                // **1 文字ぶんだけ進める。** 照合した長さのぶん進めると
-                // 「ままま」に「まま」が 1 件しか出ず、重なった当たりを飛ばす。
-                // 3 実装を並べて見つかった（Rust と C# は拾っていた）。
                 searchStart = text.index(after: range.lowerBound)
             }
         }

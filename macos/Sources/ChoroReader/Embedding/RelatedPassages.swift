@@ -1,9 +1,5 @@
 import Foundation
 
-/// いま読んでいる場所に関連する、他の書籍の箇所。
-///
-/// spec-local-ai.md 第 1.2 節でいう本命の機能である。
-/// 意味検索（問いを打つ）と違い、**こちらは何も打たなくても出る**。
 struct RelatedPassage: Identifiable, Hashable {
     /// 一覧の札。
     ///
@@ -19,10 +15,6 @@ struct RelatedPassage: Identifiable, Hashable {
     var score: Float
 }
 
-/// 関連箇所を探す。
-///
-/// **索引は候補を出すだけ**という本体の考え方に合わせ、ここも順位を付けて返すだけで、
-/// 本文は出さない。押されたら原書のその場所へ飛ぶ（第 2 章の 5）。
 enum RelatedPassages {
     /// これより遠いものは出さない。
     ///

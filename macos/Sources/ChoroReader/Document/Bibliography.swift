@@ -21,10 +21,7 @@ import PDFKit
 /// 揃える必要が出るまでこちら側に留める。
 struct Bibliography: Codable, Hashable {
     var publisher: String?
-    /// 発行日。**`YYYY-MM-DD` に切り詰めて持つ。**
-    /// 時刻や時間帯まで持つと、同じ日の本が版元によって前後する。
     var published: String?
-    /// ハイフンを抜いた数字だけ。書籍によって `978-4-...` と `9784...` が混ざる。
     var isbn: String?
     var subtitle: String?
 
@@ -32,7 +29,6 @@ struct Bibliography: Codable, Hashable {
         publisher == nil && published == nil && isbn == nil && subtitle == nil
     }
 
-    /// 発行年。並べ替えと絞り込みに使う。
     var year: Int? {
         published.flatMap { Int($0.prefix(4)) }
     }
@@ -52,8 +48,6 @@ struct Bibliography: Codable, Hashable {
             let value = (attributes[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             return (value?.isEmpty == false) ? value : nil
         }
-        // 発行日は Issued を優先する。CreationDate は**組版した日**であって、
-        // 発行日とは限らない（刷り直すたびに変わる）。
         let issued = text("Issued")
             ?? (attributes[PDFKit.PDFDocumentAttribute.creationDateAttribute] as? Date).map {
                 stamp.string(from: $0)

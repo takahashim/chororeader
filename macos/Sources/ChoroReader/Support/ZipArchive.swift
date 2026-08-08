@@ -71,7 +71,6 @@ final class ZipArchive {
             src.withUnsafeBytes { srcBuf in
                 guard let d = dstBuf.baseAddress?.assumingMemoryBound(to: UInt8.self),
                       let s = srcBuf.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return 0 }
-                // ZIP の deflate はヘッダなしの生ストリーム。COMPRESSION_ZLIB がこれに対応する。
                 return compression_decode_buffer(d, expected, s, src.count, nil, COMPRESSION_ZLIB)
             }
         }
@@ -98,7 +97,6 @@ final class ZipArchive {
         var count = Int(u16(eocd + 10))
         var cdOffset = Int(u32(eocd + 16))
 
-        // ZIP64（4GB 超、または 65535 項目超）
         if count == 0xFFFF || cdOffset == 0xFFFF_FFFF {
             let locator = eocd - 20
             guard locator >= 0, u32(locator) == 0x0706_4b50 else { throw Failure.truncated }

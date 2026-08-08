@@ -4,13 +4,8 @@ import Foundation
 ///
 /// 画面にもファイルの中身にも触らない。見つけた道筋を返すだけなので、検査で固められる。
 enum BookFinder {
-    /// 書籍として扱う拡張子。開くダイアログ（FileOpener）と揃える。
     static let extensions: Set<String> = ["epub", "pdf"]
 
-    /// 潜る深さの上限。
-    ///
-    /// 蔵書は「出版社ごと」「年ごと」くらいの入れ子で置かれることが多い。
-    /// 際限なく潜ると、書籍と関係ない木（Xcode の生成物や node_modules）まで舐める。
     static let maxDepth = 5
 
     /// `folder` の下にある書籍。見つかった順ではなく、道筋の順に並べて返す。

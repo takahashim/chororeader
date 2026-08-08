@@ -1,29 +1,12 @@
 import Accelerate
 import Foundation
 
-/// `weights/weight.bin` を書く。MIL の const が中身を指す先である。
-///
-/// 形式は coremltools の `MILBlob/Blob/StorageFormat.hpp` 由来
-/// （BSD-3-Clause。告知は `LICENSE-COREMLTOOLS-BSD` に運ぶ）。
-///
-/// ```text
-/// | 頭 64B | 目録 64B | 中身 | 詰め物 | 目録 64B | 中身 | …
-/// ```
-///
-/// **どの目録も 64 バイトの境目から始まる**ので、その直後に来る中身も揃う。
-/// MIL の const が指すのは中身ではなく**目録の位置**で、
-/// `write` の類が返すのはその位置である。
-///
-/// 形式が正しいことは kohagi 側で確かめてある（公開済みの `weight.bin` を
-/// 読み書きして往復させ、形式がこの通りであることを立てた）。
-/// こちらは**その kohagi の出力とバイト単位で突き合わせる**（第 7 節の審判 1）。
 struct WeightBlob {
     private static let align = 64
     private static let sentinel: UInt32 = 0xDEAD_BEEF
     private static let metaSize = 64
     private static let version: UInt32 = 2
 
-    /// coremltools の `MILBlob/Blob/BlobDataType.hpp`。
     private enum DataType: UInt32 {
         case float16 = 1
         case float32 = 2
@@ -34,17 +17,10 @@ struct WeightBlob {
     private(set) var count: UInt32 = 0
 
     init() {
-        // 頭は中身を足すたびに書き直す（個数を持つため）。
-        // **版は最初から書いておく。** 足す前に書き出すことは実際には無いが、
-        // 版が 0 のまま出ると、版を見る読み手に弾かれる形になる。
-        // 中身のあるものでは append が上書きするので、kohagi との一致には影響しない。
         bytes = [UInt8](repeating: 0, count: Self.align)
         Self.put(Self.version, into: &bytes, at: 4)
     }
 
-    /// fp16 として足し、**目録の位置**を返す。
-    ///
-    /// 変換された encoder が持つのはこの形である。
     mutating func append(fp16 values: [Float]) -> UInt64 {
         guard !values.isEmpty else { return append(.float16, []) }
         var half = [UInt16](repeating: 0, count: values.count)
@@ -85,7 +61,6 @@ struct WeightBlob {
         append(.int8, values.map { UInt8(bitPattern: $0) })
     }
 
-    /// 書き終えた中身。`weights/weight.bin` へそのまま置く。
     func finish() -> Data { Data(bytes) }
 
     // MARK: - 内側

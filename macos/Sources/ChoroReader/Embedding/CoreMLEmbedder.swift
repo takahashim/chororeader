@@ -2,14 +2,6 @@ import Accelerate
 import CoreML
 import Foundation
 
-/// 本文を 1 本のベクトルにする。Core ML を Apple Neural Engine で動かす。
-///
-/// 束の開き方と詰め方は `BucketBundle` が持つ（並べ直しと共有する）。
-/// ここが受け持つのは**入口と出口**、つまりトークンへの直し方と、
-/// 隠れ状態を 1 本にまとめる平均の取り方である。
-///
-/// 出力の並べ方・詰め方・平均の取り方は参照実装と揃える。ずれると黙って違う
-/// ベクトルが出るので、cosine の一致を検査で固める。
 @available(macOS 15, *)
 final class CoreMLEmbedder: Embedding {
     private let tokenizer: UnigramTokenizer
@@ -50,7 +42,6 @@ final class CoreMLEmbedder: Embedding {
         return (vector, truncated)
     }
 
-    /// マスクの立っているトークンだけで平均する。詰めた分は数に入れない。
     private func pool(_ hidden: [Float], mask: [Int32]) -> [Float] {
         switch pooling {
         case .cls:
@@ -71,8 +62,6 @@ final class CoreMLEmbedder: Embedding {
         }
     }
 
-    /// 長さ 1 に揃える。**ノルムは Double で積む**（kohagi の l2_normalize と同じ）。
-    /// 単位ベクトルにしておけば、内積がそのまま cosine になる。
     private func normalize(_ vector: inout [Float]) {
         var squared = 0.0
         for value in vector { squared += Double(value) * Double(value) }
@@ -84,12 +73,6 @@ final class CoreMLEmbedder: Embedding {
 
     // MARK: - 読み込みの検査
 
-    /// 束の中の 1 つが、こちらの思い込みどおりかを確かめる。
-    ///
-    /// `config.json` の次元も、名前から取ったバケットの長さも、**モデル自身とは
-    /// 結び付いていない**。別の checkpoint のものを置くと、違う幅で平均した値や、
-    /// 違う長さに詰めた入力が黙って通る。読み込みのここでしか捕まえられない
-    /// （kohagi の `check_io` と同じ考え方）。
     private static func check(_ model: MLModel, length: Int, dimension: Int) throws {
         try BucketBundle.checkInputs(model, length: length)
         let shape = try BucketBundle.outputShape(model, named: "hidden", length: length)

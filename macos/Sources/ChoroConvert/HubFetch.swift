@@ -8,7 +8,6 @@ import Foundation
 /// 手元の HF キャッシュに既にあれば、そちらを使う。
 /// 無ければ取って、置き場所へ写す。**2 度目からは取らない。**
 public struct HubFetch {
-    /// 取ってくるもの。無くてよいものは `optional` に置く。
     private static let required = ["config.json", "model.safetensors"]
     private static let optional = ["tokenizer.json", "tokenizer_config.json",
                                    "special_tokens_map.json", "1_Pooling/config.json"]
@@ -23,10 +22,8 @@ public struct HubFetch {
         }
     }
 
-    /// 材料の置き場所。
     public struct Materials {
         public var directory: URL
-        /// 直に指されたもの。あればそちらが勝つ。
         var explicitConfig: URL?
         var explicitWeights: URL?
 
@@ -36,11 +33,9 @@ public struct HubFetch {
         public var weights: URL {
             explicitWeights ?? directory.appendingPathComponent("model.safetensors")
         }
-        /// 変換物のそばへ写すもの（アプリが使う）。
         var extras: [(name: String, url: URL)]
     }
 
-    /// 手元のファイルを直に指すとき（`--model-path`）。取りに行かない。
     public static func local(weights: URL, config: URL) -> Materials {
         // そばへ写すものは、重みと同じ場所から拾えるだけ拾う。
         var made = materials(at: weights.deletingLastPathComponent())
@@ -90,14 +85,10 @@ public struct HubFetch {
             let url = directory.appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: url.path) { extras.append((name, url)) }
         }
-        // config.json も変換物のそばへ要る（アプリが次元と平均の取り方を読む）。
         extras.append(("config.json", directory.appendingPathComponent("config.json")))
         return Materials(directory: directory, extras: extras)
     }
 
-    /// 手元の Hugging Face の置き場所（`~/.cache/huggingface/hub`）を探す。
-    ///
-    /// **既に取ってあるものを 2 度取らない。** 260 MB を無駄にしない。
     private static func inHuggingFaceCache(_ modelId: String) -> URL? {
         let hub = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".cache/huggingface/hub")

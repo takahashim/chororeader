@@ -2,14 +2,7 @@ import CryptoKit
 import Foundation
 import PDFKit
 
-/// 索引の置き場所と作り直しの判断。
-///
-/// 索引は書籍そのものから何度でも作り直せるので、消えても困らない。
-/// そのため Application Support の下に置きっぱなしにし、元ファイルが変わったら捨てる。
 enum SearchIndexStore {
-    /// 索引を書く単位。EPUB は読み順の 1 項目、PDF は 1 ページ。
-    ///
-    /// 走査し直す単位と揃えておかないと、絞った番号を走査側へ渡せない。
     enum Unit {
         case chapter(href: String)
         case page(Int)
@@ -62,9 +55,6 @@ enum SearchIndexStore {
         return index
     }
 
-    /// 引かれる前に、置いてある索引をほどいておく。
-    ///
-    /// 書棚を開いた時点で始めておけば、最初の検索が読み込みを待たずに済む。
     static func warm(_ urls: [URL]) {
         let urls = urls.filter { memory.object(forKey: $0.standardizedFileURL.path as NSString) == nil }
         guard !urls.isEmpty else { return }
@@ -97,7 +87,6 @@ enum SearchIndexStore {
         return cache
     }()
 
-    /// ほどいた索引が占める場所のおおよそ。書き出した形の 3 倍で見る。
     private static func cost(ofEncoded bytes: Int) -> Int { bytes * 3 }
 
     static func hasIndex(for url: URL) -> Bool {
@@ -137,7 +126,6 @@ enum SearchIndexStore {
         }
     }
 
-    /// 索引に載せる本文を単位ごとに切り出す。
     static func unitTexts(of source: Source) -> [String] {
         switch source {
         case let .epub(resources, publication):

@@ -10,7 +10,6 @@ import Foundation
 /// 抽出した本文と元の HTML を後から突き合わせて位置を求める。
 /// 突き合わせがずれても、動くのは印の位置だけで、検索の当たりは動かない。
 enum SearchMarkInserter {
-    /// 印に付ける名前。本文へ入れるスタイルはこれを見て色を当てる。
     static let className = "choro-found"
 
     /// 印を入れた場所。実装間で突き合わせるために、囲んだ語とその直前の文脈で表す。
@@ -18,7 +17,6 @@ enum SearchMarkInserter {
     /// 位置を数で言うと、実装ごとの数え方（バイトか、符号位置か、書記素か）の違いが
     /// そのまま差になる。文字列で示せば、置いた場所が同じかどうかだけを比べられる。
     struct Placement {
-        /// 囲んだ語。
         var marked: String
         /// 囲んだところの直前にある本文（元の HTML から、最大 20 文字）。
         var before: String
@@ -45,7 +43,6 @@ enum SearchMarkInserter {
         return out
     }
 
-    /// 囲む範囲（元の HTML の文字位置）。
     private static func span(_ source: [Unicode.Scalar], query: String, nth: Int) -> (Int, Int)? {
         guard !query.isEmpty else { return nil }
         let body = HTMLText.extract(text(source[...])).text
@@ -56,7 +53,6 @@ enum SearchMarkInserter {
 
         let start = origins[from]
         var end = origins[to - 1] + sourceWidth(source, at: origins[to - 1])
-        // 節をまたぐ当たりは、始まりの地の文で切る。タグを囲むと入れ子が壊れる。
         end = min(end, runEnd(source, from: start))
         guard end > start, end <= source.count else { return nil }
         return (start, end)
@@ -86,7 +82,6 @@ enum SearchMarkInserter {
         return nil
     }
 
-    /// スカラーの並びを文字列へ戻す。
     private static func text(_ scalars: ArraySlice<Unicode.Scalar>) -> String {
         String(String.UnicodeScalarView(scalars))
     }
@@ -105,7 +100,6 @@ enum SearchMarkInserter {
         var insideTag = false
 
         while at < text.count, cursor < source.count {
-            // 本文に混ぜないところは、抽出も消している。飛ばす。
             if let end = skipIgnored(source, from: cursor) {
                 cursor = end
                 insideTag = false
@@ -121,7 +115,6 @@ enum SearchMarkInserter {
             if c == ">" {
                 insideTag = false
                 cursor += 1
-                // タグの位置には空白が 1 つ入る。本文側がそれを待っていれば、ここを指す。
                 if text[at] == " " {
                     origins.append(cursor)
                     at += 1
@@ -133,7 +126,6 @@ enum SearchMarkInserter {
                 continue
             }
 
-            // 実体参照は解かれて 1 文字になる。始まりの位置を指しておく。
             if c == "&", let length = entityLength(source, at: cursor) {
                 origins.append(cursor)
                 at += 1
@@ -148,7 +140,6 @@ enum SearchMarkInserter {
                 continue
             }
 
-            // 改行や連なった空白は 1 つに詰められる。本文側が空白を待っていれば、そこで揃える。
             if text[at] == " ", Character(c).isWhitespace {
                 origins.append(cursor)
                 at += 1
@@ -194,7 +185,6 @@ enum SearchMarkInserter {
         return nil
     }
 
-    /// 本文の 1 文字が、元の HTML で占める長さ。実体参照は書かれたぶんを数える。
     private static func sourceWidth(_ source: [Unicode.Scalar], at cursor: Int) -> Int {
         guard cursor < source.count else { return 0 }
         if source[cursor] == "&", let length = entityLength(source, at: cursor) { return length }
@@ -213,7 +203,6 @@ enum SearchMarkInserter {
         return nil
     }
 
-    /// その文字が属する地の文の終わり。次のタグの手前で止める。
     private static func runEnd(_ source: [Unicode.Scalar], from cursor: Int) -> Int {
         var index = cursor
         while index < source.count, source[index] != "<" { index += 1 }

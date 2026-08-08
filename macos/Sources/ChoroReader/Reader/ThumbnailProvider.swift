@@ -18,14 +18,10 @@ final class ThumbnailProvider {
 
     init(source: Source) {
         self.source = source
-        // 枚数だけで頭を打つと、1 枚の大きさ次第で総量が読めない。
-        // 320 ピクセルの縮小画は 1 枚 0.5 メガほどあり、240 枚で 130 メガを超える。
-        // 総量でも打っておく。NSCache は費用を渡さないと totalCostLimit が効かない。
         cache.countLimit = 240
         cache.totalCostLimit = 48 * 1024 * 1024
     }
 
-    /// その画が占める場所。おおよそでよい。
     private static func cost(of image: NSImage) -> Int {
         Int(image.size.width * image.size.height) * 4
     }
@@ -37,7 +33,6 @@ final class ThumbnailProvider {
         }
     }
 
-    /// 固定レイアウト EPUB 用。ページ画像を持つ書籍だけサムネイルを出せる。
     @MainActor
     static func make(for session: ReaderSession) -> ThumbnailProvider? {
         if let fixed = session.fixed, let resources = session.document.resources {
@@ -81,7 +76,6 @@ final class ThumbnailProvider {
             }
 
         case let .pdf(document):
-            // PDFKit の描画は主スレッドで行う。ページ数が多くても、見えている分しか作らない。
             DispatchQueue.main.async { [weak self] in
                 guard let page = document.page(at: index) else {
                     completion(nil)
@@ -97,7 +91,6 @@ final class ThumbnailProvider {
         }
     }
 
-    /// 原寸まで復号せずにサムネイルを得る。
     private static func thumbnail(from data: Data, maxPixel: Int) -> NSImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [

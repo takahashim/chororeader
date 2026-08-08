@@ -192,8 +192,6 @@ struct AppCommands: Commands {
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(session == nil)
 
-            // 選んだ本文を種に、ほかの書籍の近い箇所を探す。
-            // 勝手に出さず、頼まれたときだけ引く。
             Button("選んだ箇所に近い場所を探す") {
                 session?.sidebarTab = .related
                 session?.findRelated()
@@ -238,8 +236,6 @@ struct AppCommands: Commands {
             .disabled(session == nil)
         }
 
-        // 情報は ⌘I。Finder の「情報を見る」と同じ割り当てにする。
-        // 診断（⌘⌥I）とは役目が違う。あちらは表示がおかしいときの切り分け。
         CommandGroup(after: .newItem) {
             Divider()
             Button("この書籍の情報…") {

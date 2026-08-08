@@ -19,7 +19,6 @@ struct Bookmark: Identifiable, Codable, Hashable {
     var createdAt: Date = Date()
 }
 
-/// 書籍ごとに 1 つ。複数ウィンドウで同じ書籍を開いても、この層は共有する。
 @MainActor
 final class BookDocument: ObservableObject {
     enum Source {
@@ -33,7 +32,6 @@ final class BookDocument: ObservableObject {
     let source: Source
     let title: String
     let authors: [String]
-    /// 出版社・発行日・ISBN・副題。揃わない本の方が多い。
     let bibliography: Bibliography
     let tableOfContents: [TOCEntry]
     /// CSS 互換レイヤーが書き換えた内容。表示崩れの切り分けに使う。
@@ -49,7 +47,6 @@ final class BookDocument: ObservableObject {
         if case let .epub(archive, _) = source { return archive }
         return nil
     }
-    /// 本文と周辺リソースの供給元。
     var resources: ResourceProvider? { archive }
     var pdfDocument: PDFKit.PDFDocument? {
         if case let .pdf(doc) = source { return doc }
@@ -202,7 +199,6 @@ final class BookDocument: ObservableObject {
     }
 }
 
-/// 開いている書籍を 1 つに保つ。ウィンドウが増えても再パースしない。
 @MainActor
 final class DocumentRegistry {
     static let shared = DocumentRegistry()
