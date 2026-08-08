@@ -149,3 +149,46 @@ transformers でその場で小さなモデルを作って確かめた。
 
 切り分けの手順として有効だったのは、**層の重みを 0 にして埋め込みだけを比べる**
 こと。そこで合わなければ、注意でも中間層でもないと分かる。
+
+## 分類頭（reranker）の照合
+
+胴体と同じ形で、oracle は transformers の
+`AutoModelForSequenceClassification`。**組の詰め方も推測しない**
+（tokenizer に実際に詰めさせて `input_ids` ごと持ち帰る）。
+
+```sh
+/tmp/rr/bin/python - <<'PY'
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import torch, json
+name = "hotchpotch/japanese-reranker-xsmall-v2"
+tok = AutoTokenizer.from_pretrained(name)
+m = AutoModelForSequenceClassification.from_pretrained(name, dtype=torch.float32).eval()
+out = []
+for query, body in [("架空の問い", "架空の本文。")]:
+    enc = tok(query, body, return_tensors="pt", padding="max_length", max_length=256, truncation=True)
+    with torch.no_grad():
+        out.append({"ids": enc["input_ids"][0].tolist(),
+                    "mask": enc["attention_mask"][0].tolist(),
+                    "score": float(m(**enc).logits[0][0])})
+json.dump(out, open("/tmp/rr-scores.json", "w"))
+PY
+```
+
+### 通した結果（2026-08-08、japanese-reranker-xsmall-v2）
+
+| | 最大の差 |
+|---|---|
+| score（5 組、CPU） | **0.023** |
+| score（5 組、ANE） | **0.014** |
+
+fp16 の刻み（この幅では ±0.008 程度）の範囲である。
+
+**並び替えの結果も一致した。** 8 件を並べて、PyTorch と同じ順になった
+（2 位と 3 位が 0.001 差の場面も含む）。score そのものより、こちらが本題である。
+
+### 確かめた形（推測しない）
+
+- 組は `<s> 問い </s><s> 本文 </s>`（tokenizer に詰めさせて確認）
+- 胴体の重みに **`model.` が付く**（埋め込みモデルには付かない）
+- 頭は **プーリング → `head.dense`（bias なし）→ 活性 → `head.norm` → `classifier`（bias あり）**
+- `classifier_pooling` は **cls**（先頭のトークンだけ）。config から読む

@@ -30,6 +30,17 @@ public struct EncoderConfig {
     var activation: Activation
     /// 分類頭を持つか（reranker）。
     var isClassifier: Bool
+    /// 分類頭のプーリング。**推測しない**（transformers の実装から確かめた）。
+    var classifierPooling: Pooling
+    /// 分類頭の活性。
+    var classifierActivation: Activation
+    /// 重みの名前に付く前置き。分類頭のある checkpoint は `model.` が付く。
+    var prefix: String
+
+    enum Pooling: String {
+        case cls
+        case mean
+    }
 
     enum Activation: String {
         case gelu
@@ -95,6 +106,20 @@ public struct EncoderConfig {
 
         let architectures = (root["architectures"] as? [String]) ?? []
         isClassifier = architectures.contains { $0.contains("SequenceClassification") }
+        // 分類頭のある checkpoint は胴体の重みに `model.` が付く。
+        prefix = isClassifier ? "model." : ""
+
+        let poolingName = (root["classifier_pooling"] as? String) ?? "cls"
+        guard let pooling = Pooling(rawValue: poolingName) else {
+            throw Failure.cannotRead("classifier_pooling が \(poolingName) は扱いません")
+        }
+        classifierPooling = pooling
+
+        let headName = (root["classifier_activation"] as? String) ?? "gelu"
+        guard let headActivation = Activation(rawValue: headName.replacingOccurrences(of: "_", with: "")) else {
+            throw Failure.cannotRead("classifier_activation が \(headName) は扱いません")
+        }
+        classifierActivation = headActivation
 
         let reasons = Self.assumptions(root, globalEvery: globalEvery, hidden: hidden, heads: heads)
         guard reasons.isEmpty else { throw Failure.unsupported(reasons) }
@@ -109,9 +134,11 @@ public struct EncoderConfig {
         var out: [String] = []
 
         // 組み上げる linear はどれも bias を持たず、正規化は gamma だけを持つ。
+        // **分類器だけは bias を持つ**（transformers もそう組んでいる）。
         for (key, what) in [("attention_bias", "注意の射影"),
                             ("mlp_bias", "中間層の射影"),
-                            ("norm_bias", "正規化")] {
+                            ("norm_bias", "正規化"),
+                            ("classifier_bias", "分類頭の dense")] {
             if (root[key] as? Bool) == true {
                 out.append("\(key) が true だが、組み上げるグラフは\(what)に bias を持たせない")
             }

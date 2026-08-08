@@ -65,17 +65,23 @@ public struct EncoderConverter {
         }
         let hidden = config.hidden
         let intermediate = config.intermediate
-        require(["embeddings.tok_embeddings.weight", "embeddings.norm.weight", "final_norm.weight"])
+        let p = config.prefix
+        require(["\(p)embeddings.tok_embeddings.weight", "\(p)embeddings.norm.weight",
+                 "\(p)final_norm.weight"])
+        if config.isClassifier {
+            require(["head.dense.weight", "head.norm.weight",
+                     "classifier.weight", "classifier.bias"])
+        }
         for layer in 0 ..< config.layers {
-            require(["layers.\(layer).attn.Wqkv.weight", "layers.\(layer).attn.Wo.weight",
-                     "layers.\(layer).mlp_norm.weight", "layers.\(layer).mlp.Wi.weight",
-                     "layers.\(layer).mlp.Wo.weight"])
+            require(["\(p)layers.\(layer).attn.Wqkv.weight", "\(p)layers.\(layer).attn.Wo.weight",
+                     "\(p)layers.\(layer).mlp_norm.weight", "\(p)layers.\(layer).mlp.Wi.weight",
+                     "\(p)layers.\(layer).mlp.Wo.weight"])
         }
         guard missing.isEmpty else { throw Failure.missing(missing) }
 
-        let tokens = try place("embeddings.tok_embeddings.weight", expected: [config.vocab, hidden])
-        let embeddingNorm = try place("embeddings.norm.weight", expected: [hidden])
-        let finalNorm = try place("final_norm.weight", expected: [hidden])
+        let tokens = try place("\(p)embeddings.tok_embeddings.weight", expected: [config.vocab, hidden])
+        let embeddingNorm = try place("\(p)embeddings.norm.weight", expected: [hidden])
+        let finalNorm = try place("\(p)final_norm.weight", expected: [hidden])
 
         // 射影に bias は無いので（config で拒んである）、0 を置く。
         let zeroQKV = blob.append(fp16: [Float](repeating: 0, count: 3 * hidden))
@@ -87,17 +93,26 @@ public struct EncoderConverter {
         for layer in 0 ..< config.layers {
             // **層 0 は前正規化を持たない。** 埋め込みの後で正規化済みである。
             var attnNorm: UInt64?
-            let normName = "layers.\(layer).attn_norm.weight"
+            let normName = "\(p)layers.\(layer).attn_norm.weight"
             if weights.shape(of: normName) != nil {
                 attnNorm = try place(normName, expected: [hidden])
             }
             perLayer.append((
-                wqkv: try place("layers.\(layer).attn.Wqkv.weight", expected: [3 * hidden, hidden]),
-                wo: try place("layers.\(layer).attn.Wo.weight", expected: [hidden, hidden]),
-                mlpNorm: try place("layers.\(layer).mlp_norm.weight", expected: [hidden]),
-                mlpWi: try place("layers.\(layer).mlp.Wi.weight", expected: [2 * intermediate, hidden]),
-                mlpWo: try place("layers.\(layer).mlp.Wo.weight", expected: [hidden, intermediate]),
+                wqkv: try place("\(p)layers.\(layer).attn.Wqkv.weight", expected: [3 * hidden, hidden]),
+                wo: try place("\(p)layers.\(layer).attn.Wo.weight", expected: [hidden, hidden]),
+                mlpNorm: try place("\(p)layers.\(layer).mlp_norm.weight", expected: [hidden]),
+                mlpWi: try place("\(p)layers.\(layer).mlp.Wi.weight", expected: [2 * intermediate, hidden]),
+                mlpWo: try place("\(p)layers.\(layer).mlp.Wo.weight", expected: [hidden, intermediate]),
                 attnNorm: attnNorm))
+        }
+
+        // 分類頭（reranker）。胴体と同じ束に入れる。
+        var head: ClassifierHead.Offsets?
+        if config.isClassifier {
+            head = .init(dense: try place("head.dense.weight", expected: [hidden, hidden]),
+                         norm: try place("head.norm.weight", expected: [hidden]),
+                         classifier: try place("classifier.weight", expected: [1, hidden]),
+                         classifierBias: try place("classifier.bias", expected: [1]))
         }
 
         // バケットの長さごとに、rope の表とマスクを焼き込んで関数を組む。
@@ -131,9 +146,17 @@ public struct EncoderConverter {
                              ropeSin: isGlobal ? globalSin : localSin)
             }
 
-            let out = graph.build(into: &mil, ids: ids, attentionMask: attention,
+            var out = graph.build(into: &mil, ids: ids, attentionMask: attention,
                                   blocks: blocks, tokens: tokens,
                                   embeddingNorm: embeddingNorm, finalNorm: finalNorm)
+            if let head {
+                // epsilon は胴体が置いたものを使い回せないので、頭でも 1 つ置く。
+                let epsilon = mil.constant("head_epsilon", .init(.fp16, []),
+                                           .halves([config.eps]))
+                out = ClassifierHead(config: config, seq: length)
+                    .build(into: &mil, hidden: out, attentionMask: attention,
+                           weights: head, epsilon: epsilon)
+            }
 
             let name = Self.functionName(length)
             // `attention_mask` は**使う**。詰め物の位置を注意から外すためである。
@@ -141,8 +164,7 @@ public struct EncoderConverter {
             described.append((name,
                               [.init(name: "input_ids", dataType: .int32, shape: [1, length]),
                                .init(name: "attention_mask", dataType: .int32, shape: [1, length])],
-                              [.init(name: out.name, dataType: .fp16,
-                                     shape: [1, length, hidden])]))
+                              [.init(name: out.name, dataType: .fp16, shape: out.type.shape)]))
         }
 
         let program = MILProgram.program(functions: functions)
