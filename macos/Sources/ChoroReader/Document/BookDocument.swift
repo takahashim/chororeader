@@ -230,10 +230,5 @@ final class DocumentRegistry {
         } else {
             refCounts[doc.id] = n
         }
-        // 本を 1 冊も開いていないなら、埋め込み器も要らない。
-        // 索引作りが走っている間は、あちらが使っているので降りない。
-        if documents.isEmpty, #available(macOS 15, *) {
-            EmbedderHolder.shared.release()
-        }
     }
 }

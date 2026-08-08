@@ -23,7 +23,7 @@ final class EmbedderHolderTests: XCTestCase {
         XCTAssertLessThan(each, 100, "開き直している（\(Int(each)) ms）")
     }
 
-    /// 手放せること。書籍を閉じたときなど、待たずに降ろしたい場面がある。
+    /// 手放せること。意味の層を切ったときに使う。
     func test_手放せる() throws {
         try XCTSkipUnless(EmbeddingModelStore.installed() != nil, "手元にモデルがありません")
         _ = try EmbedderHolder.shared.use { try $0.embed("架空の一節である。", as: .query) }

@@ -19,7 +19,15 @@ struct SemanticSettingsView: View {
                 .disabled(!hasModel || !supported)
                 // 入にした時点で、問いが使う短いバケットを裏で開いておく。
                 // そうしないと最初の 1 回だけ数百 ms 待たされる。
-                .onChange(of: builder.enabled) { _, _ in builder.warm() }
+                .onChange(of: builder.enabled) { _, on in
+                    if on {
+                        builder.warm()
+                    } else {
+                        // 切ったら握っているものを手放す。使う見込みが無くなる唯一の折。
+                        builder.stop()
+                        if #available(macOS 15, *) { EmbedderHolder.shared.release() }
+                    }
+                }
 
             if !supported {
                 note("この機能は macOS 15 以降で使えます")
