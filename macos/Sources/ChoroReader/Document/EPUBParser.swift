@@ -18,7 +18,6 @@ enum EPUBParser {
         let opf = try document(from: opfData)
         let opfDir = (opfPath as NSString).deletingLastPathComponent
 
-        // manifest
         var manifest: [String: Link] = [:]   // id -> Link
         var coverID: String?
         for el in elements(opf, "//*[local-name()='manifest']/*[local-name()='item']") {
@@ -34,7 +33,6 @@ enum EPUBParser {
             if props.contains("cover-image") { coverID = id }
         }
 
-        // spine
         var readingOrder: [Link] = []
         var spineProperties: [String] = []
         for el in elements(opf, "//*[local-name()='spine']/*[local-name()='itemref']") {
@@ -48,7 +46,6 @@ enum EPUBParser {
         }
         guard !readingOrder.isEmpty else { throw Failure.emptySpine }
 
-        // 書誌情報
         func metaValues(_ name: String) -> [String] {
             nodes(opf, "//*[local-name()='metadata']/*[local-name()='\(name)']")
                 .compactMap { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -62,8 +59,6 @@ enum EPUBParser {
         let publisher = metaValues("publisher").first
         let published = metaValues("date").first
 
-        // 副題。**`title-type` が `subtitle` の `dc:title` を、refines で指し直す。**
-        // 題名が複数あるのは珍しくなく、順番では見分けられない。
         let subtitle: String? = {
             let subtitleIds = Set(nodes(opf, "//*[local-name()='metadata']/*[local-name()='meta'][@property='title-type']")
                 .filter { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) == "subtitle" }
@@ -76,7 +71,6 @@ enum EPUBParser {
                 .stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
         }()
 
-        // レイアウト種別
         let renditionLayout = nodes(opf, "//*[local-name()='meta'][@property='rendition:layout']")
             .compactMap { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }.first
         var layout: PublicationLayout = renditionLayout == "pre-paginated" ? .fixed : .reflowable
@@ -85,13 +79,11 @@ enum EPUBParser {
             layout = .fixed
         }
 
-        // 綴じ方向
         let ppd = elements(opf, "//*[local-name()='spine']")
             .compactMap { $0.attribute(forName: "page-progression-direction")?.stringValue }
             .first
         let direction: ReadingDirection = (ppd == "rtl") ? .rtl : .ltr
 
-        // 表紙
         if coverID == nil {
             coverID = elements(opf, "//*[local-name()='meta'][@name='cover']")
                 .compactMap { $0.attribute(forName: "content")?.stringValue }.first

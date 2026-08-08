@@ -15,24 +15,18 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
     @Published private(set) var isLoading = false
     @Published private(set) var chapterTitle: String = ""
 
-    /// ⌘クリックなど、別ウィンドウで開く要求。
     var onOpenInNewWindow: ((Locator) -> Void)?
-    /// 履歴へ積むべき移動が起きたことの通知。
     var onNavigated: ((Locator) -> Void)?
     var onStatus: ((String?) -> Void)?
 
     /// リンク先を移動せずに見せるための要求。ビュー側でポップオーバーとして出す。
     @Published var preview: PreviewRequest?
 
-    /// いま強調している当たり。章を読み込むたびに当て直し、検索をやめると消える。
     var mark: SearchMark? {
         didSet {
-            // 押した直後の 1 回だけ、囲んだところまで送る。
-            // あとで通りかかったときは、配られた印がそのまま残る。
             markApproach = mark != nil && mark != oldValue
             // 印は配信の瞬間に入る。次に章を配ってもらうときのために、先に置いておく。
             schemeHandler.mark = mark.map { ($0.query, $0.nth) }
-            // 外すだけなら配り直さなくてよい。配り直すと画面がちらつく。
             if mark == nil {
                 webView.evaluateJavaScript("window.choroClearMarks && window.choroClearMarks()")
             }
@@ -61,7 +55,6 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
 
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(schemeHandler, forURLScheme: ResourceSchemeHandler.scheme)
-        // 書籍由来の JavaScript は動かさない。注入スクリプトだけが動く。
         config.defaultWebpagePreferences.allowsContentJavaScript = false
 
         let controller = WKUserContentController()
@@ -103,7 +96,6 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
             load(locator: target)
             return
         }
-        // 同じ章の中なら読み直さずに動く。
         if target.href == locator.href, !isLoading {
             onNavigated?(locator)
             locator.progression = target.progression
@@ -167,7 +159,6 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         applyForegroundMarking()
     }
 
-    /// 文字色を当てる要素を選び直す。テーマを変えたときと、章を読み込んだときに呼ぶ。
     private func applyForegroundMarking() {
         let enabled = settings.needsForegroundMarking
         webView.evaluateJavaScript("window.choroApplyForeground && window.choroApplyForeground(\(enabled))")
@@ -203,7 +194,6 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         }
     }
 
-    /// 目次に対応する項目がない章（表紙など）では、ファイル名を出さずに空にする。
     private func title(forHref href: String) -> String {
         document.publication?.title(forHref: href) ?? ""
     }
@@ -228,7 +218,6 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
                 if wantsNewWindow {
                     onOpenInNewWindow?(target)
                 } else if showFootnotePreview(for: target) {
-                    // 脚注は移動せずにその場で見せる。本文の位置を失わせない。
                 } else if href == locator.href {
                     onNavigated?(locator)
                     locator.fragment = target.fragment
@@ -248,7 +237,6 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
             }
         }
 
-        // 書籍内リソース以外の読み込みは許可しない。
         if url.scheme == ResourceSchemeHandler.scheme || url.scheme == "about" {
             decisionHandler(.allow)
         } else {
@@ -270,20 +258,17 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
 
     // MARK: - 当たりの強調
 
-    /// この章に当たりがあるか。ほかの章では、目当ての語が出ていても囲まない。
     private var marksHere: Bool {
         guard let mark else { return false }
         return mark.target.href == locator.href
     }
 
-    /// 配られた本文に入っている印まで送る。押した直後の 1 回だけ。
     private func approachMark() {
         guard markApproach, marksHere else { return }
         markApproach = false
         webView.evaluateJavaScript("window.choroApproachMark && window.choroApproachMark()")
     }
 
-    /// 章末に次の章への行き先を出す。最後の章では何も出さない。
     private func showChapterEndAffordance() {
         guard let index = currentIndex, index + 1 < readingOrder.count else {
             webView.evaluateJavaScript("window.choroSetChapterEnd && window.choroSetChapterEnd(null)")
@@ -320,7 +305,6 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
             if canGoPrevChapter { goPrevChapter() }
 
         case "arrow":
-            // 右開きの書籍では、右が前へ戻る向きになる。
             let rtl = document.publication?.direction == .rtl
             let forward = (body["side"] as? String == "right") != rtl
             if forward { goNextChapter() } else { goPrevChapter() }
@@ -348,7 +332,6 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
 
     // MARK: - プレビュー
 
-    /// 本文と同じ設定を当てた小さな WebView。ポップオーバーのたびに作り直さず使い回す。
     var previewView: WKWebView {
         if let previewWebView { return previewWebView }
         let config = WKWebViewConfiguration()
@@ -368,7 +351,6 @@ final class WebNavigatorController: NSObject, ObservableObject, WKNavigationDele
         present(target: target, anchor: frame, forceFootnote: body["noteref"] as? Bool ?? false)
     }
 
-    /// 脚注リンクなら、その場に吹き出しを出して移動を止める。戻り値はポップオーバーを出したかどうか。
     private func showFootnotePreview(for target: Locator) -> Bool {
         guard target.fragment != nil, let anchor = lastLinkRect else { return false }
         return present(target: target, anchor: anchor, forceFootnote: false, footnoteOnly: true)

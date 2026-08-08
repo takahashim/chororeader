@@ -1,13 +1,6 @@
 import Foundation
 
-/// 近さで並べる。**関連箇所と意味検索で同じ規則を通す。**
-///
-/// 以前は同じ手順（蔵書を舐める → 書籍ごとに上位 N → 下限で切る → 点で並べる）が
-/// 2 か所にあり、下限だけが食い違っていた。片方を調整してもう片方を忘れる事故が起きる。
 enum SemanticFinder {
-    /// 何件まで、どこまで遠いものを出すか。
-    ///
-    /// **用途で違ってよいが、違う理由は 1 か所に書く。**
     struct Limits {
         /// 1 冊から出す上限。1 冊が結果を埋め尽くさないようにする。
         var perBook: Int
@@ -17,7 +10,6 @@ enum SemanticFinder {
         /// **蔵書のどこかしらが必ず並ぶ**。関係の無いものが常に出ると、
         /// 出ていること自体が信用されなくなる。
         var leastScore: Float
-        /// 全体の上限。
         var total: Int
 
         /// 関連箇所。**本文どうしの比較**なので両側とも `検索文書: ` で埋め込む。
@@ -38,22 +30,12 @@ enum SemanticFinder {
         var missing = 0
     }
 
-    /// 蔵書を引く。
-    ///
-    /// **1 冊ずつ読んで、1 冊ずつ捨てる。** 先に全冊ぶんを集めてから並べると、
-    /// 蔵書 500 冊（29 万段落）で 500 MB を抱えることになる（実測）。
-    /// ほどいた索引に上限を付けてあっても、集めた配列が握っていれば追い出されない。
-    ///
-    /// 蔵書と道筋の解き方を**渡してもらう**。ここが `LibraryStore.shared` を
-    /// 直に見ていると差し替えられず、検査が書けない。
     static func search(_ query: [Float], over entries: [LibraryEntry],
                        excluding current: BookID? = nil,
                        limits: Limits,
                        resolve: (LibraryEntry) -> URL?) -> Found {
         var made = Found()
         guard !query.isEmpty else { return made }
-        // 番号と点だけを集める。**メタデータ（飛び先や見出し）は勝った書籍でしかほどかない。**
-        // ここで RelatedPassage を組むと、候補に残った書籍ぜんぶの文字列を組み立てることになる。
         var scored: [(entry: LibraryEntry, index: SemanticIndex, unit: Int, score: Float)] = []
         for entry in entries where entry.id != current {
             guard let url = resolve(entry), let index = SemanticIndexStore.cached(for: url) else {
@@ -71,11 +53,6 @@ enum SemanticFinder {
         return made
     }
 
-    /// 近い順に並べる。
-    ///
-    /// **次元は問いの側で決まる。** 以前は「手本の索引」を渡させていたが、
-    /// 自分の索引がまだ無いときに次元 0 の偽物を渡すことになり、
-    /// どの書籍とも一致せず黙って空が返っていた。
     static func rank(_ query: [Float], over targets: [(entry: LibraryEntry, index: SemanticIndex)],
                      limits: Limits) -> [RelatedPassage] {
         guard !query.isEmpty else { return [] }

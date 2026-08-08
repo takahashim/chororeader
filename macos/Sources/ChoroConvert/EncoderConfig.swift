@@ -1,13 +1,5 @@
 import Foundation
 
-/// `config.json` から、グラフを組むのに要る値を読む。
-///
-/// **組み上げるグラフは決め打ちである。** 射影に bias は付けず、rope は head の
-/// 幅いっぱいに掛け、全域注意の層は `層 % n == 0` で選ぶ。config がそれと違うことを
-/// 言っていても変換は通り、**それらしい数まで出る**。だから読むときに拒む。
-///
-/// 拒む理由は全部まとめて言う。使えない checkpoint を見ている人が欲しいのは
-/// 一覧であって、最初の 1 つではない（kohagi の `graph_assumptions` から移した）。
 public struct EncoderConfig {
     public var hidden: Int
     var heads: Int
@@ -17,7 +9,6 @@ public struct EncoderConfig {
     var eps: Float
     /// 局所注意の窓の幅。
     var localAttention: Int
-    /// この間隔ごとの層が全域を見る。ほかは窓の中だけを見る。
     var globalEvery: Int
     var localRopeTheta: Float
     var globalRopeTheta: Float
@@ -26,15 +17,11 @@ public struct EncoderConfig {
     /// **これを超えるバケットは、後ろに学習された rope が無い。**
     /// 動きはするが間違った数を出す。
     var maxPositions: Int
-    /// 中間層の門の活性。
     var activation: Activation
-    /// 分類頭を持つか（reranker）。
     public var isClassifier: Bool
     /// 分類頭のプーリング。**推測しない**（transformers の実装から確かめた）。
     var classifierPooling: Pooling
-    /// 分類頭の活性。
     var classifierActivation: Activation
-    /// 重みの名前に付く前置き。分類頭のある checkpoint は `model.` が付く。
     var prefix: String
 
     enum Pooling: String {
@@ -79,13 +66,9 @@ public struct EncoderConfig {
         layers = try integer("num_hidden_layers")
         intermediate = try integer("intermediate_size")
         vocab = try integer("vocab_size")
-        // ruri は norm_eps、ほかは layer_norm_eps を持つ。どちらも受ける。
         eps = Float(number("norm_eps") ?? number("layer_norm_eps") ?? 1e-5)
         localAttention = Int(number("local_attention") ?? 128)
         globalEvery = Int(number("global_attn_every_n_layers") ?? 3)
-        // theta の置き場所が 2 通りある。**新しい config は `rope_parameters` の側に持ち、
-        // 平らな鍵は null になる。** そこだけを見ていると既定値で変換が通り、
-        // 静かに違うベクトルが出る（実際に踏んだ。cosine 0.14）。
         let ropeParameters = root["rope_parameters"] as? [String: Any]
         func theta(_ kind: String, _ flat: String, _ fallback: Double) -> Float {
             if let one = ropeParameters?[kind] as? [String: Any],
@@ -106,7 +89,6 @@ public struct EncoderConfig {
 
         let architectures = (root["architectures"] as? [String]) ?? []
         isClassifier = architectures.contains { $0.contains("SequenceClassification") }
-        // 分類頭のある checkpoint は胴体の重みに `model.` が付く。
         prefix = isClassifier ? "model." : ""
 
         let poolingName = (root["classifier_pooling"] as? String) ?? "cls"
@@ -125,10 +107,6 @@ public struct EncoderConfig {
         guard reasons.isEmpty else { throw Failure.unsupported(reasons) }
     }
 
-    /// **決め打ちのグラフが守れない言い分**を集める。
-    ///
-    /// どれも値にはならない。読んで無視すると、通って、それらしい数が出て、
-    /// 順位だけが静かに狂う。
     private static func assumptions(_ root: [String: Any], globalEvery: Int,
                                     hidden: Int, heads: Int) -> [String] {
         var out: [String] = []
@@ -144,7 +122,6 @@ public struct EncoderConfig {
             }
         }
 
-        // 組み上げる rope は伸縮しない。既定でない rope_type は参照実装だけが効かせる。
         if let rope = root["rope_parameters"] as? [String: Any] {
             for kind in ["full_attention", "sliding_attention"] {
                 guard let one = rope[kind] as? [String: Any],
@@ -154,7 +131,6 @@ public struct EncoderConfig {
             }
         }
 
-        // layer_types があるなら、そちらが正しい。間隔で選ぶこちらの規則が違うことになる。
         if let types = root["layer_types"] as? [String] {
             let disagree = types.enumerated().compactMap { at, type -> Int? in
                 let global = type == "full_attention"
@@ -177,7 +153,6 @@ public struct EncoderConfig {
         return out
     }
 
-    /// この層は全域を見るか。
     func isGlobal(layer: Int) -> Bool {
         globalEvery != 0 && layer % globalEvery == 0
     }

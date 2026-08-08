@@ -33,7 +33,6 @@ guard let outDir = value("--out-dir") else {
 let output = URL(fileURLWithPath: outDir)
 
 do {
-    // 材料を揃える。--model-id なら取ってくる（手元にあればそれを使う）。
     let materials: HubFetch.Materials
     if let modelId = value("--model-id") {
         let cache = value("--cache").map { URL(fileURLWithPath: $0) }
@@ -89,7 +88,6 @@ do {
     try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
     try ModelPackage.write(made.model, weights: made.blob,
                            to: output.appendingPathComponent(name))
-    // アプリが要るもの（tokenizer・config・1_Pooling）をそばへ写す。
     try HubFetch.place(materials, beside: output)
     try HeadMarker.write(classifier: config.isClassifier, to: output)
 

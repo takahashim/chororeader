@@ -11,7 +11,6 @@ import PDFKit
 /// 形式で名乗る項目が違うので、共通の枠に押し込めない。
 /// 項目の並びをそのまま持ち、画面はそれを並べるだけにする。
 struct BookProperties: Equatable {
-    /// ひとまとまりの項目。「書誌」「ファイル」のように区切って出す。
     struct Section: Equatable {
         var title: String
         var items: [Item]
@@ -64,7 +63,6 @@ extension BookProperties {
         return BookProperties(sections: sections.map(trimmed).filter { !$0.items.isEmpty })
     }
 
-    /// 名乗っていない項目は出さない。空欄を並べても読む人の役に立たない。
     private static func trimmed(_ section: Section) -> Section {
         Section(title: section.title,
                 items: section.items.filter { !$0.value.trimmingCharacters(in: .whitespaces).isEmpty })
@@ -119,7 +117,6 @@ extension BookProperties {
         ])
     }
 
-    /// キーワードは配列で来ることも 1 つの文字列で来ることもある。
     private static func keywords(_ attributes: [AnyHashable: Any]) -> String {
         if let list = attributes[PDFDocumentAttribute.keywordsAttribute] as? [String] {
             return list.joined(separator: "、")
@@ -171,7 +168,6 @@ extension BookProperties {
 
     // MARK: - ファイル
 
-    /// ファイルそのものの素性。書籍の中身とは別に読む。
     struct FileFacts: Equatable {
         var name: String
         var byteCount: Int64

@@ -1,23 +1,6 @@
 import Accelerate
 import Foundation
 
-/// 書籍ひとつぶんの意味の索引。
-///
-/// 段落ごとに 1 本のベクトルを持つ（spec-local-ai.md 第 4.1 節）。
-/// ベクトルは正規化してあるので、近さは内積そのものである。
-///
-/// **順位付けに要るものと、当たってから要るものを分けて持つ。**
-///
-/// - 節の番号とベクトルは、読んだときにほどく。引くたびに全部触るものだからである
-/// - 飛び先・見出し・目印（メタデータ）は、**当たりが出るまでほどかない**。
-///   一緒にほどくと、500 冊を引くたびに 29 万個の文字列を組み立てることになる
-///
-/// ベクトルは **fp16 のまま持つ**。fp32 に広げて持つと同じ中身で倍の場所を食い、
-/// 記憶に抱えられる冊数が半分になる。引くときに 1 冊ぶんずつ fp32 へ広げる。
-///
-/// **どのモデルで作ったかは包む側（`SemanticIndexStore`）が持つ。**
-/// ベクトルはモデルが変われば意味を失うので、失効の鍵に要る。
-/// 中身にも書くと鍵が 2 層に散り、片方だけ見て通す事故になる。
 final class SemanticIndex: @unchecked Sendable {
     /// 作ったときのモデル。**読み込みのときに包む側から渡される。**
     let model: String
@@ -62,17 +45,9 @@ final class SemanticIndex: @unchecked Sendable {
 
     // MARK: - 引く
 
-    /// 近い順に単位の番号と点を返す。
-    ///
-    /// **順位は節で決め、着地は段落でする。**
-    /// 段落だけで順位を付けると話題の芯を失う（実測 8/15 対 11/15、第 5.1 節）。
-    /// 節の点は段落の平均で決める。最大にすると段落の多い節ほど得をする。
-    ///
-    /// 総当たりで足りる。ANN は持たない（第 4.3 節）。
     func nearest(to vector: [Float], limit: Int) -> [(unit: Int, score: Float)] {
         guard vector.count == dimension, count > 0 else { return [] }
 
-        // fp16 を 1 冊ぶんだけ広げる。持ち続けるのは fp16 の側。
         var wide = [Float](repeating: 0, count: half.count)
         Self.widen(half, into: &wide)
         var scores = [Float](repeating: 0, count: count)
@@ -103,7 +78,6 @@ final class SemanticIndex: @unchecked Sendable {
             .map { $0 }
     }
 
-    /// ある単位のベクトル。
     func vector(at unit: Int) -> [Float]? {
         guard unit >= 0, unit < count else { return nil }
         var out = [Float](repeating: 0, count: dimension)
@@ -133,13 +107,6 @@ final class SemanticIndex: @unchecked Sendable {
 
     // MARK: - 書き出し
 
-    /// 並びは「節の番号 → ベクトル → メタデータ」。
-    ///
-    /// 引くのに要るものが前、当たってから要るものが後ろ。
-    /// 読み込みは前だけをほどき、後ろは長さを確かめて置いておく。
-    ///
-    /// メタデータの文字列は**表で 1 度だけ**書く。見出しと章の道筋は
-    /// 同じ節の段落ぶん（10 前後）重複するためである。目印は段落ごとに違うのでそのまま。
     func encoded() -> Data {
         var out = Data()
         Varint.append(UInt64(dimension), to: &out)
@@ -154,10 +121,6 @@ final class SemanticIndex: @unchecked Sendable {
         return out
     }
 
-    /// 読み直す。**モデルの名前は包む側から渡す**（中身には書いていない）。
-    ///
-    /// ほどくのは節の番号とベクトルまで。メタデータは**長さだけ確かめて**置いておく。
-    /// 途中で切れたものは長さが合わないので、ここで落ちる。
     convenience init?(decoding data: Data, from: Int = 0, model: String) {
         guard let parsed = Self.parse(data, from: from) else { return nil }
         self.init(model: model, dimension: parsed.dimension, truncated: parsed.truncated,
@@ -200,7 +163,6 @@ final class SemanticIndex: @unchecked Sendable {
     // MARK: - メタデータの形
 
     private static func encodedMeta(_ units: [SemanticUnit]) -> Data {
-        // 表の 0 番は空。「無い」を 0 で書けるようにする。
         var table: [String] = [""]
         var lookup: [String: Int] = ["": 0]
         func indexed(_ text: String?) -> Int {
@@ -217,7 +179,6 @@ final class SemanticIndex: @unchecked Sendable {
              href: indexed(unit.locator.href),
              fragment: indexed(unit.locator.fragment),
              page: UInt64(unit.locator.page.map { $0 + 1 } ?? 0),
-             // 位置は 10 万分の 1 まで。1,000 ページの本で 0.01 ページぶんの粗さで足りる。
              progression: UInt64((unit.locator.progression * 100_000).rounded()),
              anchor: unit.locator.text ?? "")
         }

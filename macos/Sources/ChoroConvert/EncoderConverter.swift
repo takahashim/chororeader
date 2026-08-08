@@ -1,13 +1,5 @@
 import Foundation
 
-/// checkpoint を Core ML の束へ変換する。
-///
-/// 重みを `weight.bin` へ写しながら位置を控え、その位置でグラフを組み、
-/// バケットの長さごとの関数を 1 つの束にまとめる。
-///
-/// **使わなかった重みを申告する。** 名前を 1 つ読み違えても変換は通り、
-/// 初期値のままの層を持つモデルができて、それらしい数が出る。
-/// 読んだ名前と checkpoint にある名前を突き合わせるのが、唯一の防壁である。
 public struct EncoderConverter {
     let config: EncoderConfig
     let weights: Safetensors
@@ -17,10 +9,8 @@ public struct EncoderConverter {
         self.weights = weights
     }
 
-    /// 出す関数の名前。**アプリ側（`CoreMLEmbedder`）の名付けと揃える。**
     static func functionName(_ length: Int) -> String { "seq_\(length)" }
 
-    /// 変換の結果。
     public struct Made {
         public var model: ModelBytes
         public var blob: Data
@@ -39,14 +29,12 @@ public struct EncoderConverter {
         }
     }
 
-    /// 束を組む。
     public func convert(lengths: [Int]) throws -> Made {
         try config.check(lengths: lengths)
 
         var blob = WeightBlob()
         var read = Set<String>()
 
-        /// 重みを 1 つ写して、目録の位置を返す。
         func place(_ name: String, expected: [Int]) throws -> UInt64 {
             read.insert(name)
             let values = try weights.read(name)
@@ -58,7 +46,6 @@ public struct EncoderConverter {
             return blob.append(fp16: values)
         }
 
-        // 足りない重みは、まとめて言う。
         var missing: [String] = []
         func require(_ names: [String]) {
             missing.append(contentsOf: names.filter { weights.shape(of: $0) == nil })
@@ -106,7 +93,6 @@ public struct EncoderConverter {
                 attnNorm: attnNorm))
         }
 
-        // 分類頭（reranker）。胴体と同じ束に入れる。
         var head: ClassifierHead.Offsets?
         if config.isClassifier {
             head = .init(dense: try place("head.dense.weight", expected: [hidden, hidden]),
@@ -115,7 +101,6 @@ public struct EncoderConverter {
                          classifierBias: try place("classifier.bias", expected: [1]))
         }
 
-        // バケットの長さごとに、rope の表とマスクを焼き込んで関数を組む。
         var functions: [(name: String, function: Protowire)] = []
         var described: [(name: String, inputs: [ModelPackage.Feature],
                          outputs: [ModelPackage.Feature])] = []
@@ -136,7 +121,6 @@ public struct EncoderConverter {
                                              type: .init(.int32, [1, length]))
 
             let blocks = perLayer.enumerated().map { at, one -> ModernBERTGraph.BlockOffsets in
-                // **層ごとに rope の theta が違う。** 全域の層は別の表を使う。
                 let isGlobal = config.isGlobal(layer: at)
                 return .init(attnNorm: one.attnNorm, wqkv: one.wqkv, wqkvBias: zeroQKV,
                              wo: one.wo, woBias: zeroHidden, mlpNorm: one.mlpNorm,

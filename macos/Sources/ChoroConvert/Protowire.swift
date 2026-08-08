@@ -1,19 +1,5 @@
 import Foundation
 
-/// protobuf の符号化。**書く一方で、読む側は作らない。**
-///
-/// Core ML の `.mlmodel` は protobuf である。変換器はそれを組み立てるだけなので、
-/// 必要なのは符号化の 3 つの形しかない。依存を足さずに済む量である
-/// （本体はここまで依存ゼロで来ている）。
-///
-/// | 種別 | 使い道 |
-/// |---|---|
-/// | varint | field の見出し、整数、真偽、列挙 |
-/// | length-delimited | 文字列、bytes、入れ子のメッセージ、packed の配列 |
-/// | 32 ビット固定長 | float |
-///
-/// **番号を写し間違えても黙って通らない。** Core ML が読めずにその場で落ちる。
-/// 番号は kohagi の `proto/MIL.proto`・`proto/CoreMLModelSubset.proto` から写す。
 struct Protowire {
     private(set) var bytes: [UInt8] = []
 
@@ -24,7 +10,6 @@ struct Protowire {
 
     // MARK: - field を書く
 
-    /// 整数・真偽・列挙。
     mutating func field(_ number: Int, varint value: UInt64) {
         key(number, wire: 0)
         Self.appendVarint(value, to: &bytes)
@@ -38,13 +23,10 @@ struct Protowire {
         field(number, varint: value ? 1 : 0)
     }
 
-    /// 文字列。**空でも書く**かどうかは呼ぶ側が決める
-    /// （protobuf は既定値を省いてよいが、Core ML には省くと困る場所がある）。
     mutating func field(_ number: Int, string value: String) {
         field(number, bytes: Array(value.utf8))
     }
 
-    /// bytes・入れ子のメッセージ・packed の配列。
     mutating func field(_ number: Int, bytes value: [UInt8]) {
         key(number, wire: 2)
         Self.appendVarint(UInt64(value.count), to: &bytes)
@@ -61,7 +43,6 @@ struct Protowire {
         field(number, bytes: message.bytes)
     }
 
-    /// float。
     mutating func field(_ number: Int, float value: Float) {
         key(number, wire: 5)
         let raw = value.bitPattern
@@ -72,7 +53,6 @@ struct Protowire {
 
     // MARK: - packed の配列
 
-    /// packed varint（proto3 の既定）。
     mutating func packed(_ number: Int, varints values: [UInt64]) {
         guard !values.isEmpty else { return }
         var payload: [UInt8] = []
@@ -80,7 +60,6 @@ struct Protowire {
         field(number, bytes: payload)
     }
 
-    /// packed float。
     mutating func packed(_ number: Int, floats values: [Float]) {
         guard !values.isEmpty else { return }
         var payload = [UInt8]()
@@ -96,7 +75,6 @@ struct Protowire {
 
     // MARK: - 内側
 
-    /// field の見出し。番号と種別を 1 つの varint に詰める。
     private mutating func key(_ number: Int, wire: UInt64) {
         Self.appendVarint(UInt64(number) << 3 | wire, to: &bytes)
     }
@@ -114,7 +92,6 @@ struct Protowire {
         }
     }
 
-    /// 入れ子を組み立てる糖衣。
     static func message(_ build: (inout Protowire) -> Void) -> Protowire {
         var made = Protowire()
         build(&made)

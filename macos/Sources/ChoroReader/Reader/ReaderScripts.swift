@@ -1,9 +1,6 @@
 import Foundation
 
-/// WebView へ注入するスクリプトとスタイル。
-/// 書籍側の JavaScript は無効のまま、これらのアプリ由来スクリプトだけが動く。
 enum ReaderScripts {
-    /// アプリ由来の UI（コードブロックの操作ボタンなど）のスタイル。
     static let chromeCSS = """
     .choro-code-actions {
         position: absolute; top: 4px; right: 6px;

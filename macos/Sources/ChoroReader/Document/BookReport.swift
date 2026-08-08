@@ -15,29 +15,23 @@ struct BookReport: Codable, Hashable {
     var tocMaxDepth: Int
     var hasCover: Bool
 
-    /// manifest が指しているのにアーカイブに無いリソース。壊れた EPUB の主要な兆候。
     var missingResources: [String]
-    /// 目次の参照先のうち、アーカイブに無いもの。
     var missingTOCTargets: [String]
-    /// spine にあるのにアーカイブに無い章。
     var missingSpineItems: [String]
 
     var cssFileCount: Int
     /// UTF-8 として読めなかった CSS。文字コード正規化の対象。
     var nonUTF8CSSCount: Int
-    /// `-epub-` プレフィックスを含む CSS の数と、変換の内訳。
     var legacyCSSFileCount: Int
     var cssChanges: [CSSCompat.Change]
 
     var xhtmlCount: Int
-    /// XML として解釈できない章の数。application/xhtml+xml では表示できず、text/html で配信する対象。
     var malformedXHTMLCount: Int
 
     var imageCount: Int
     var fontCount: Int
     var storedEntryCount: Int
     var deflatedEntryCount: Int
-    /// META-INF/encryption.xml の有無。難読化フォントや DRM の判別に使う。
     var hasEncryptionMetadata: Bool
 
     var isHealthy: Bool {
@@ -151,7 +145,6 @@ struct BookReport: Codable, Hashable {
         )
     }
 
-    /// 章が参照している src / href のうち、外部 URL と fragment 以外を返す。
     private static func references(in html: String) -> [String] {
         guard let re = try? NSRegularExpression(
             pattern: #"(?i)(?:src|href|xlink:href)\s*=\s*["']([^"']+)["']"#) else { return [] }
@@ -166,7 +159,6 @@ struct BookReport: Codable, Hashable {
         return out.filter { !$0.isEmpty }
     }
 
-    /// 画面表示用の要約。
     var summaryLines: [(label: String, value: String, warning: Bool)] {
         [
             ("形式", format, false),

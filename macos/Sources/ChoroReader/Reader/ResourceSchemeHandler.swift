@@ -19,7 +19,6 @@ final class ResourceSchemeHandler: NSObject, WKURLSchemeHandler {
         self.resources = resources
     }
 
-    /// いま覚えている総量。頭が効いているかを検査が見る。
     var cachedByteCount: Int {
         lock.lock(); defer { lock.unlock() }
         return cacheBytes
@@ -134,7 +133,6 @@ final class ResourceSchemeHandler: NSObject, WKURLSchemeHandler {
         remember(path, data: Data(html.utf8), mime: "text/html")
     }
 
-    /// 覚えておく鍵。同じ章でも、印の有無で中身が変わる。
     private func cacheKey(_ href: String, mark: (query: String, nth: Int)?) -> String {
         guard let mark else { return href }
         return "\(href)\u{0}\(mark.query)\u{0}\(mark.nth)"

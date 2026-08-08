@@ -1,20 +1,6 @@
 import CryptoKit
 import Foundation
 
-/// 用語索引の語の置き場所。
-///
-/// 二字組索引（`SearchIndexStore`）の隣に、同じ考え方で置く。
-/// **書籍から何度でも作り直せるので、消えても困らない。**
-///
-/// 意味の索引と分けてあるのは、こちらが**推論を要らない**からである。
-/// 意味の索引は作り直しに全冊の埋め込みをやり直す（数分〜数十分）が、
-/// こちらは書籍を読むだけで数秒で済む。規則を直すたびに作り直せる。
-///
-/// **いまアプリからは呼ばれていない**（`IndexTerms` の説明を見よ）。
-/// 蔵書が育つまで寝かせてある。
-///
-/// **「索引が無い」と「まだ見ていない」を分ける。** 索引を持たない本でも
-/// 空の記録を置く。置かないと、毎回その本を開き直すことになる。
 enum IndexTermsStore {
     private static let directory: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -23,9 +9,7 @@ enum IndexTermsStore {
         return base
     }()
 
-    /// 語の記録。**規則を変えたら版を上げる。**
     struct Record: Codable {
-        /// 抽出の規則の版。上げると作り直される。
         var version: Int
         var size: UInt64
         var modified: UInt64
@@ -40,7 +24,6 @@ enum IndexTermsStore {
 
     // MARK: - 取り出し
 
-    /// 置いてあるものだけを返す。無くても作らない。
     static func cached(for url: URL) -> [String]? {
         guard let (size, modified) = stamp(of: url) else { return nil }
         if let box = memory.object(forKey: key(for: url)),

@@ -11,7 +11,6 @@ struct ShownFile: Identifiable {
     init(urls: [URL]) { self.urls = urls }
 }
 
-/// 書棚の見せ方。表紙を並べるか、表で並べるか。
 enum ShelfMode: String, CaseIterable {
     case cover
     case table
@@ -26,10 +25,6 @@ struct LibraryView: View {
     @State private var showSemantic = false
     @AppStorage("shelfMode") private var mode: ShelfMode = .cover
     @State private var dropTargeted = false
-    /// 選んでいる書籍。表でも表紙でも同じものを使う。
-    ///
-    /// 書類が紛れ込んだ書棚を掃除するには、1 冊ずつでは終わらない。
-    /// 複数選べることと、まとめて外せることを対にする。
     @State private var selection: Set<LibraryEntry.ID> = []
     /// 外してよいか尋ねている最中の冊数。読書位置としおりも消えるので必ず尋ねる。
     @State private var confirmingRemoval = false
@@ -37,7 +32,6 @@ struct LibraryView: View {
     @StateObject private var semantic = SemanticSearchModel()
     /// 一覧に出す本文。索引には控えていないので、原書から読む。
     @StateObject private var passages = PassageTextLoader()
-    /// 並べ直し。**押されたときにだけ走る**（spec-local-ai.md 第 5.3 節）。
     @StateObject private var rerank = RerankModel()
     /// **索引作りは観測しない。** 進み具合は 1 段落ごとに更新されるので、
     /// 観測すると 1 冊で 600 回、書棚ぜんぶが描き直される。
@@ -45,11 +39,8 @@ struct LibraryView: View {
     /// 書棚が要るのは「意味の層が入か」だけなので、そこだけを見る。
     @AppStorage("semanticEnabled") private var semanticEnabled = false
     private var builder: SemanticIndexBuilder { SemanticIndexBuilder.shared }
-    /// 引き方。**混ぜない**（spec-local-ai.md 第 5.2 節）。
-    /// 正確な検索には「当たり」があるが、意味の近さには無い。
     @State private var searchKind: SearchKind = .exact
     @State private var queryText = ""
-    /// 情報を見せている書籍。書棚では開いていない書籍のことも尋ねられる。
     @State private var showing: ShownFile?
     @StateObject private var importing = FolderImport()
     @FocusState private var queryFocused: Bool
@@ -178,7 +169,6 @@ struct LibraryView: View {
         }
     }
 
-    /// 取り込みの進み具合。終わったら結果をしばらく出しておく。
     private var importBar: some View {
         HStack(spacing: 8) {
             if importing.running {
@@ -237,7 +227,6 @@ struct LibraryView: View {
             : "選んだ \(selection.count) 冊を書棚から外しますか？"
     }
 
-    /// 選んでいるものを外す。⌫ でも呼ぶ。
     private func askRemoval() {
         guard !selection.isEmpty else { return }
         confirmingRemoval = true
@@ -297,12 +286,6 @@ struct LibraryView: View {
         .padding(.vertical, 8)
     }
 
-    /// 並べ直しの操作。**自動では走らせない。**
-    ///
-    /// ベクトルの近さは話題しか見ないが、cross-encoder は本文を読むので、
-    /// 話題は合うが中身が違う候補を落とせる（spikes/findings-reranker.md）。
-    /// ただし**悪くなる問いも実在する**（解答や演習の紙面を正解と取り違える）。
-    /// だから押して確かめられる形にし、素の並びへ戻せるようにしてある。
     @ViewBuilder
     private var rerankButton: some View {
         if RerankModel.isAvailable {
@@ -342,7 +325,6 @@ struct LibraryView: View {
         }
     }
 
-    /// いま引いている問い。画面を切り替える判断に使う。
     private var currentQuery: String {
         searchKind == .semantic ? semantic.query : search.query
     }
@@ -353,11 +335,6 @@ struct LibraryView: View {
             if rerank.running { return "並べ直しています" }
             if let reason = rerank.reason { return reason }
             guard !semantic.query.isEmpty else { return "" }
-            // **件数は出さない**（spec-local-ai.md 第 5.2 節）。
-            // 「17 件」と言えるのは、当たりを数えられる正確な検索だけである。
-            // 意味の近さに当たりは無いので、数を出すと「全部見つけた」に見えてしまう。
-            // 一方で、まだ読み込んでいない本があることは隠さない。
-            // 「無かった」のか「見ていない」のかで、人が次にすることが変わる。
             return semantic.missing > 0 ? "未読み込み \(semantic.missing) 冊" : ""
         }
         if let building = search.building { return "索引を作成中：\(building)" }
@@ -421,7 +398,6 @@ struct LibraryView: View {
                         if !passage.unit.heading.isEmpty {
                             Text(passage.unit.heading).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        // 索引に本文は控えていない。読めるまでは何も出さない。
                         Text(passages.texts[passage.id] ?? " ")
                             .font(.caption).foregroundStyle(.secondary).lineLimit(3)
                     }
@@ -466,7 +442,6 @@ struct LibraryView: View {
                                         Button("情報を見る") { showing = ShownFile(url: URL(fileURLWithPath: book.path)) }
                                     }
                             }
-                            // 打ち切った本は、その本を開いて全件を見る道を出す。
                             if book.truncated {
                                 Button {
                                     openAll(book)
@@ -493,13 +468,11 @@ struct LibraryView: View {
     }
 
     private func openHit(_ hit: LibraryHit, in book: LibraryBookHits) {
-        // 開いた先でも、押した当たりを囲む。どれが引っ掛かった語かを探し直さずに済ませる。
         let mark = SearchMark(query: search.query, nth: hit.result.nth, target: hit.result.locator)
         openWindow(value: BookRoute(path: book.path, locator: hit.result.locator,
                                     query: nil, mark: mark))
     }
 
-    /// その本を開き、同じ語句で引いた一覧を出す。件数の上限は章内検索のもの（400 件）に上がる。
     private func openAll(_ book: LibraryBookHits) {
         openWindow(value: BookRoute(path: book.path, locator: nil, query: search.query))
     }
@@ -515,7 +488,6 @@ struct LibraryView: View {
                 Button("ファイルを開く…") {
                     for url in FileOpener.runOpenPanel() { open(url) }
                 }
-                // 蔵書がフォルダに溜まっている人には、1 冊ずつ開かせない。
                 Button("フォルダを取り込む…") {
                     if let folder = FileOpener.runFolderPanel() {
                         importing.run(folder, into: store)
@@ -540,7 +512,6 @@ struct LibraryView: View {
                                       ? Color.accentColor.opacity(0.25) : Color.clear)
                                 .padding(-6)
                         )
-                        // ⌘クリックで選び、そのまま押せば開く。macOS の流儀に合わせる。
                         .gesture(TapGesture().modifiers(.command).onEnded {
                             if selection.contains(entry.id) { selection.remove(entry.id) }
                             else { selection.insert(entry.id) }
@@ -584,9 +555,6 @@ struct LibraryView: View {
         }
     }
 
-    /// 選んでいる冊数に合わせたメニュー。
-    ///
-    /// 1 冊なら今までどおり。何冊も選んでいるときは、その分だけまとめて扱う。
     @ViewBuilder
     private func menu(forSelected ids: Set<LibraryEntry.ID>) -> some View {
         let chosen = store.recent.filter { ids.contains($0.id) }
@@ -604,7 +572,6 @@ struct LibraryView: View {
                 confirmingRemoval = true
             }
         } else if chosen.count > 1 {
-            // 名無しの本をまとめて直す道もこれ。保存するたびに次の本へ進む。
             Button("選んだ \(chosen.count) 冊の情報を見る") {
                 showing = ShownFile(urls: chosen.compactMap { store.resolveURL(for: $0) })
             }
@@ -639,7 +606,6 @@ struct LibraryView: View {
         open(url)
     }
 
-    /// 選んだ本は読書のウィンドウに開く。書棚は残る。
     private func open(_ url: URL) {
         openWindow(value: BookRoute(path: url.path, locator: nil, query: nil))
     }
@@ -689,7 +655,6 @@ private struct CoverThumb: View {
         .shadow(color: .black.opacity(0.22), radius: 3, y: 1)
     }
 
-    /// 表紙を取り出せない書籍もある。何も出さないより、形式が分かる枠を置く。
     private var blank: some View {
         RoundedRectangle(cornerRadius: 3)
             .fill(Color.secondary.opacity(0.14))
@@ -714,7 +679,6 @@ enum FileOpener {
         return panel.runModal() == .OK ? panel.urls : []
     }
 
-    /// 取り込むフォルダを選ぶ。中の書籍は開かずに書棚へ加える。
     static func runFolderPanel() -> URL? {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
@@ -761,9 +725,6 @@ private struct HitRow: View {
         .padding(.vertical, 1)
     }
 
-    /// 改行と連なった空白を 1 つの空白に詰める。
-    /// PDF の本文は行ごとに改行が入っており、そのまま出すと 1 件が何行にもなる。
-    /// 端の空白は落とさない。落とすと英文で前後の語がくっつく。
     private func oneLine(_ text: String) -> String {
         var out = ""
         var lastWasSpace = false
@@ -780,11 +741,6 @@ private struct HitRow: View {
     }
 }
 
-/// 蔵書の引き方。
-///
-/// **混ぜない**（spec-local-ai.md 第 5.2 節）。正確な検索には「当たり」があり、
-/// 当たった語を囲める。意味の近さには当たりが無く、囲むものも無い。
-/// 同じ一覧に並べると、どちらの目で見ればよいのか分からなくなる。
 enum SearchKind: String, CaseIterable, Identifiable {
     case exact, semantic
     var id: String { rawValue }

@@ -12,7 +12,6 @@ enum ProbeCLI {
     }
 
     static func run(_ arguments: [String]) -> Never {
-        // arguments[0] == "probe"
         let args = Array(arguments.dropFirst())
         guard let command = args.first else {
             fail("usage: ChoroReader probe <parse|toc|resolve|css|search|detect> ...")
@@ -99,7 +98,6 @@ enum ProbeCLI {
         }
     }
 
-    /// リンク先の抜粋。整形の細部ではなく、どこを切り出したかを揃える。
     private static func preview(_ args: [String]) -> Never {
         guard args.count >= 2 else { fail("usage: probe preview <epub> <href> [fragment]") }
         do {
@@ -113,7 +111,6 @@ enum ProbeCLI {
             emit(PreviewOutput(schema: schemaVersion, command: "preview",
                                path: norm(built.path),
                                isFootnote: built.isFootnote,
-                               // 抜粋に混ざる自前の CSS は比較の対象にしない。
                                text: norm(HTMLText.extract(built.html).text
                                    .trimmingCharacters(in: .whitespacesAndNewlines))))
         } catch {
@@ -121,7 +118,6 @@ enum ProbeCLI {
         }
     }
 
-    /// 固定レイアウトの組み立て。ページの種別と、見開きの組み方を揃える。
     private static func fixed(_ args: [String]) -> Never {
         guard args.count >= 1 else { fail("usage: probe fixed <epub> [ページ番号]") }
         do {
@@ -151,7 +147,6 @@ enum ProbeCLI {
     }
 
     private static func resolve(_ args: [String]) -> Never {
-        // 引数は base と href の 2 つ。空の base は "" として渡す。
         guard args.count >= 2 else { fail("usage: probe resolve <base> <href>") }
         let result = EPUBParser.resolve(base: args[0], href: args[1])
         emit(ResolveOutput(schema: schemaVersion, command: "resolve",
@@ -177,7 +172,6 @@ enum ProbeCLI {
         do {
             let archive = try ZipArchive(url: URL(fileURLWithPath: args[0]))
             let raw = try archive.read(args[1])
-            // 配るときと同じ順で通す。印は書き換えたあとの本文へ入る。
             let html = CSSCompat.rewriteXHTML(CSSCompat.decodeText(raw)).css
             let placement = SearchMarkInserter.locate(in: html, query: args[2], nth: nth)
             emit(MarkOutput(
@@ -378,9 +372,7 @@ struct MarkOutput: Codable {
     var query: String
     var nth: Int
     var found: Bool
-    /// 囲んだ語。囲めなかったときは出さない。
     var marked: String?
-    /// 囲んだところの直前にある本文。囲めなかったときは出さない。
     var before: String?
 }
 
@@ -423,7 +415,6 @@ struct FixedOutput: Codable {
         var index: Int
         var kind: String
         var href: String
-        /// 名乗っていないページでは出さない（契約の「値の無いキー」）。
         var viewport: Viewport?
     }
     var schema: Int
@@ -446,7 +437,6 @@ struct ErrorOutput: Codable {
     var error: ProbeError
 }
 
-/// version コマンドのような、その場限りの小さな出力に使う。
 struct AnyCodableValue: Encodable {
     private let encodeValue: (Encoder) throws -> Void
     init(_ value: Int) { encodeValue = { var c = $0.singleValueContainer(); try c.encode(value) } }

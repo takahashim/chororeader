@@ -1,23 +1,8 @@
 import Foundation
 
-/// `.mlpackage` を組み立てて置く。
-///
-/// ```text
-/// <名前>.mlpackage/
-///   Manifest.json
-///   Data/com.apple.CoreML/model.mlmodel      ← Model（protobuf）。中に MIL Program
-///   Data/com.apple.CoreML/weights/weight.bin ← 重み
-/// ```
-///
-/// field の番号は kohagi の `proto/CoreMLModelSubset.proto`（coremltools から
-/// そのまま持ってきたもの）から写した。
 public enum ModelPackage {
-    /// macOS 15 向け。**MIL の opset `CoreML8` と対になる。**
     static let specificationVersion = 9
 
-    /// モデルが外へ見せる 1 つの入口／出口。
-    ///
-    /// プログラムの中の値とは別に持つ。**中の値は界面ではない。**
     struct Feature {
         var name: String
         var dataType: MILProgram.DataType
@@ -26,14 +11,10 @@ public enum ModelPackage {
 
     // MARK: - Manifest
 
-    /// 2 つの識別子は中身を持たない。Core ML は `rootModelIdentifier` が
-    /// 実在する項目を指していればよい。**同じモデルを 2 度作れば同じ bytes になる**
-    /// よう、生成せずに固定してある（本物の束は毎回新しい UUID を持つ）。
     private static let modelID = "6B0C4B1A-1E7C-4B7E-9E3D-000000000001"
     private static let weightsID = "6B0C4B1A-1E7C-4B7E-9E3D-000000000002"
 
     private static var manifest: String {
-        // 組み立てずに書き下す。鍵が 4 つだけで、参照とバイトで見比べるのに読みやすい。
         """
         {
             "fileFormatVersion": "1.0.0",
@@ -59,43 +40,30 @@ public enum ModelPackage {
 
     // MARK: - Model
 
-    /// 関数を複数持つモデル（multi-function の束）。
-    ///
-    /// **上位の input／output ではなく、関数ごとに界面を書く。** そして
-    /// どれを既定にするかを名指しする。
     static func model(program: Protowire,
                       functions: [(name: String, inputs: [Feature], outputs: [Feature])],
                       defaultFunction: String) -> Protowire {
         Protowire.message { model in
-            // Model.specificationVersion = 1
             model.field(1, varint: UInt64(specificationVersion))
-            // Model.description = 2
             model.field(2, message: Protowire.message { description in
-                // ModelDescription.functions = 20
                 for one in functions {
                     description.field(20, message: Protowire.message { function in
-                        // FunctionDescription.name = 1、input = 2、output = 3
                         function.field(1, string: one.name)
                         for feature in one.inputs { function.field(2, message: featureMessage(feature)) }
                         for feature in one.outputs { function.field(3, message: featureMessage(feature)) }
                     })
                 }
-                // ModelDescription.defaultFunctionName = 21
                 description.field(21, string: defaultFunction)
             })
-            // Model.mlProgram = 502
             model.field(502, message: program)
         }
     }
 
     private static func featureMessage(_ feature: Feature) -> Protowire {
         Protowire.message { described in
-            // FeatureDescription.name = 1、type = 3
             described.field(1, string: feature.name)
             described.field(3, message: Protowire.message { type in
-                // FeatureType.multiArrayType = 5
                 type.field(5, message: Protowire.message { array in
-                    // ArrayFeatureType.shape = 1、dataType = 2
                     for size in feature.shape { array.field(1, varint: UInt64(size)) }
                     array.field(2, varint: arrayDataType(feature.dataType))
                 })
@@ -103,7 +71,6 @@ public enum ModelPackage {
         }
     }
 
-    /// `ArrayFeatureType.ArrayDataType`。**MIL の `DataType` とは別の番号である。**
     private static func arrayDataType(_ type: MILProgram.DataType) -> UInt64 {
         switch type {
         case .fp16: return 65552

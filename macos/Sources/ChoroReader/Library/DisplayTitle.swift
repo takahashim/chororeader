@@ -10,9 +10,6 @@ import Foundation
 /// 中身の題名を捨てるわけではない。書籍の情報（BookProperties）では
 /// 名乗ったままを出す。ここが決めるのは一覧に並べる名前だけである。
 enum DisplayTitle {
-    /// 題名として使えないもの。書き出しの道具が既定で入れる名前が並ぶ。
-    ///
-    /// 長さでは決めない。「Go」や「R」のような短い題名は実在する。
     private static let placeholders: Set<String> = [
         "book", "books", "untitled", "no title", "document", "print", "pdf",
         "無題", "(無題)", "名称未設定", "タイトルなし",
@@ -41,7 +38,6 @@ enum DisplayTitle {
         return ["", "/", ".", ".."].contains(last) ? nil : last
     }
 
-    /// その題名をそのまま出してよいか。
     static func usable(_ title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return false }
@@ -54,7 +50,6 @@ enum DisplayTitle {
 }
 
 extension LibraryEntry {
-    /// 書棚に並べる名前。人が付けたもの、題名、ファイル名の順に取る。
     var displayTitle: String {
         if let custom = customTitle, !custom.isEmpty { return custom }
         return DisplayTitle.of(title: title, path: path)

@@ -17,7 +17,6 @@ enum NameCandidates {
         var isAuthor: Bool
     }
 
-    /// 候補。奥付、表紙の順に拾い、同じ行は 1 度だけ出す。
     static func candidates(in pdf: PDFDocument) -> [Candidate] {
         var seen = Set<String>()
         var out: [Candidate] = []
@@ -42,8 +41,6 @@ enum NameCandidates {
         return []
     }
 
-    /// PDF の 1 ページ目の行。テキスト層が無ければ空になる。
-    /// そのときは候補が出ないだけで、画像を見ながら打つ道は残る。
     static func firstPageLines(_ pdf: PDFDocument) -> [String] {
         lines(of: pdf, page: 0, limit: 12)
     }
@@ -56,13 +53,11 @@ enum NameCandidates {
         return Array(lines.prefix(limit))
     }
 
-    /// 1 行を候補にする。名前になり得ない行は nil。
     static func candidate(from line: String) -> Candidate? {
         if isNoise(line) { return nil }
         return classify(line)
     }
 
-    /// 名前になり得ない行。奥付には住所・URL・発行日・版元の並びが同居している。
     private static func isNoise(_ line: String) -> Bool {
         if line.count > 32 { return true }  // 本文の文。著者紹介の説明文など
         if line.hasSuffix("。") { return true }  // 文は名前ではない。奥付の説明書きを落とす
@@ -73,20 +68,16 @@ enum NameCandidates {
         if line.contains("株式会社") || line.contains("有限会社") || line.contains("合同会社") { return true }
         if line.contains("ISBN") { return true }
         if line.contains("初版") || (line.contains("年") && line.contains("発行")) { return true }
-        // 版元の役割の行。名前が続くが、著者ではない。
         if line.range(of: #"^(発\s*行|発\s*売|販\s*売|印\s*刷|製\s*本|編\s*集|企\s*画|発行人|編集人|ディレクター|アートディレクター|装丁|編集協力)"#,
                       options: .regularExpression) != nil { return true }
-        // 見出しの行。
         if ["著者紹介", "目次", "奥付", "まえがき", "あとがき"].contains(line) { return true }
         if line.contains("····") { return true }  // 目次の点線
         return false
     }
 
-    /// 役割を示す前置き。剥がした残りが名前になる。
     private static let authorPrefixes = [
         "著者：", "著者:", "監修：", "監修:", "訳：", "訳:", "編：", "編:", "著：", "著:",
     ]
-    /// 名前の後ろに付く役割。全角と半角の空白の両方がある。
     private static let authorSuffixes = [
         " 著", "　著", " 訳", "　訳", " 監修", "　監修", " 編", "　編",
     ]

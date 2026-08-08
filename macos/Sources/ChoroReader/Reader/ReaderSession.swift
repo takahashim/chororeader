@@ -26,8 +26,6 @@ enum SidebarTab: String, CaseIterable, Identifiable {
     }
 }
 
-/// 1 ウィンドウにつき 1 つ。位置と履歴と検索状態を持つ。
-/// 書籍そのもの（BookDocument）はウィンドウ間で共有する。
 @MainActor
 final class ReaderSession: ObservableObject {
     let document: BookDocument
@@ -46,9 +44,7 @@ final class ReaderSession: ObservableObject {
     /// いまの一覧を出した語。欄の文字は引いたあとにも書き換わるので、別に覚えておく。
     private(set) var searchedQuery = ""
     @Published var isSearching = false
-    /// 選んだところに関連する、他の書籍の箇所。
     @Published var related: [RelatedPassage] = []
-    /// 関連箇所が出せない理由。無ければ出せている。
     @Published var relatedReason: String?
     /// 種にした本文。何に対する結果なのかを画面に出すために持つ。
     @Published var relatedSeed: String?
@@ -60,7 +56,6 @@ final class ReaderSession: ObservableObject {
     /// 検索結果から開くときは、開いた先でも同じ当たりを囲めるように印を添える。
     var openInNewWindow: ((Locator, SearchMark?) -> Void)?
 
-    /// ページのサムネイル。画像ページの書籍と PDF でだけ用意する。
     private(set) lazy var thumbnails: ThumbnailProvider? = ThumbnailProvider.make(for: self)
 
     private var cancellables: Set<AnyCancellable> = []
@@ -70,11 +65,8 @@ final class ReaderSession: ObservableObject {
     var locator: Locator { web?.locator ?? pdf?.locator ?? fixed?.locator ?? Locator() }
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
-    /// 文字サイズなど、リフローを前提とした設定が効くかどうか。
     var isReflowable: Bool { web != nil }
-    /// ページ単位で並べる形式かどうか。並べ方とフィットの設定はこちらで使う。
     var isPaged: Bool { pdf != nil || fixed != nil }
-    /// サイドバーに出すタブ。形式によって使えないものは並べない。
     var availableTabs: [SidebarTab] {
         SidebarTab.allCases.filter {
             switch $0 {
@@ -120,7 +112,6 @@ final class ReaderSession: ObservableObject {
         pdf?.onStatus = { [weak self] message in self?.showStatus(message) }
         fixed?.onStatus = { [weak self] message in self?.showStatus(message) }
 
-        // 位置の保存。スクロール中に書き込み続けないよう間引く。
         let publisher: AnyPublisher<Locator, Never>
         if let web {
             publisher = web.$locator.eraseToAnyPublisher()
@@ -177,7 +168,6 @@ final class ReaderSession: ObservableObject {
         }
     }
 
-    /// 選んでいる本文を渡す。読み手ごとに取り方が違う。
     private func selectedText(_ hand: @escaping (String?) -> Void) {
         if let web { web.selectedText(hand) } else if let pdf { pdf.selectedText(hand) } else { hand(nil) }
     }
@@ -207,7 +197,6 @@ final class ReaderSession: ObservableObject {
                 }
                 self.related = made.passages
                 self.relatedReason = made.passages.isEmpty
-                    // 「無かった」のか「まだ見ていない」のかで、次にすることが変わる。
                     ? "近い箇所は見つかりませんでした（未読み込み \(made.missing) 冊）"
                     : nil
             }
@@ -232,7 +221,6 @@ final class ReaderSession: ObservableObject {
         }
     }
 
-    /// 検索結果へ飛ぶ。動くより先に、飛んだ先で囲むものを決めておく。
     func go(to result: SearchResult) {
         mark = markFor(result)
         go(to: result.locator)
@@ -242,7 +230,6 @@ final class ReaderSession: ObservableObject {
         openInNewWindow?(target, nil)
     }
 
-    /// 検索結果を別のウィンドウで開く。開いた先でも、押した当たりを囲む。
     func openInNewWindow(_ result: SearchResult) {
         openInNewWindow?(result.locator, markFor(result))
     }
@@ -292,7 +279,6 @@ final class ReaderSession: ObservableObject {
 
     func runSearch() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 引き直したら、前の語の強調は用済みになる。
         mark = nil
         searchedQuery = query
         guard query.count >= 1 else {
@@ -323,7 +309,6 @@ final class ReaderSession: ObservableObject {
         }
     }
 
-    /// 検索をやめる。当たりの強調もここで消える。
     func clearSearch() {
         searchQuery = ""
         searchedQuery = ""
@@ -335,7 +320,6 @@ final class ReaderSession: ObservableObject {
     var searchAvailable: Bool {
         if document.format == .fixedEPUB { return false }
         if let pdfDoc = document.pdfDocument {
-            // テキスト層のない PDF は検索できない。その旨を UI に出す。
             return (pdfDoc.page(at: 0)?.string?.isEmpty == false)
         }
         return true

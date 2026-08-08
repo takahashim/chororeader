@@ -61,7 +61,6 @@ enum PageLayoutMode: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-/// ページを表示領域へどう収めるか。
 enum PageFit: String, CaseIterable, Codable, Identifiable {
     case whole
     case width
@@ -77,7 +76,6 @@ enum PageFit: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-/// 表示設定。値はアプリ全体で共有し、ウィンドウごとには持たない。
 final class ReaderSettings: ObservableObject {
     static let shared = ReaderSettings()
 
@@ -93,7 +91,6 @@ final class ReaderSettings: ObservableObject {
     @AppStorage("pageLayout") var pageLayout: PageLayoutMode = .continuousScroll { willSet { objectWillChange.send() } }
     @AppStorage("pageFit") var pageFit: PageFit = .whole { willSet { objectWillChange.send() } }
 
-    /// 値としての表示設定。CSS の生成はこちらが持つ。
     var style: ReaderStyle {
         ReaderStyle(fontSizePercent: fontSizePercent,
                     lineHeight: lineHeight,

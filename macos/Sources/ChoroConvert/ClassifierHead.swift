@@ -1,27 +1,10 @@
 import Foundation
 
-/// 分類頭（reranker）。**胴体は埋め込みと同じで、出口だけが違う。**
-///
-/// 形は推測せず、transformers の実装（`ModernBertPredictionHead` と
-/// `ModernBertForSequenceClassification.forward`）から確かめて写した。
-///
-/// ```text
-/// 胴体の隠れ状態 [1, seq, hidden]
-///  ↓ プーリング（config の classifier_pooling。cls なら先頭のトークン）
-///  ↓ head.dense（線形。classifier_bias が false なら bias 無し）
-///  ↓ 活性（config の classifier_activation）
-///  ↓ head.norm（正規化。gamma だけ）
-///  ↓ classifier（線形。**こちらは bias を持つ**）
-/// score [1, 1]
-/// ```
-///
-/// **入力は「問いと本文の組」である。** 詰め方も推測しない。
-/// `<s> 問い </s><s> 本文 </s>`（tokenizer に実際に詰めさせて確かめた）。
+/// 分類頭（reranker）
 struct ClassifierHead {
     let config: EncoderConfig
     let seq: Int
 
-    /// 頭の重みの置き場所。
     struct Offsets {
         var dense: UInt64
         var norm: UInt64
@@ -56,7 +39,6 @@ struct ClassifierHead {
             pooled = meanPooled(&mil, state: state, attentionMask: attentionMask)
         }
 
-        // head.dense。**bias は持たない**（classifier_bias が false）。
         let dense = mil.constant("head_dense", .init(.fp16, [width, width]),
                                  .blob(offset: weights.dense))
         let denseBias = mil.constant("head_dense_bias", .init(.fp16, [width]),
@@ -82,7 +64,6 @@ struct ClassifierHead {
                             inputs: [("x", gated), ("axes", axes),
                                      ("epsilon", epsilon), ("gamma", gamma)])
 
-        // 分類器。**こちらは bias を持つ。**
         let classifier = mil.constant("classifier", .init(.fp16, [1, width]),
                                       .blob(offset: weights.classifier))
         let bias = mil.constant("classifier_bias", .init(.fp16, [1]),

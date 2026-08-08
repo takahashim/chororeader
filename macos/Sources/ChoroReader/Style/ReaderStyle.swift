@@ -14,7 +14,6 @@ struct ReaderStyle: Codable, Equatable {
     var codeWrap: Bool = false
     var publisherStyle: Bool = false
 
-    /// 暗いテーマでは、背景色を持たない要素にだけ文字色を当てる。その印付けが要るかどうか。
     var needsForegroundMarking: Bool { !publisherStyle && theme == .dark }
 
     init() {}
@@ -46,7 +45,6 @@ struct ReaderStyle: Codable, Equatable {
         self.publisherStyle = publisherStyle
     }
 
-    /// 本文へ被せるスタイル。出版社 CSS を壊さない範囲に絞る。
     func css() -> String {
         let t = theme
         let widthRule = maxWidthEm > 0 ? "max-width: \(Int(maxWidthEm))em !important;" : ""

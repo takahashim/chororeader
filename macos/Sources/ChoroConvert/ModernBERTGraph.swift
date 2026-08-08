@@ -1,21 +1,9 @@
 import Foundation
 
-/// ModernBERT の胴体を MIL のグラフとして組む。
-///
-/// kohagi の `modernbert.rs` から移した。**1 つの層は 23 の演算**でできている。
-/// 前正規化 → 束ねた QKV → rope → マスク付きの注意 → 出口の射影 → 残差、
-/// そして前正規化 → 門付きの中間層 → 残差。
-///
-/// 層の違いは**マスクだけ**である。窓の層には局所マスク、
-/// `global_attn_every_n_layers` ごとの層には全域マスクを渡す。
-///
-/// 形はすべて書く（`MILProgram` の方針）。食い違えば Core ML が組み立てで落ちる。
 struct ModernBERTGraph {
     let config: EncoderConfig
-    /// このバケットの長さ。
     let seq: Int
 
-    /// 重みの置き場所（`weight.bin` の目録の位置）。
     struct BlockOffsets {
         /// 層 0 は前段の正規化を持たない（埋め込みの後で正規化済みのため）。
         var attnNorm: UInt64?
@@ -56,7 +44,6 @@ struct ModernBERTGraph {
                 let exponent = -Float(2 * at) / Float(headDim)
                 angles.append(Float(position) * powf(theta, exponent))
             }
-            // 並べ替えではなく写す。前半と後半が同じ角度を持つ。
             cosTable.append(contentsOf: angles.map { cosf($0) })
             cosTable.append(contentsOf: angles.map { cosf($0) })
             sinTable.append(contentsOf: angles.map { sinf($0) })
@@ -106,7 +93,6 @@ struct ModernBERTGraph {
         // 語彙の表から引き、正規化する。
         let table = mil.constant("tok_embeddings", .init(.fp16, [config.vocab, hidden]),
                                  .blob(offset: tokens))
-        // **負の id は表の後ろへ回り込む**（辿った Python と同じにする）。
         let zero = mil.constant("id_zero", .init(.int32, []), .ints([0]))
         let nonNegative = mil.op("greater_equal",
                                  out: .init(name: "id_ok", type: .init(.bool, [1, seq])),
@@ -120,7 +106,6 @@ struct ModernBERTGraph {
                              inputs: [("cond", nonNegative), ("a", ids), ("b", wrapped)])
 
         let gatherAxis = mil.constant("emb_axis", .init(.int32, []), .ints([0]))
-        // `batch_dims` と `validate_indices` は省けない。**省くと読めない。**
         let batchDims = mil.constant("emb_batch_dims", .init(.int32, []), .ints([0]))
         let validate = mil.constant("emb_validate", .init(.bool, []), .bools([false]))
         let gathered = mil.op("gather",
@@ -152,17 +137,11 @@ struct ModernBERTGraph {
                                ("epsilon", epsilon), ("gamma", finalGamma)])
     }
 
-    /// 注意のマスクを 2 つ作る。**詰め物は入力で決まるので、グラフの中で組む。**
-    ///
-    /// 定数で焼き込んでいた頃は、詰め物のある入力で参照実装と食い違った
-    /// （cosine 0.935。バケットいっぱいまで詰まった入力では一致していたので、
-    /// 気付くのが遅れた）。
     private func masks(_ mil: inout MILProgram,
                        attentionMask: MILProgram.Value) -> (global: MILProgram.Value,
                                                             local: MILProgram.Value) {
         let square = [1, 1, seq, seq]
 
-        // [1, seq] を [1, 1, seq, seq] へ広げる。1 が「見てよい位置」。
         let axis1 = mil.constant("m_ax1", .init(.int32, [1]), .ints([1]))
         let m3 = mil.op("expand_dims",
                         out: .init(name: "m3", type: .init(.int32, [1, 1, seq])),
@@ -190,21 +169,6 @@ struct ModernBERTGraph {
                                out: .init(name: "m_is_padding", type: .init(.bool, square)),
                                inputs: [("x", inverted), ("dtype", toBool)])
 
-        // 詰め物のところは塞ぎ、それ以外は inverted が既に持っている 0。
-        //
-        // **塞ぐ値は有限にする（fp16 の最小の有限値）。`-inf` にしてはいけない。**
-        //
-        // 完全に塞がれた行は実際に出る（詰め物の位置が、局所注意の窓から
-        // 本物の外れたところにあるとき）。`-inf` だと `exp(-inf) = 0` が並び、
-        // softmax が `0/0 = NaN` を返す。その NaN は次の層で本物の位置へ移る
-        // （重み 0 を掛けても `0 × NaN = NaN` のため）。
-        //
-        // 実測：CPU で seq 256 以上・詰め物ありのとき、**本物の位置まで 100% NaN**
-        // になっていた。ANE では出ないが、それは `-inf` の扱いが違うだけで、
-        // 頼れる性質ではない。
-        //
-        // PyTorch（transformers）は fp32 の最小の有限値を使っており、NaN を出さない。
-        // 有限値なら、全部塞がれた行は一様分布になるだけで済む。
         let blocked = mil.constant("m_blocked", .init(.fp16, []), .halves([-65504]))
         let global = mil.op("select",
                             out: .init(name: "global_mask", type: .init(.fp16, square)),
@@ -240,7 +204,6 @@ struct ModernBERTGraph {
                                      ("epsilon", epsilon), ("gamma", gamma)])
         }
 
-        // 2〜5. 束ねた QKV を作り、3 つに割る。
         let wqkv = mil.constant(tag("wqkv"), .init(.fp16, [3 * hidden, hidden]),
                                 .blob(offset: weights.wqkv))
         let wqkvBias = mil.constant(tag("wqkv_bias"), .init(.fp16, [3 * hidden]),
@@ -275,7 +238,6 @@ struct ModernBERTGraph {
                                    inputs: [("x", part), ("axes", axes)]))
         }
 
-        // 6〜7. 問いと鍵に rope を掛ける。値には掛けない。
         let cos = mil.constant(tag("rope_cos"), .init(.fp16, [1, 1, seq, headDim]),
                                .blob(offset: weights.ropeCos))
         let sin = mil.constant(tag("rope_sin"), .init(.fp16, [1, 1, seq, headDim]),
@@ -283,7 +245,6 @@ struct ModernBERTGraph {
         let query = rotateHalf(&mil, tag: tag("q"), x: squeezed[0], cos: cos, sin: sin)
         let key = rotateHalf(&mil, tag: tag("k"), x: squeezed[1], cos: cos, sin: sin)
 
-        // 8〜12. 目盛りを掛けた内積とマスク、softmax、値との積。
         let no = mil.constant(tag("false"), .init(.bool, []), .bools([false]))
         let yes = mil.constant(tag("true"), .init(.bool, []), .bools([true]))
         let scores = mil.op("matmul",
@@ -307,7 +268,6 @@ struct ModernBERTGraph {
                              inputs: [("x", probabilities), ("y", squeezed[2]),
                                       ("transpose_x", no), ("transpose_y", no)])
 
-        // 13〜16. head をまとめ、射影して残差を足す。
         let outPerm = mil.constant(tag("out_perm"), .init(.int32, [4]), .ints([0, 2, 1, 3]))
         let merged = mil.op("transpose",
                             out: .init(name: tag("merged"),
@@ -329,7 +289,6 @@ struct ModernBERTGraph {
                       inputs: [("x", input), ("y", projected)])
     }
 
-    /// `concat(-x2, x1)`（最後の軸で前後を入れ替えて符号を変える）。演算 7 つ。
     private func rotateHalf(_ mil: inout MILProgram, tag: String, x: MILProgram.Value,
                             cos: MILProgram.Value, sin: MILProgram.Value) -> MILProgram.Value {
         let half = headDim / 2

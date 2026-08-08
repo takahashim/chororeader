@@ -20,7 +20,6 @@ enum Samples {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let destination = directory.appendingPathComponent(source.lastPathComponent)
 
-        // 版が変わったら写し直す。大きさが同じなら中身も同じとみなす。
         let sizeOf: (URL) -> Int? = { url in
             (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil
         }

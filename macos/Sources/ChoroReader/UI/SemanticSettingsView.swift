@@ -1,12 +1,5 @@
 import SwiftUI
 
-/// 意味の層の入切と進み具合。
-///
-/// **書棚に置く。** 索引づくりは蔵書ぜんぶに関わる仕事で、
-/// 1 冊の表示設定とは性質が違うためである。
-///
-/// 出すのは 3 つだけとする。使うかどうか、いま何をしているか、やめる。
-/// 段数やモデルの選択は出さない（spec-local-ai.md 第 1.3 節、増やさない）。
 struct SemanticSettingsView: View {
     @ObservedObject private var builder = SemanticIndexBuilder.shared
     @ObservedObject private var store = LibraryStore.shared
@@ -17,13 +10,10 @@ struct SemanticSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Toggle("意味で関連箇所を出す", isOn: $builder.enabled)
                 .disabled(!hasModel || !supported)
-                // 入にした時点で、問いが使う短いバケットを裏で開いておく。
-                // そうしないと最初の 1 回だけ数百 ms 待たされる。
                 .onChange(of: builder.enabled) { _, on in
                     if on {
                         builder.warm()
                     } else {
-                        // 切ったら握っているものを手放す。使う見込みが無くなる唯一の折。
                         builder.stop()
                         if #available(macOS 15, *) { EmbedderHolder.shared.release() }
                     }
@@ -73,8 +63,6 @@ struct SemanticSettingsView: View {
                             .controlSize(.small)
                         }
                     }
-                    // **黙って作り直さない**（spec-local-ai.md 第 4.4 節）。
-                    // 版が変わると全量が作り直しになるので、それと分かるように言う。
                     if left.stale > 0 {
                         note("モデルが変わったので、作ったものは使えません。作り直すまで、その書籍は結果に出ません。")
                     }

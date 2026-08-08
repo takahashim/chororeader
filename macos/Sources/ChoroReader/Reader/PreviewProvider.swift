@@ -3,7 +3,6 @@ import Foundation
 /// リンク先を移動せずに確かめるための、小さな抜粋を組み立てる。
 /// 本文と同じスキームハンドラ経由で配信するので、抜粋の中の画像や CSS もそのまま解決される。
 enum PreviewProvider {
-    /// 抜粋に入れる本文の目安。脚注はこれよりずっと短く収まる。
     private static let budget = 1200
 
     static let syntheticName = "__choro_preview__.xhtml"
@@ -65,7 +64,6 @@ enum PreviewProvider {
             return Extracted(body: leadingContent(of: document), isFootnote: false)
         }
 
-        // 脚注は要素 1 つで完結する。前後を足すとかえって読みにくい。
         if isFootnoteElement(target) {
             return Extracted(body: target.xmlString, isFootnote: true)
         }

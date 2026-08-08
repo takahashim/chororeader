@@ -9,7 +9,6 @@ import PDFKit
 /// 原寸で持つ必要もないので、縮小したものを Application Support の下へ書く。
 @MainActor
 enum CoverCache {
-    /// 書棚の升目に収まる大きさ。Retina を見込んで 2 倍で持つ。
     nonisolated private static let maxPixel = 640
 
     nonisolated private static var directory: URL {
@@ -54,7 +53,6 @@ enum CoverCache {
         return downsample(data)
     }
 
-    /// 原寸まで復号せずに縮小したものだけを取り出す。表紙が全面写真でも重くならない。
     nonisolated private static func downsample(_ data: Data) -> NSImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [

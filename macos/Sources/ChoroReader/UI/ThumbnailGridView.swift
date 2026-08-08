@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// ページのサムネイル一覧。ページが画像の書籍では、目次より速く目当ての場所へ行ける。
 struct ThumbnailGridView: View {
     @ObservedObject var session: ReaderSession
     let provider: ThumbnailProvider
@@ -86,7 +85,6 @@ private struct ThumbnailCell: View {
                 image = hit
                 return
             }
-            // 一覧に現れた分だけ作る。全ページを先に作ると大きな書籍で待たされる。
             await withCheckedContinuation { continuation in
                 provider.thumbnail(at: index, maxPixel: 320) { made in
                     image = made

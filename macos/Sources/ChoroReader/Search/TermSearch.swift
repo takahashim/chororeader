@@ -13,9 +13,7 @@ import Foundation
 enum TermSearch {
     struct Hit: Identifiable, Hashable {
         var book: LibraryEntry
-        /// 索引に載っていた形。問いと同じとは限らない（部分一致で当たる）。
         var term: String
-        /// 問いそのものだったか。**言い換えより先に出す。**
         var isExact: Bool
 
         var id: String { "\(book.path)#\(term)" }
@@ -23,9 +21,7 @@ enum TermSearch {
 
     struct Found {
         var hits: [Hit] = []
-        /// 索引の語をまだ調べていない書籍の数。
         var unread = 0
-        /// 索引を持たないと分かっている書籍の数。
         var withoutIndex = 0
     }
 
@@ -67,7 +63,6 @@ enum TermSearch {
             if let best { made.hits.append(best) }
         }
 
-        // 問いそのものを載せている本が先。次は短い語（＝問いに近い語）の順。
         made.hits.sort {
             if $0.isExact != $1.isExact { return $0.isExact }
             if $0.term.count != $1.term.count { return $0.term.count < $1.term.count }

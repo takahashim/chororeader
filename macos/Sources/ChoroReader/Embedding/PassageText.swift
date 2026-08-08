@@ -1,13 +1,6 @@
 import Foundation
 import PDFKit
 
-/// 当たった段落の本文を、**原書から切り出す**。
-///
-/// 索引は本文を控えない（`SemanticUnit`）。二字組索引が候補を絞ってから
-/// 原書を走査し直すのと同じで、意味の索引も地図であって写しではない
-/// （spec.md 第 10.4 節、spec-local-ai.md 第 2 章の 3）。
-///
-/// 控えていた頃は**本の 35% が原文のまま索引ファイルに入っていた**。
 enum PassageText {
     /// 切り出す長さ。**段落 1 つぶん**（`SemanticUnits` の目安が 400 字）。
     ///
@@ -32,7 +25,6 @@ enum PassageText {
                      limit: Int = displayCharacters) -> [Int: String] {
         guard let source = SearchIndexStore.open(url) else { return [:] }
         var made: [Int: String] = [:]
-        // 同じ章（ページ）を何度も取り出さない。
         var pages: [String: String] = [:]
 
         for (at, unit) in units.enumerated() {
@@ -91,7 +83,6 @@ enum PassageText {
         let at = whole.index(whole.startIndex, offsetBy: approximate)
         guard let anchor else { return at }
 
-        // 位置の先が目印と合っていれば、それが答え。
         if whole[at...].hasPrefix(anchor) { return at }
 
         // 合わなければ、位置のまわりで**いちばん近い**ところを採る。
@@ -126,7 +117,6 @@ enum PassageText {
 /// 画面は一拍おいて本文が入る。**索引から出すより遅いが、控えないための代償である。**
 @MainActor
 final class PassageTextLoader: ObservableObject {
-    /// 札（`RelatedPassage.id`）で引ける本文。
     @Published private(set) var texts: [String: String] = [:]
 
     private var generation = 0
@@ -136,7 +126,6 @@ final class PassageTextLoader: ObservableObject {
         texts = [:]
     }
 
-    /// 書籍ごとにまとめて読む。
     func load(_ passages: [RelatedPassage], resolve: (LibraryEntry) -> URL?) {
         generation += 1
         let mine = generation
@@ -158,7 +147,6 @@ final class PassageTextLoader: ObservableObject {
                     })
                 await MainActor.run { [weak self] in
                     guard let self, self.generation == mine else { return }
-                    // 1 冊ぶん読めるたびに配る。全部揃うまで待たせない。
                     self.texts.merge(byId) { _, new in new }
                 }
             }

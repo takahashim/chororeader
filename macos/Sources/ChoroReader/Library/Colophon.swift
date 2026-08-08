@@ -38,7 +38,6 @@ enum Colophon {
             .joined(separator: "\n")
     }
 
-    /// 紙面の ISBN。**検査数字の合うものだけ。**
     static func isbn(in text: String) -> String? {
         let pattern = "ISBN[^0-9]{0,4}([0-9][0-9\\- ]{9,20}[0-9Xx])"
         var from = text.startIndex
@@ -74,10 +73,6 @@ enum Colophon {
         }
     }
 
-    /// 紙面の発行所。
-    ///
-    /// **住所や電話番号を巻き込まない。** 奥付は「発行所 ○○社」の後ろに
-    /// 〒や番地が続く。名前らしいところで切る。
     static func publisher(in text: String) -> String? {
         for line in text.split(whereSeparator: \.isNewline) {
             let flat = line.replacingOccurrences(of: "　", with: "")
@@ -85,7 +80,6 @@ enum Colophon {
             for mark in ["発行所", "発行元", "発行者"] where flat.hasPrefix(mark) {
                 var name = String(flat.dropFirst(mark.count))
                     .trimmingCharacters(in: CharacterSet(charactersIn: " ：:・"))
-                // 住所が続いたらそこで切る。
                 if let cut = name.range(of: "[〒\\d]", options: .regularExpression) {
                     name = String(name[..<cut.lowerBound])
                 }

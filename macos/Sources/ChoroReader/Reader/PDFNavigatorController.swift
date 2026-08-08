@@ -2,7 +2,6 @@ import AppKit
 import Combine
 import PDFKit
 
-/// PDF のナビゲータ。描画、拡縮、選択、リンクは PDFKit に任せる。
 @MainActor
 final class PDFNavigatorController: NSObject, ObservableObject, PDFViewDelegate {
     let document: BookDocument
@@ -85,10 +84,6 @@ final class PDFNavigatorController: NSObject, ObservableObject, PDFViewDelegate 
 
     // MARK: - 当たりの強調
 
-    /// 当たりのあったページで、その語が出ているところを塗る。
-    ///
-    /// PDFKit の選択（setCurrentSelection）とは別に持つ。
-    /// あちらは人が文字を選び直すと消えるが、こちらは検索をやめるまで残ってほしい。
     private func applyMark() {
         guard let mark, !mark.query.isEmpty, let page = mark.target.page,
               let doc = document.pdfDocument, let target = doc.page(at: page) else {
@@ -111,7 +106,6 @@ final class PDFNavigatorController: NSObject, ObservableObject, PDFViewDelegate 
         pdfView.scaleFactor = pdfView.scaleFactorForSizeToFit
     }
 
-    /// いま選んでいる本文。web 側と形を揃える（あちらは一往復かかる）。
     func selectedText(_ hand: @escaping (String?) -> Void) {
         hand(pdfView.currentSelection?.string)
     }
@@ -152,7 +146,6 @@ final class PDFNavigatorController: NSObject, ObservableObject, PDFViewDelegate 
     // MARK: - PDFViewDelegate
 
     nonisolated func pdfViewWillClick(onLink sender: PDFView, with url: URL) {
-        // 外部 URL は OS のブラウザで開く。
         NSWorkspace.shared.open(url)
     }
 }

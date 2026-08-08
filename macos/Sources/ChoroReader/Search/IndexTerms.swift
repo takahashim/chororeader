@@ -1,38 +1,6 @@
 import Foundation
 import PDFKit
 
-/// 巻末の用語索引に載っている語。
-///
-/// **索引は、著者が「この本はこれを扱う」と認めた語の一覧である。**
-/// 全文検索の当たりと違い、人が選んでいる。1 冊あたり 160〜670 語あった。
-///
-/// 意味の索引には入れない紙面（`BackIndex`）を、こちらでは語として使う。
-/// 矛盾ではない。**索引の紙面は「何にでも似る」からベクトルの邪魔になるだけで、
-/// 語の一覧としては最良の材料である。**
-///
-/// ## 取り出し方
-///
-/// 範囲は `BackIndex` が決める。そこから先は書式で違う。
-///
-/// - **EPUB**：`<li>` の**自分の字だけ**を採る。入れ子の `ul`/`ol` は頁番号の
-///   リンクなので数えない。リンクだけの項目も語ではない（頁番号か節見出しを指している）
-/// - **PDF**：行ごとに、末尾の頁番号と点線を落とす
-///
-/// ## いまは呼び出し口が無い
-///
-/// 蔵書横断で引く画面を一度作ったが、**外した**（spikes/findings-index-terms.md）。
-/// 手元の蔵書では索引を持つ本が 5 冊しかなく、**語の 96% はその 1 冊にしか
-/// 載っていない**。「この語を扱っている本」と聞いても答えが必ず「1 冊」になり、
-/// 語句検索が既に出しているものの劣化版だった。
-///
-/// 抽出そのものは測って確かめてあり、作り直しも数秒で済む。
-/// **蔵書が育って索引を持つ本が増えたら、ここから戻せる。**
-///
-/// ## 確かめ方
-///
-/// 蔵書には**同じ本の EPUB 版と PDF 版**が 4 冊ぶんあった。まったく別の経路で
-/// 取り出して **96% が一致**した（91〜99%）。片方だけでは「取れているつもり」で
-/// 終わるので、この突き合わせで確かめた。
 enum IndexTerms {
     /// 1 冊ぶんの語。索引が無ければ空。
     ///
@@ -66,21 +34,12 @@ enum IndexTerms {
         }
     }
 
-    /// 奥付の紙面か。**索引の範囲は奥付まで届くことがある。**
-    ///
-    /// 範囲の終わりは「索引の次の目次項目」で決めているが、次の項目が無い本では
-    /// 末尾までになる（実測で 17 冊中 2 冊）。意味の索引から外す用途では
-    /// 害が無かったが、語を採る用途では**電話番号や部署名が語として混ざる**。
-    /// 実際に「03-3113-6150販売促進部」が採れていた。
-    ///
-    /// 奥付は「発行」と年月日が並ぶ形で見分ける（`NameCandidates` と同じ考え方）。
     static func isColophon(_ text: String) -> Bool {
         guard text.contains("発行") || text.contains("発 行") else { return false }
         return text.range(of: "[0-9０-９]{4}\\s*年\\s*[0-9０-９]{1,2}\\s*月",
                           options: .regularExpression) != nil
     }
 
-    /// 同じ語は 1 度だけ。**並びは出てきた順のまま**（あいうえお順は索引の側の都合）。
     private static func unique(_ terms: [String]) -> [String] {
         var seen = Set<String>()
         return terms.filter { seen.insert($0).inserted }
@@ -108,15 +67,12 @@ enum IndexTerms {
         return asLines(html)
     }
 
-    /// 組みが読めなかったときに、素の字として読む。
     private static func asLines(_ html: String) -> [String] {
         HTMLText.extract(html).text
             .split(whereSeparator: \.isNewline)
             .compactMap { term(from: String($0)) }
     }
 
-    /// **リンクだけの項目は語ではなく、指す先である。**
-    /// 頁番号のことも、節の見出しのこともある。どちらも語ではない。
     private static func isPointer(_ element: XMLElement) -> Bool {
         let elements = (element.children ?? []).compactMap { $0 as? XMLElement }
         guard elements.count == 1, elements[0].name?.lowercased() == "a" else { return false }
@@ -179,7 +135,6 @@ enum IndexTerms {
         guard (1 ... 40).contains(text.count) else { return nil }
         let whole = NSRange(text.startIndex ..< text.endIndex, in: text)
         if heading?.firstMatch(in: text, range: whole) != nil { return nil }
-        // 字が 1 つも無いもの（記号だけ）は語ではない。
         guard text.contains(where: { $0.isLetter || $0.isNumber }) else { return nil }
         return text
     }

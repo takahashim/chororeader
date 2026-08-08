@@ -1,17 +1,8 @@
 import CoreML
 import Foundation
 
-/// 配る形（`.mlpackage`）を組み直して置いておく係。
-///
-/// **埋め込みの仕事ではなく、置き場所の世話である。**
-/// `CoreMLEmbedder` に同居していたが、あちらは「トークンにして、バケットに詰めて、
-/// 平均して、正規化する」だけを持つべきなので、こちらへ移した。
-///
-/// 組み直しに 1 束あたり数秒〜数十秒かかるので、毎回払うわけにいかない。
-/// 元の束が入れ替わったら組み直す（大きさと更新日時で見る）。
 @available(macOS 15, *)
 enum CompiledBundleCache {
-    /// 組み直したものを返す。無ければ組んで置く。
     static func compiled(_ package: URL) throws -> URL {
         let cache = try cacheDirectory()
         let stamp = try Self.stamp(of: package)
@@ -78,7 +69,6 @@ enum CompiledBundleCache {
         return base
     }
 
-    /// 束が入れ替わったかを見る印。中身を読まずに済ませる。
     private static func stamp(of package: URL) throws -> String {
         let weights = package.appendingPathComponent("Data/com.apple.CoreML/weights/weight.bin")
         let target = FileManager.default.fileExists(atPath: weights.path) ? weights : package
