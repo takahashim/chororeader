@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
+using ChoroReader.Core;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -140,26 +141,42 @@ internal static class Program
         };
 
         // 要求を横取りして、メモリ上の文書を返す。
+        // 2 周目は本番と同じ CSP を添える。どちらで転んだかを見分けられるよう、別々に測る。
+        var attachCsp = false;
         core.AddWebResourceRequestedFilter(filter, CoreWebView2WebResourceContext.All);
         core.WebResourceRequested += (_, e) =>
         {
             var bytes = Encoding.UTF8.GetBytes(BookHtml);
+            var headers = "Content-Type: text/html; charset=utf-8";
+            if (attachCsp)
+            {
+                headers += $"\nContent-Security-Policy: {ResourceDelivery.ContentSecurityPolicy}";
+            }
             e.Response = environment.CreateWebResourceResponse(
-                new MemoryStream(bytes), 200, "OK", "Content-Type: text/html; charset=utf-8");
+                new MemoryStream(bytes), 200, "OK", headers);
         };
 
         await core.AddScriptToExecuteOnDocumentCreatedAsync(InjectedScript);
         Step("注入スクリプトを登録した");
 
-        var loaded = new TaskCompletionSource<bool>();
+        TaskCompletionSource<bool>? loaded = null;
         core.NavigationCompleted += (_, e) =>
         {
             result["navigationStatus"] = e.WebErrorStatus.ToString();
-            loaded.TrySetResult(e.IsSuccess);
+            loaded?.TrySetResult(e.IsSuccess);
         };
 
-        core.Navigate(bookUrl);
-        var navigated = await WithTimeout(loaded.Task, TimeSpan.FromSeconds(30));
+        async Task<bool> Load()
+        {
+            loaded = new TaskCompletionSource<bool>();
+            core.Navigate(bookUrl);
+            var ok = await WithTimeout(loaded.Task, TimeSpan.FromSeconds(30));
+            // メッセージは読み込み完了と前後しうる。少し待つ。
+            await Task.Delay(500);
+            return ok;
+        }
+
+        var navigated = await Load();
         result["navigatedTo"] = bookUrl;
         result["navigationSucceeded"] = navigated;
         Step($"読み込みが{(navigated ? "成功した" : "失敗した")}");
@@ -169,9 +186,6 @@ internal static class Program
             result["conclusion"] = "横取りした文書を読み込めなかった";
             return 1;
         }
-
-        // メッセージは読み込み完了と前後しうる。少し待つ。
-        await Task.Delay(500);
 
         var injected = await core.ExecuteScriptAsync("window.__choroInjected === true");
         var paragraph = await core.ExecuteScriptAsync("document.getElementById('p').textContent");
@@ -192,14 +206,43 @@ internal static class Program
         result["postMessageFailure"] = postFailure.Trim() == "null" ? null : postFailure;
         result["messages"] = new JsonArray(messages.Select(m => (JsonNode?)m).ToArray());
 
+        // 本番と同じ CSP を添えて、もう一度読み込む。
+        //
+        // 配信する本文には script-src 'none' が付く。書籍の script はエンジンの段
+        // （IsScriptEnabled = false）で既に止まっているので、CSP はその上に重ねる網である。
+        // ただし**注入したスクリプトまで CSP に巻き込まれると読書の仕掛けが全部死ぬ**ので、
+        // 巻き込まれないことをここで確かめる。巻き込まれるなら script-src を緩める。
+        attachCsp = true;
+        messages.Clear();
+        var reloaded = await Load();
+        result["reloadedWithCsp"] = reloaded;
+        result["contentSecurityPolicy"] = ResourceDelivery.ContentSecurityPolicy;
+        Step($"CSP を添えた読み込みが{(reloaded ? "成功した" : "失敗した")}");
+
+        var injectedUnderCsp = (await core.ExecuteScriptAsync("window.__choroInjected === true")).Trim() == "true";
+        var paragraphUnderCsp = await core.ExecuteScriptAsync("document.getElementById('p').textContent");
+        var titleUnderCsp = await core.ExecuteScriptAsync("document.title");
+        var bookScriptUnderCsp = paragraphUnderCsp.Contains("CONTENT-JS-RAN", StringComparison.Ordinal)
+                                 || titleUnderCsp.Contains("CONTENT-JS-RAN", StringComparison.Ordinal);
+        var messageUnderCsp = messages.Any(m => m.Contains("hello", StringComparison.Ordinal));
+
+        result["injectedScriptRanUnderCsp"] = injectedUnderCsp;
+        result["bookScriptRanUnderCsp"] = bookScriptUnderCsp;
+        result["webMessageArrivedUnderCsp"] = messageUnderCsp;
+
         // macOS と同じ前提が成り立つ条件。
         var holds = injectedRan && !bookScriptRan && messageArrived && executeScriptWorks;
+        var cspHolds = reloaded && injectedUnderCsp && !bookScriptUnderCsp && messageUnderCsp;
         result["assumptionHolds"] = holds;
-        result["conclusion"] = holds
-            ? "macOS 版と同じ前提が成り立つ。注入スクリプトとメッセージで組める。"
-            : "前提が崩れる。EPUB ナビゲータの作りを見直す必要がある。";
+        result["cspAssumptionHolds"] = cspHolds;
+        result["conclusion"] = (holds, cspHolds) switch
+        {
+            (false, _) => "前提が崩れる。EPUB ナビゲータの作りを見直す必要がある。",
+            (true, false) => "注入は動くが、配信する CSP がそれを巻き込む。script-src を緩める必要がある。",
+            (true, true) => "macOS 版と同じ前提が成り立つ。配信する CSP のままで組める。",
+        };
 
-        return holds ? 0 : 1;
+        return holds && cspHolds ? 0 : 1;
     }
 
     /// <summary>
