@@ -1,0 +1,154 @@
+import Foundation
+
+/// checkpoint を Core ML の束へ変換する。
+///
+/// 重みを `weight.bin` へ写しながら位置を控え、その位置でグラフを組み、
+/// バケットの長さごとの関数を 1 つの束にまとめる。
+///
+/// **使わなかった重みを申告する。** 名前を 1 つ読み違えても変換は通り、
+/// 初期値のままの層を持つモデルができて、それらしい数が出る。
+/// 読んだ名前と checkpoint にある名前を突き合わせるのが、唯一の防壁である。
+public struct EncoderConverter {
+    let config: EncoderConfig
+    let weights: Safetensors
+
+    public init(config: EncoderConfig, weights: Safetensors) {
+        self.config = config
+        self.weights = weights
+    }
+
+    /// 出す関数の名前。**アプリ側（`CoreMLEmbedder`）の名付けと揃える。**
+    static func functionName(_ length: Int) -> String { "seq_\(length)" }
+
+    /// 変換の結果。
+    public struct Made {
+        public var model: ModelBytes
+        public var blob: Data
+        /// 読まなかった重みの名前。空でなければ、どこかを取りこぼしている。
+        public var unused: [String]
+    }
+
+    public enum Failure: Error, LocalizedError {
+        case missing([String])
+
+        public var errorDescription: String? {
+            switch self {
+            case let .missing(names):
+                return "checkpoint に無い重みがあります：\n" + names.map { "  ・\($0)" }.joined(separator: "\n")
+            }
+        }
+    }
+
+    /// 束を組む。
+    public func convert(lengths: [Int]) throws -> Made {
+        try config.check(lengths: lengths)
+
+        var blob = WeightBlob()
+        var read = Set<String>()
+
+        /// 重みを 1 つ写して、目録の位置を返す。
+        func place(_ name: String, expected: [Int]) throws -> UInt64 {
+            read.insert(name)
+            let values = try weights.read(name)
+            let shape = weights.shape(of: name) ?? []
+            guard shape == expected else {
+                throw Safetensors.Failure.cannotRead(
+                    "\(name) の形が \(shape) で、期待する \(expected) と違います")
+            }
+            return blob.append(fp16: values)
+        }
+
+        // 足りない重みは、まとめて言う。
+        var missing: [String] = []
+        func require(_ names: [String]) {
+            missing.append(contentsOf: names.filter { weights.shape(of: $0) == nil })
+        }
+        let hidden = config.hidden
+        let intermediate = config.intermediate
+        require(["embeddings.tok_embeddings.weight", "embeddings.norm.weight", "final_norm.weight"])
+        for layer in 0 ..< config.layers {
+            require(["layers.\(layer).attn.Wqkv.weight", "layers.\(layer).attn.Wo.weight",
+                     "layers.\(layer).mlp_norm.weight", "layers.\(layer).mlp.Wi.weight",
+                     "layers.\(layer).mlp.Wo.weight"])
+        }
+        guard missing.isEmpty else { throw Failure.missing(missing) }
+
+        let tokens = try place("embeddings.tok_embeddings.weight", expected: [config.vocab, hidden])
+        let embeddingNorm = try place("embeddings.norm.weight", expected: [hidden])
+        let finalNorm = try place("final_norm.weight", expected: [hidden])
+
+        // 射影に bias は無いので（config で拒んである）、0 を置く。
+        let zeroQKV = blob.append(fp16: [Float](repeating: 0, count: 3 * hidden))
+        let zeroHidden = blob.append(fp16: [Float](repeating: 0, count: hidden))
+        let zeroWide = blob.append(fp16: [Float](repeating: 0, count: 2 * intermediate))
+
+        var perLayer: [(wqkv: UInt64, wo: UInt64, mlpNorm: UInt64,
+                        mlpWi: UInt64, mlpWo: UInt64, attnNorm: UInt64?)] = []
+        for layer in 0 ..< config.layers {
+            // **層 0 は前正規化を持たない。** 埋め込みの後で正規化済みである。
+            var attnNorm: UInt64?
+            let normName = "layers.\(layer).attn_norm.weight"
+            if weights.shape(of: normName) != nil {
+                attnNorm = try place(normName, expected: [hidden])
+            }
+            perLayer.append((
+                wqkv: try place("layers.\(layer).attn.Wqkv.weight", expected: [3 * hidden, hidden]),
+                wo: try place("layers.\(layer).attn.Wo.weight", expected: [hidden, hidden]),
+                mlpNorm: try place("layers.\(layer).mlp_norm.weight", expected: [hidden]),
+                mlpWi: try place("layers.\(layer).mlp.Wi.weight", expected: [2 * intermediate, hidden]),
+                mlpWo: try place("layers.\(layer).mlp.Wo.weight", expected: [hidden, intermediate]),
+                attnNorm: attnNorm))
+        }
+
+        // バケットの長さごとに、rope の表とマスクを焼き込んで関数を組む。
+        var functions: [(name: String, function: Protowire)] = []
+        var described: [(name: String, inputs: [ModelPackage.Feature],
+                         outputs: [ModelPackage.Feature])] = []
+
+        for length in lengths.sorted() {
+            let local = ModernBERTGraph.ropeTables(seq: length, headDim: config.headDim,
+                                                   theta: config.localRopeTheta)
+            let global = ModernBERTGraph.ropeTables(seq: length, headDim: config.headDim,
+                                                    theta: config.globalRopeTheta)
+            let localCos = blob.append(fp16: local.cos)
+            let localSin = blob.append(fp16: local.sin)
+            let globalCos = blob.append(fp16: global.cos)
+            let globalSin = blob.append(fp16: global.sin)
+            let graph = ModernBERTGraph(config: config, seq: length)
+            var mil = MILProgram()
+            let ids = MILProgram.Value(name: "input_ids", type: .init(.int32, [1, length]))
+            let attention = MILProgram.Value(name: "attention_mask",
+                                             type: .init(.int32, [1, length]))
+
+            let blocks = perLayer.enumerated().map { at, one -> ModernBERTGraph.BlockOffsets in
+                // **層ごとに rope の theta が違う。** 全域の層は別の表を使う。
+                let isGlobal = config.isGlobal(layer: at)
+                return .init(attnNorm: one.attnNorm, wqkv: one.wqkv, wqkvBias: zeroQKV,
+                             wo: one.wo, woBias: zeroHidden, mlpNorm: one.mlpNorm,
+                             mlpWi: one.mlpWi, mlpWiBias: zeroWide,
+                             mlpWo: one.mlpWo, mlpWoBias: zeroHidden,
+                             ropeCos: isGlobal ? globalCos : localCos,
+                             ropeSin: isGlobal ? globalSin : localSin)
+            }
+
+            let out = graph.build(into: &mil, ids: ids, attentionMask: attention,
+                                  blocks: blocks, tokens: tokens,
+                                  embeddingNorm: embeddingNorm, finalNorm: finalNorm)
+
+            let name = Self.functionName(length)
+            // `attention_mask` は**使う**。詰め物の位置を注意から外すためである。
+            functions.append((name, mil.function(inputs: [ids, attention], outputs: [out])))
+            described.append((name,
+                              [.init(name: "input_ids", dataType: .int32, shape: [1, length]),
+                               .init(name: "attention_mask", dataType: .int32, shape: [1, length])],
+                              [.init(name: out.name, dataType: .fp16,
+                                     shape: [1, length, hidden])]))
+        }
+
+        let program = MILProgram.program(functions: functions)
+        let model = ModelPackage.model(program: program, functions: described,
+                                       defaultFunction: described[0].name)
+        let unused = weights.names.filter { !read.contains($0) }
+        return Made(model: ModelBytes(model), blob: blob.finish(), unused: unused)
+    }
+}

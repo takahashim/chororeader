@@ -37,12 +37,40 @@ PY
 
 `libcoremlpython` が無いという警告は出るが、protobuf を読むだけなので構わない。
 
-## いちばん強い審判は別にある
+## いちばん強い審判（実物）
 
 上の 2 つは**形**しか見ない。数が合っているかは見ない。
+数の審判は実物のモデルが要るので、検査には入れず、手順として残す。
 
-数の審判は「同じモデルを kohagi と両方で変換し、既存の `CoreMLEmbedderTests`
-（凍結済みの fixture、cosine ≥ 0.9999）を両方の束で通す」ことである。
-`weight.bin` はバイト一致も見る。
+```sh
+SNAP=$(dirname $(find ~/.cache/huggingface/hub -name "model.safetensors" -path "*ruri-v3-130m*" | head -1))
 
-そこまで通って初めて、この変換器は正しいと言える。
+# 変換する
+swift build -c release
+.build/release/choro-convert --model-path "$SNAP/model.safetensors" \
+  --config-path "$SNAP/config.json" \
+  --sequence-lengths 64,128,256,512,1024,2048 --out-dir /tmp/mine
+cp "$SNAP/tokenizer.json" "$SNAP/config.json" /tmp/mine/
+mkdir -p /tmp/mine/1_Pooling && cp "$SNAP/1_Pooling/config.json" /tmp/mine/1_Pooling/
+
+# 凍結済みの期待値（kohagi の変換物で作ったもの）を、自作の束で通す
+#   Tests/ChoroReaderTests/CoreMLEmbedderTests.swift の置き場所を /tmp/mine に向けて実行
+```
+
+**Hugging Face の置き場所は symlink である。** Core ML のコンパイラは辿れないので、
+kohagi の束と比べるときは実体を写す（`cp -RL`）。
+
+### 通した結果（2026-08-08、ruri-v3-130m）
+
+| | |
+|---|---|
+| 隠れ状態（seq 64/128/256/512、CPU） | **cosine 1.000000・最大の差 0.0000** |
+| 凍結済みの期待値 10 件 | **最小の cosine 0.999994** |
+| `weight.bin` の大きさ | 完全に同じ（264,793,600 バイト） |
+| `Manifest.json` | **バイト一致** |
+| `weight.bin` のバイト | **一致しない** |
+
+**`weight.bin` のバイト一致は成り立たない。** 設計にはそう書いていたが、誤りだった。
+135 個の中身は集まりとして完全に一致し、**並べる順だけが違う**（確かめた）。
+MIL の const はそれぞれの位置を指しているので、これで正しい。
+順まで揃えるのは参照実装に合わせるための作業であって、正しさの条件ではない。

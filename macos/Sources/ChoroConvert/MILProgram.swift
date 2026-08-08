@@ -49,12 +49,15 @@ struct MILProgram {
 
     /// 演算の中身（`val` 属性）。即値か、blob への参照。
     enum Payload {
+        /// fp32 として置く。**fp16 の値をここへ入れてはいけない**（下記）。
         case floats([Float])
         case ints([Int32])
         case bools([Bool])
         case strings([String])
         /// `weights/weight.bin` の目録の位置。
         case blob(offset: UInt64)
+        /// fp16 として置く。中身は生のバイト列になる。
+        case halves([Float])
     }
 
     // MARK: - 組み立て
@@ -273,6 +276,18 @@ struct MILProgram {
             case let .floats(values):
                 // TensorValue.floats = 1 → RepeatedFloats.values = 1（packed）
                 tensor.field(1, message: Protowire.message { $0.packed(1, floats: values) })
+            case let .halves(values):
+                // **fp16 の即値は生のバイト列で置く。** floats に入れると
+                // 「中身の数と型の数が違う」と言われて読めない（実際に踏んだ）。
+                // TensorValue.bytes = 7 → RepeatedBytes.values = 1
+                var raw = [UInt8]()
+                raw.reserveCapacity(values.count * 2)
+                for value in values {
+                    let bits = Float16(value).bitPattern
+                    raw.append(UInt8(bits & 0xff))
+                    raw.append(UInt8(bits >> 8))
+                }
+                tensor.field(7, message: Protowire.message { $0.field(1, bytes: raw) })
             case let .ints(values):
                 // TensorValue.ints = 2 → RepeatedInts.values = 1（packed）
                 tensor.field(2, message: Protowire.message {

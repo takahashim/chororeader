@@ -70,18 +70,17 @@ struct ModernBERTGraph {
     /// 窓は総幅なので、ある位置は左右へ `window / 2` ずつ届く
     /// （ModernBERT の `local_attention` の定め方）。
     ///
-    /// 塞ぐ値は `-10000` で、無限大ではない。**fp16 は無限大で飽和し、
-    /// 行が全部塞がると softmax が NaN になる。** 参照実装も有限の番人を使う。
-    static func attentionMask(seq: Int, window: Int?) -> [Float] {
-        var mask = [Float](repeating: 0, count: seq * seq)
-        guard let window else { return mask }
+    /// **窓は入力に依らないので定数にできる。** 詰め物の方だけが入力で決まるので、
+    /// そちらはグラフの中で組む（`prologue`）。
+    static func windowCondition(seq: Int, window: Int) -> [Bool] {
         let reach = window / 2
+        var out = [Bool](repeating: false, count: seq * seq)
         for row in 0 ..< seq {
-            for column in 0 ..< seq where abs(row - column) > reach {
-                mask[row * seq + column] = -10000
+            for column in 0 ..< seq {
+                out[row * seq + column] = abs(row - column) > reach
             }
         }
-        return mask
+        return out
     }
 
     // MARK: - 組み立て
@@ -96,19 +95,38 @@ struct ModernBERTGraph {
     ///   - finalNorm: 最後の正規化
     ///   - masks: 局所と全域のマスクの位置
     func build(into mil: inout MILProgram, ids: MILProgram.Value,
+               attentionMask: MILProgram.Value,
                blocks: [BlockOffsets], tokens: UInt64,
-               embeddingNorm: UInt64, finalNorm: UInt64,
-               localMask: UInt64, globalMask: UInt64) -> MILProgram.Value {
+               embeddingNorm: UInt64, finalNorm: UInt64) -> MILProgram.Value {
         let hiddenShape = [1, seq, hidden]
-        let epsilon = mil.constant("epsilon", .init(.fp32, []), .floats([config.eps]))
+        // **epsilon は gamma と同じ型でなければならない。** fp32 で置くと
+        // 「gamma と epsilon の型が違う」と言われて読めない（実際に踏んだ）。
+        let epsilon = mil.constant("epsilon", .init(.fp16, []), .halves([config.eps]))
 
         // 語彙の表から引き、正規化する。
         let table = mil.constant("tok_embeddings", .init(.fp16, [config.vocab, hidden]),
                                  .blob(offset: tokens))
+        // **負の id は表の後ろへ回り込む**（辿った Python と同じにする）。
+        let zero = mil.constant("id_zero", .init(.int32, []), .ints([0]))
+        let nonNegative = mil.op("greater_equal",
+                                 out: .init(name: "id_ok", type: .init(.bool, [1, seq])),
+                                 inputs: [("x", ids), ("y", zero)])
+        let vocabSize = mil.constant("id_vocab", .init(.int32, []), .ints([Int32(config.vocab)]))
+        let wrapped = mil.op("add",
+                             out: .init(name: "id_wrapped", type: .init(.int32, [1, seq])),
+                             inputs: [("x", ids), ("y", vocabSize)])
+        let safeIds = mil.op("select",
+                             out: .init(name: "id_safe", type: .init(.int32, [1, seq])),
+                             inputs: [("cond", nonNegative), ("a", ids), ("b", wrapped)])
+
         let gatherAxis = mil.constant("emb_axis", .init(.int32, []), .ints([0]))
+        // `batch_dims` と `validate_indices` は省けない。**省くと読めない。**
+        let batchDims = mil.constant("emb_batch_dims", .init(.int32, []), .ints([0]))
+        let validate = mil.constant("emb_validate", .init(.bool, []), .bools([false]))
         let gathered = mil.op("gather",
                               out: .init(name: "embedded", type: .init(.fp16, hiddenShape)),
-                              inputs: [("x", table), ("indices", ids), ("axis", gatherAxis)])
+                              inputs: [("x", table), ("indices", safeIds), ("axis", gatherAxis),
+                                       ("batch_dims", batchDims), ("validate_indices", validate)])
         let embeddingGamma = mil.constant("emb_norm", .init(.fp16, [hidden]),
                                           .blob(offset: embeddingNorm))
         let normAxes = mil.constant("emb_norm_axes", .init(.int32, [1]), .ints([-1]))
@@ -117,10 +135,7 @@ struct ModernBERTGraph {
                             inputs: [("x", gathered), ("axes", normAxes),
                                      ("epsilon", epsilon), ("gamma", embeddingGamma)])
 
-        let local = mil.constant("mask_local", .init(.fp16, [1, 1, seq, seq]),
-                                 .blob(offset: localMask))
-        let global = mil.constant("mask_global", .init(.fp16, [1, 1, seq, seq]),
-                                  .blob(offset: globalMask))
+        let (global, local) = masks(&mil, attentionMask: attentionMask)
 
         for (at, block) in blocks.enumerated() {
             let mask = config.isGlobal(layer: at) ? global : local
@@ -135,6 +150,62 @@ struct ModernBERTGraph {
                       out: .init(name: "hidden", type: .init(.fp16, hiddenShape)),
                       inputs: [("x", stream), ("axes", finalAxes),
                                ("epsilon", epsilon), ("gamma", finalGamma)])
+    }
+
+    /// 注意のマスクを 2 つ作る。**詰め物は入力で決まるので、グラフの中で組む。**
+    ///
+    /// 定数で焼き込んでいた頃は、詰め物のある入力で参照実装と食い違った
+    /// （cosine 0.935。バケットいっぱいまで詰まった入力では一致していたので、
+    /// 気付くのが遅れた）。
+    private func masks(_ mil: inout MILProgram,
+                       attentionMask: MILProgram.Value) -> (global: MILProgram.Value,
+                                                            local: MILProgram.Value) {
+        let square = [1, 1, seq, seq]
+
+        // [1, seq] を [1, 1, seq, seq] へ広げる。1 が「見てよい位置」。
+        let axis1 = mil.constant("m_ax1", .init(.int32, [1]), .ints([1]))
+        let m3 = mil.op("expand_dims",
+                        out: .init(name: "m3", type: .init(.int32, [1, 1, seq])),
+                        inputs: [("x", attentionMask), ("axes", axis1)])
+        let axis2 = mil.constant("m_ax2", .init(.int32, [1]), .ints([2]))
+        let m4 = mil.op("expand_dims",
+                        out: .init(name: "m4", type: .init(.int32, [1, 1, 1, seq])),
+                        inputs: [("x", m3), ("axes", axis2)])
+        let reps = mil.constant("m_reps", .init(.int32, [4]), .ints([1, 1, Int32(seq), 1]))
+        let tiled = mil.op("tile",
+                           out: .init(name: "m_tiled", type: .init(.int32, square)),
+                           inputs: [("x", m4), ("reps", reps)])
+        let toFp16 = mil.constant("m_dtype_fp16", .init(.string, []), .strings(["fp16"]))
+        let asFp16 = mil.op("cast",
+                            out: .init(name: "m_fp16", type: .init(.fp16, square)),
+                            inputs: [("x", tiled), ("dtype", toFp16)])
+
+        // 1 - 見てよい ＝ 詰め物なら 1、そうでなければ 0。
+        let one = mil.constant("m_one", .init(.fp16, []), .halves([1]))
+        let inverted = mil.op("sub",
+                              out: .init(name: "m_inverted", type: .init(.fp16, square)),
+                              inputs: [("x", one), ("y", asFp16)])
+        let toBool = mil.constant("m_dtype_bool", .init(.string, []), .strings(["bool"]))
+        let isPadding = mil.op("cast",
+                               out: .init(name: "m_is_padding", type: .init(.bool, square)),
+                               inputs: [("x", inverted), ("dtype", toBool)])
+
+        // 詰め物のところは -inf、それ以外は inverted が既に持っている 0。
+        // **参照実装は有限の番人ではなく fp16 の -inf を使う。**
+        let negativeInfinity = mil.constant("m_neg_inf", .init(.fp16, []),
+                                            .halves([-Float.infinity]))
+        let global = mil.op("select",
+                            out: .init(name: "global_mask", type: .init(.fp16, square)),
+                            inputs: [("cond", isPadding), ("a", negativeInfinity), ("b", inverted)])
+
+        // 窓そのものは入力に依らないので定数。
+        let outside = mil.constant("m_outside", .init(.bool, square),
+                                   .bools(Self.windowCondition(seq: seq,
+                                                               window: config.localAttention)))
+        let local = mil.op("select",
+                           out: .init(name: "local_mask", type: .init(.fp16, square)),
+                           inputs: [("cond", outside), ("a", negativeInfinity), ("b", global)])
+        return (global, local)
     }
 
     // MARK: - 注意（演算 1〜16）
@@ -207,7 +278,7 @@ struct ModernBERTGraph {
                             out: .init(name: tag("scores"), type: .init(.fp16, [1, heads, seq, seq])),
                             inputs: [("x", query), ("y", key),
                                      ("transpose_x", no), ("transpose_y", yes)])
-        let scaleValue = mil.constant(tag("scale"), .init(.fp16, []), .floats([scale]))
+        let scaleValue = mil.constant(tag("scale"), .init(.fp16, []), .halves([scale]))
         let scaled = mil.op("mul",
                             out: .init(name: tag("scaled"), type: .init(.fp16, [1, heads, seq, seq])),
                             inputs: [("x", scores), ("y", scaleValue)])
@@ -280,7 +351,7 @@ struct ModernBERTGraph {
                         inputs: [("x", x), ("begin", beginHigh), ("end", endHigh),
                                  ("end_mask", maskHigh)])
 
-        let minusOne = mil.constant("\(tag)_neg1", .init(.fp16, []), .floats([-1]))
+        let minusOne = mil.constant("\(tag)_neg1", .init(.fp16, []), .halves([-1]))
         let negated = mil.op("mul",
                              out: .init(name: "\(tag)_negx2", type: .init(.fp16, halved)),
                              inputs: [("x", x2), ("y", minusOne)])

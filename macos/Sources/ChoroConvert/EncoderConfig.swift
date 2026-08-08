@@ -8,7 +8,7 @@ import Foundation
 ///
 /// 拒む理由は全部まとめて言う。使えない checkpoint を見ている人が欲しいのは
 /// 一覧であって、最初の 1 つではない（kohagi の `graph_assumptions` から移した）。
-struct EncoderConfig {
+public struct EncoderConfig {
     var hidden: Int
     var heads: Int
     var layers: Int
@@ -38,11 +38,11 @@ struct EncoderConfig {
 
     var headDim: Int { hidden / heads }
 
-    enum Failure: Error, LocalizedError {
+    public enum Failure: Error, LocalizedError {
         case cannotRead(String)
         case unsupported([String])
 
-        var errorDescription: String? {
+        public var errorDescription: String? {
             switch self {
             case let .cannotRead(why):
                 return "config.json を読めません：\(why)"
@@ -52,7 +52,7 @@ struct EncoderConfig {
         }
     }
 
-    init(json text: String) throws {
+    public init(json text: String) throws {
         guard let data = text.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { throw Failure.cannotRead("JSON として読めません") }

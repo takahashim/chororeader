@@ -12,7 +12,7 @@ import Foundation
 ///
 /// **読むのは変換のときだけ**なので、速さより読み違えないことを優先する。
 /// 中身は 1 度だけ mmap で開き、要る重みだけを Float へ広げる。
-struct Safetensors {
+public struct Safetensors {
     /// 1 つの重み。
     struct Tensor {
         var name: String
@@ -29,17 +29,17 @@ struct Safetensors {
     private let body: Int
     private(set) var tensors: [String: Tensor] = [:]
 
-    enum Failure: Error, LocalizedError {
+    public enum Failure: Error, LocalizedError {
         case cannotRead(String)
 
-        var errorDescription: String? {
+        public var errorDescription: String? {
             switch self {
             case let .cannotRead(why): return "重みを読めません：\(why)"
             }
         }
     }
 
-    init(contentsOf url: URL) throws {
+    public init(contentsOf url: URL) throws {
         // 数 GB になり得るので写さない。要る重みだけを後で広げる。
         data = try Data(contentsOf: url, options: .mappedIfSafe)
         guard data.count > 8 else { throw Failure.cannotRead("短すぎます") }

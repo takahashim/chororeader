@@ -77,47 +77,50 @@ final class ModernBERTGraphTests: XCTestCase {
 
     // MARK: - マスク
 
-    /// 全域のマスクは全部 0（詰め物の無い入力では何も塞がない）。
-    func test_全域のマスクは何も塞がない() {
-        let mask = ModernBERTGraph.attentionMask(seq: 5, window: nil)
-        XCTAssertEqual(mask.count, 25)
-        XCTAssertTrue(mask.allSatisfy { $0 == 0 })
-    }
-
     /// **窓は総幅。** ある位置は左右へ `window / 2` ずつ届く。
     ///
     /// ここを「片側 window」と取り違えると、窓が倍になったまま通る。
     func test_窓は総幅で左右に半分ずつ届く() {
         let seq = 7, window = 4   // 左右に 2 ずつ
-        let mask = ModernBERTGraph.attentionMask(seq: seq, window: window)
+        let outside = ModernBERTGraph.windowCondition(seq: seq, window: window)
         for row in 0 ..< seq {
             for column in 0 ..< seq {
-                let blocked = abs(row - column) > 2
-                XCTAssertEqual(mask[row * seq + column] != 0, blocked,
+                XCTAssertEqual(outside[row * seq + column], abs(row - column) > 2,
                                "(\(row), \(column)) の塞ぎ方が違う")
             }
         }
     }
 
-    /// **塞ぐ値は有限。** 無限大にすると fp16 で飽和し、
-    /// 行が全部塞がったときに softmax が NaN になる。
-    func test_塞ぐ値は有限() {
-        let mask = ModernBERTGraph.attentionMask(seq: 8, window: 2)
-        for value in mask {
-            XCTAssertTrue(value.isFinite, "無限大が混ざっている")
-            XCTAssertTrue(value == 0 || value < -1000, "塞ぎ方が中途半端：\(value)")
-        }
-        // fp16 に落としても飽和しないこと
-        XCTAssertTrue(Float(Float16(-10000)).isFinite)
-    }
-
     /// 自分自身は必ず見える。
     func test_自分自身は塞がない() {
         let seq = 6
-        let mask = ModernBERTGraph.attentionMask(seq: seq, window: 2)
+        let outside = ModernBERTGraph.windowCondition(seq: seq, window: 2)
         for at in 0 ..< seq {
-            XCTAssertEqual(mask[at * seq + at], 0, "自分を塞いでいる")
+            XCTAssertFalse(outside[at * seq + at], "自分を塞いでいる")
         }
+    }
+
+    /// **窓は入力に依らない**ので定数にできる。詰め物の方はグラフの中で組む。
+    ///
+    /// 定数で全部を焼き込んでいた頃は、詰め物のある入力で参照実装と食い違った
+    /// （cosine 0.935）。バケットいっぱいまで詰まった入力では一致していたので、
+    /// 気付くのが遅れた。
+    func test_詰め物のマスクはグラフの中で組む() throws {
+        let config = try config()
+        let graph = ModernBERTGraph(config: config, seq: 8)
+        var mil = MILProgram()
+        let ids = MILProgram.Value(name: "input_ids", type: .init(.int32, [1, 8]))
+        let attention = MILProgram.Value(name: "attention_mask", type: .init(.int32, [1, 8]))
+        let out = graph.build(into: &mil, ids: ids, attentionMask: attention,
+                              blocks: (0 ..< config.layers).map { _ in sampleOffsets() },
+                              tokens: 0, embeddingNorm: 64, finalNorm: 128)
+        let text = String(decoding: mil.program(functionName: "main",
+                                                inputs: [ids, attention],
+                                                outputs: [out]).data, as: UTF8.self)
+        // 入力から組んだ印
+        XCTAssertTrue(text.contains("m_is_padding"), "詰め物を入力から見ていない")
+        XCTAssertTrue(text.contains("global_mask"))
+        XCTAssertTrue(text.contains("local_mask"))
     }
 
     // MARK: - グラフの形
@@ -128,13 +131,14 @@ final class ModernBERTGraphTests: XCTestCase {
         let graph = ModernBERTGraph(config: config, seq: 8)
         var mil = MILProgram()
         let ids = MILProgram.Value(name: "input_ids", type: .init(.int32, [1, 8]))
+        let attention = MILProgram.Value(name: "attention_mask", type: .init(.int32, [1, 8]))
         let blocks = (0 ..< config.layers).map { _ in sampleOffsets() }
-        let out = graph.build(into: &mil, ids: ids, blocks: blocks, tokens: 0,
-                              embeddingNorm: 64, finalNorm: 128,
-                              localMask: 192, globalMask: 256)
+        let out = graph.build(into: &mil, ids: ids, attentionMask: attention,
+                              blocks: blocks, tokens: 0,
+                              embeddingNorm: 64, finalNorm: 128)
 
         XCTAssertEqual(out.type.shape, [1, 8, config.hidden])
-        let program = mil.program(functionName: "main", inputs: [ids], outputs: [out])
+        let program = mil.program(functionName: "main", inputs: [ids, attention], outputs: [out])
         // 層ごとに 23 前後の演算。数そのものより、層の数に比例することを見る。
         let text = String(decoding: program.data, as: UTF8.self)
         for layer in 0 ..< config.layers {
@@ -149,12 +153,13 @@ final class ModernBERTGraphTests: XCTestCase {
         let graph = ModernBERTGraph(config: config, seq: 8)
         var mil = MILProgram()
         let ids = MILProgram.Value(name: "input_ids", type: .init(.int32, [1, 8]))
+        let attention = MILProgram.Value(name: "attention_mask", type: .init(.int32, [1, 8]))
         var blocks = (0 ..< config.layers).map { _ in sampleOffsets() }
         blocks[0].attnNorm = nil
-        let out = graph.build(into: &mil, ids: ids, blocks: blocks, tokens: 0,
-                              embeddingNorm: 64, finalNorm: 128,
-                              localMask: 192, globalMask: 256)
-        let text = String(decoding: mil.program(functionName: "main", inputs: [ids],
+        let out = graph.build(into: &mil, ids: ids, attentionMask: attention,
+                              blocks: blocks, tokens: 0,
+                              embeddingNorm: 64, finalNorm: 128)
+        let text = String(decoding: mil.program(functionName: "main", inputs: [ids, attention],
                                                 outputs: [out]).data, as: UTF8.self)
         XCTAssertFalse(text.contains("l0_attn_normed"), "層 0 に前正規化がある")
         XCTAssertTrue(text.contains("l1_attn_normed"), "層 1 に前正規化が無い")
@@ -167,11 +172,11 @@ final class ModernBERTGraphTests: XCTestCase {
             let graph = ModernBERTGraph(config: config, seq: 4)
             var mil = MILProgram()
             let ids = MILProgram.Value(name: "input_ids", type: .init(.int32, [1, 4]))
-            let out = graph.build(into: &mil, ids: ids,
+        let attention = MILProgram.Value(name: "attention_mask", type: .init(.int32, [1, 4]))
+            let out = graph.build(into: &mil, ids: ids, attentionMask: attention,
                                   blocks: (0 ..< config.layers).map { _ in sampleOffsets() },
-                                  tokens: 0, embeddingNorm: 64, finalNorm: 128,
-                                  localMask: 192, globalMask: 256)
-            let text = String(decoding: mil.program(functionName: "main", inputs: [ids],
+                                  tokens: 0, embeddingNorm: 64, finalNorm: 128)
+            let text = String(decoding: mil.program(functionName: "main", inputs: [ids, attention],
                                                     outputs: [out]).data, as: UTF8.self)
             XCTAssertTrue(text.contains(expected), "\(name) が組まれていない")
         }
