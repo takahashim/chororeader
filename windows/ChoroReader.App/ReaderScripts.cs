@@ -31,8 +31,14 @@ internal static class ReaderScripts
           window.__choroReady = true;
 
           var XHTML = 'http://www.w3.org/1999/xhtml';
+          // 便りが出せなかったことを、あとから聞けるように残す。
+          // 窓の中は目で見られないので、黙って失敗させない。
           function post(m) {
-            try { window.chrome.webview.postMessage(JSON.stringify(m)); } catch (e) {}
+            try {
+              window.chrome.webview.postMessage(JSON.stringify(m));
+            } catch (e) {
+              window.__choroPostFailed = String(e);
+            }
           }
 
           // 表示設定の CSS を当てる。窓から style で送られてくる。

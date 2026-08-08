@@ -27,6 +27,25 @@ public partial class ReaderWindow : Window
 
     internal double Progression { get; private set; }
 
+    /// <summary>
+    /// 転んだときに「どこまで進んだか」を言えるようにする覚え書き。
+    ///
+    /// <para>
+    /// 窓の中は目で見られない。名乗らなかったときに、読み込めていないのか、
+    /// 読み込めたが注入が走らないのか、走ったが便りが届かないのかを見分けられないと、
+    /// 直しようがない（spikes/findings-tauri.md）。
+    /// </para>
+    /// </summary>
+    internal List<string> RequestedUris { get; } = [];
+
+    internal List<string> RawMessages { get; } = [];
+
+    internal string? LastNavigationStatus { get; private set; }
+
+    internal bool? LastNavigationSucceeded { get; private set; }
+
+    internal List<string> CancelledNavigations { get; } = [];
+
     internal ReaderWindow(BookSession session, CoreWebView2Environment environment)
     {
         InitializeComponent();
@@ -62,6 +81,11 @@ public partial class ReaderWindow : Window
         core.WebMessageReceived += OnWebMessage;
         core.NavigationStarting += OnNavigationStarting;
         core.NewWindowRequested += OnNewWindowRequested;
+        core.NavigationCompleted += (_, e) =>
+        {
+            LastNavigationSucceeded = e.IsSuccess;
+            LastNavigationStatus = e.WebErrorStatus.ToString();
+        };
 
         await core.AddScriptToExecuteOnDocumentCreatedAsync(ReaderScripts.Main);
 
@@ -77,6 +101,10 @@ public partial class ReaderWindow : Window
     private void OnResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
     {
         var made = _session.Delivery.Deliver(e.Request.Uri);
+        if (RequestedUris.Count < 50)
+        {
+            RequestedUris.Add($"{(made is null ? 404 : 200)} {e.Request.Uri}");
+        }
         if (made is null)
         {
             e.Response = _environment.CreateWebResourceResponse(null, 404, "Not Found", string.Empty);
@@ -96,14 +124,25 @@ public partial class ReaderWindow : Window
             new MemoryStream(made.Body), 200, "OK", headers.ToString());
     }
 
-    /// <summary>本文の配信元から出ようとする移動は取り消す。外部 URL は OS のブラウザで開く。</summary>
+    /// <summary>
+    /// 本文の配信元から出ようとする移動は取り消す。外部 URL は OS のブラウザで開く。
+    ///
+    /// <para>
+    /// <c>about:blank</c> は通す。WebView2 は初期化のときに自分でここへ移るので、
+    /// 取り消すと出だしで躓かせることになる。
+    /// </para>
+    /// </summary>
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
-        if (ResourceDelivery.HrefOf(e.Uri) is not null)
+        if (ResourceDelivery.HrefOf(e.Uri) is not null || e.Uri.StartsWith("about:", StringComparison.Ordinal))
         {
             return;
         }
         e.Cancel = true;
+        if (CancelledNavigations.Count < 20)
+        {
+            CancelledNavigations.Add(e.Uri);
+        }
         OpenOutside(e.Uri);
     }
 
@@ -146,6 +185,10 @@ public partial class ReaderWindow : Window
         catch (Exception)
         {
             return;
+        }
+        if (RawMessages.Count < 50)
+        {
+            RawMessages.Add(raw);
         }
 
         JsonElement message;
@@ -230,6 +273,26 @@ public partial class ReaderWindow : Window
         }
         var finished = await Task.WhenAny(waiting.Task, Task.Delay(timeout));
         return finished == waiting.Task && waiting.Task.Result;
+    }
+
+    /// <summary>
+    /// ページの中の様子を聞く。名乗らなかったときの切り分けに使う。
+    ///
+    /// <para>
+    /// <c>ExecuteScriptAsync</c> は <c>IsScriptEnabled = false</c> でも使える
+    /// （spikes/findings-windows.md のスパイク 3）。書籍の script を動かさずに中を覗ける。
+    /// </para>
+    /// </summary>
+    internal async Task<string> AskAsync(string expression)
+    {
+        try
+        {
+            return await Body.CoreWebView2.ExecuteScriptAsync(expression);
+        }
+        catch (Exception e)
+        {
+            return $"\"{e.GetType().Name}\"";
+        }
     }
 
     internal async Task ApplyStyleAsync(ReaderStyle style)
