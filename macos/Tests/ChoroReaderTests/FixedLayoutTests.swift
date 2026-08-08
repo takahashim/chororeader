@@ -47,6 +47,25 @@ final class FixedLayoutTests: XCTestCase {
         _ = archive
     }
 
+    /// ページは meta viewport で大きさを名乗る。名乗り方の 3 通りを見る。
+    ///
+    /// フィクスチャは 3 ページ目に書き損じ（`height` に `=` が無い）、
+    /// 4 ページ目に名乗りなしを置いてある。
+    func testViewportIsReadFromEachPage() throws {
+        let archive = try ZipArchive(url: fixtureURL())
+        let publication = try EPUBParser.parse(archive)
+        let hrefs = publication.readingOrder.map(\.href)
+
+        let named = FixedLayoutPlan.viewport(for: hrefs[0], resources: archive)
+        XCTAssertEqual(named?.width, 1200)
+        XCTAssertEqual(named?.height, 1700)
+
+        // 書き損じた並びは、半端に読めたぶん（width だけ）も使わない。
+        // 妙な寸法を掴んだまま画面を組むより、名乗っていない扱いにするほうが安全である。
+        XCTAssertNil(FixedLayoutPlan.viewport(for: hrefs[2], resources: archive))
+        XCTAssertNil(FixedLayoutPlan.viewport(for: hrefs[3], resources: archive))
+    }
+
     /// 見開きは表紙を単独にし、以降を 2 枚ずつまとめる。
     func testSpreadPairing() {
         XCTAssertEqual(FixedLayoutPlan.spreads(pageCount: 5, rtl: false),

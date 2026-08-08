@@ -46,12 +46,15 @@ internal static class PdfSpike
         Console.WriteLine($"本文抽出: {textTimer.ElapsedMilliseconds} ms  {oneLine[..Math.Min(90, oneLine.Length)]}");
 
         var searchTimer = Stopwatch.StartNew();
-        var hits = document.Search(needle, 20).ToList();
+        var hits = document.Search(needle, 20);
         searchTimer.Stop();
-        Console.WriteLine($"検索「{needle}」: {hits.Count} 件（上限 20）{searchTimer.ElapsedMilliseconds} ms");
-        foreach (var (page, text) in hits.Take(3))
+        Console.WriteLine($"検索「{needle}」: {hits.Count} ページ（上限 20）{searchTimer.ElapsedMilliseconds} ms");
+        foreach (var hit in hits.Take(3))
         {
-            Console.WriteLine($"   p.{page + 1}: {text}");
+            var head = hit.Rects[0];
+            Console.WriteLine($"   p.{hit.Page + 1}: 矩形 {hit.Rects.Count} 個  " +
+                              $"先頭 ({head.X0:F0},{head.Y0:F0})-({head.X1:F0},{head.Y1:F0})");
+            Console.WriteLine($"      {hit.Excerpt}");
         }
 
         var renderTimer = Stopwatch.StartNew();

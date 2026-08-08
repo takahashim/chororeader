@@ -243,11 +243,18 @@ public static class Program
         var pages = publication.ReadingOrder.Select((link, index) =>
         {
             var content = FixedLayoutPlan.Content(link.Href, archive);
+            // 寸法は元の章から読む。画像 1 枚のページでも、名乗っているのは章のほうである。
+            var viewport = FixedLayoutPlan.Viewport(link.Href, archive);
             return (JsonNode?)new JsonObject
             {
                 ["index"] = index,
                 ["kind"] = content.Kind,
                 ["href"] = Norm(content.Href),
+                ["viewport"] = viewport is null ? null : new JsonObject
+                {
+                    ["width"] = viewport.Value.Width,
+                    ["height"] = viewport.Value.Height,
+                },
             };
         });
 

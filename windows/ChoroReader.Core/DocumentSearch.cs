@@ -28,12 +28,18 @@ public static class DocumentSearch
 
     /// <summary>
     /// 読み順のうち <paramref name="only"/> に挙がった位置だけを走査する。null なら全部。
+    ///
+    /// <para>
+    /// 索引（<see cref="SearchIndex.Candidates"/>）で絞った候補を渡すための入り口。
+    /// <b>索引は候補を減らすだけで当たりは決めない</b>ので、
+    /// ここから先の判定は絞っても絞らなくても同じ結果になる。
+    /// </para>
     /// </summary>
     public static SearchOutcome SearchEpubWithin(
         IResourceProvider resources,
         EpubPublication publication,
         string query,
-        IReadOnlyCollection<int>? only,
+        IReadOnlySet<int>? only,
         int limit)
     {
         var results = new List<SearchResult>();

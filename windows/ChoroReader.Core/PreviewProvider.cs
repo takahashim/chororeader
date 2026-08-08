@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
@@ -220,6 +221,56 @@ public static class FixedLayoutPlan
         }
         // 画像が複数あるページは、単純な 1 枚もののページではない。
         return found.Count == 1 ? found[0] : null;
+    }
+
+    /// <summary>
+    /// ページの寸法。固定レイアウトの各ページは meta viewport で大きさを名乗る。
+    ///
+    /// 拡大の枠を先に決めるために要る。大きさを与えないと画像がすべて同じ位置に積まれ、
+    /// 遅延読み込みが効かなくなる。名乗っていなければ null。
+    ///
+    /// content の並びは、1 つでも <c>=</c> を欠いていたら全体を捨てる。
+    /// 半端に読めたぶんだけ使うと、書き損じた書籍で妙な寸法を掴むことになる。
+    /// </summary>
+    public static (double Width, double Height)? Viewport(string href, IResourceProvider resources)
+    {
+        if (resources.ReadText(href) is not { } source)
+        {
+            return null;
+        }
+        var match = Regex.Match(
+            source,
+            @"<meta\b[^>]*\bname\s*=\s*[""']viewport[""'][^>]*\bcontent\s*=\s*[""']([^""']+)[""']",
+            RegexOptions.IgnoreCase);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        double? width = null;
+        double? height = null;
+        foreach (var part in match.Groups[1].Value.Split(','))
+        {
+            var equals = part.IndexOf('=', StringComparison.Ordinal);
+            if (equals < 0)
+            {
+                return null;
+            }
+            var key = part[..equals].Trim();
+            var value = part[(equals + 1)..].Trim();
+            var number = double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : (double?)null;
+            if (key == "width")
+            {
+                width = number;
+            }
+            else if (key == "height")
+            {
+                height = number;
+            }
+        }
+        return width is > 0 && height is > 0 ? (width.Value, height.Value) : null;
     }
 
     /// <summary>見開きの組み方。表紙は単独で見せ、以降を 2 枚ずつまとめる。</summary>

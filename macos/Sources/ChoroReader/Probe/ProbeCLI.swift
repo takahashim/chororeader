@@ -131,15 +131,13 @@ enum ProbeCLI {
             let rtl = publication.direction == .rtl
             let spreads = FixedLayoutPlan.spreads(pageCount: publication.readingOrder.count, rtl: rtl)
 
-            let pages = publication.readingOrder.map { link -> FixedOutput.Page in
-                switch FixedLayoutPlan.pageContent(for: link.href, resources: archive) {
-                case let .image(href):
-                    return FixedOutput.Page(index: 0, kind: "image", href: norm(href))
-                case let .document(href):
-                    return FixedOutput.Page(index: 0, kind: "document", href: norm(href))
-                }
-            }.enumerated().map { index, page in
-                FixedOutput.Page(index: index, kind: page.kind, href: page.href)
+            let pages = publication.readingOrder.enumerated().map { index, link -> FixedOutput.Page in
+                let content = FixedLayoutPlan.pageContent(for: link.href, resources: archive)
+                // 寸法は元の章から読む。画像 1 枚のページでも、名乗っているのは章のほうである。
+                let viewport = FixedLayoutPlan.viewport(for: link.href, resources: archive)
+                    .map { FixedOutput.Viewport(width: $0.width, height: $0.height) }
+                return FixedOutput.Page(index: index, kind: content.kind,
+                                        href: norm(content.href), viewport: viewport)
             }
 
             emit(FixedOutput(schema: schemaVersion, command: "fixed",
@@ -417,10 +415,16 @@ struct PreviewOutput: Codable {
 }
 
 struct FixedOutput: Codable {
+    struct Viewport: Codable {
+        var width: Double
+        var height: Double
+    }
     struct Page: Codable {
         var index: Int
         var kind: String
         var href: String
+        /// 名乗っていないページでは出さない（契約の「値の無いキー」）。
+        var viewport: Viewport?
     }
     var schema: Int
     var command: String

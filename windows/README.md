@@ -38,7 +38,16 @@ UI と、UI に依存しないコアを分ける。
 windows/
 ├── ChoroReader.Core/     クラスライブラリ。UI に依存しない（EPUB パース、Locator、CSS 変換、検索、診断）
 ├── ChoroReader.Probe/    コンソールアプリ。probe CLI の実体。Core を参照する
+├── ChoroReader.Tests/    Core の検査（xunit）。conformance で見えないものを置く
 └── ChoroReader.App/      Windows 専用の UI（WinUI 3 など）。Core を参照する
+```
+
+`ChoroReader.Tests` は、実装間の突き合わせでは見えないものを受け持つ。
+突き合わせは probe を 1 回ずつ呼んで出力を比べるので、
+並行して呼んだときに壊れるかどうかや、閉じたあとに触ったときの振る舞いは映らない。
+
+```sh
+dotnet test ChoroReader.Tests/ChoroReader.Tests.csproj
 ```
 
 **この分け方には実利がある。** .NET は macOS でも動くため、Core と Probe は macOS 上でビルドして実行できる。
@@ -100,9 +109,17 @@ macOS 版が PDFKit を AppKit のビューで使っているのと同じ形に�
 4. ~~`probe detect` と `probe report`~~（済）
 5. ~~`probe search`~~（済）
 6. ~~WebView2 のスパイク~~（済。前提は成り立つ。[../spikes/findings-windows.md](../spikes/findings-windows.md)）
-7. ~~`probe mark`~~（済。`./choroconf check csharp` が 81 件通る）
-8. UI（ChoroReader.App）。EPUB のリソースは独自スキームではなく、`https://choro.invalid/` への
-   要求を `WebResourceRequested` で横取りして配る（独自スキームは登録できなかった）
+7. ~~`probe mark`~~（済。`./choroconf check csharp` が 90 件通る）
+8. ~~PDF を 1 冊ずつ直列に読む~~（済。MuPDF の context は同時に触ると壊れる）
+9. ~~検索の索引~~（済。二字組の転置索引。39 万字・86 章の書籍で 151 KB、作るのに 107 ms）
+10. ~~PDF の当たりの矩形とページの絞り込み~~（済。紙面に囲みを重ねられる）
+11. UI（ChoroReader.App）。EPUB のリソースは独自スキームではなく、`https://choro.invalid/` への
+    要求を `WebResourceRequested` で横取りして配る（独自スキームは登録できなかった）
+
+まだ無いもの。Rust 版にはあり、UI を作る段で要る。
+
+- 蔵書の横断検索。索引の上に乗るので、次に着手できる
+- 蔵書と読書位置の保存。保存先が UI の方針に依るため保留
 
 各段階で `./choroconf diff swift csharp` を回すと、食い違いがその場で出る。
 実際、この突き合わせは macOS 版の目次の不具合を 1 件見つけた（findings-windows.md）。
