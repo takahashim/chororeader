@@ -106,4 +106,71 @@ final class BackIndexTests: XCTestCase {
         XCTAssertNil(BackIndex.range(pageTitles: []))
         XCTAssertNil(BackIndex.range(pageTitles: [String](repeating: "", count: 10)))
     }
+
+    // MARK: - しおりの無い PDF
+
+    /// 頁を組み立てた PDF を作る。**しおりは付けない。**
+    private func pdf(_ pages: [String]) throws -> PDFKit.PDFDocument {
+        let size = CGRect(x: 0, y: 0, width: 420, height: 595)
+        let data = NSMutableData()
+        let consumer = CGDataConsumer(data: data as CFMutableData)!
+        var box = size
+        let context = CGContext(consumer: consumer, mediaBox: &box, nil)!
+        for text in pages {
+            context.beginPDFPage(nil)
+            let attributed = NSAttributedString(string: text, attributes: [
+                .font: NSFont.systemFont(ofSize: 9),
+            ])
+            let frame = CTFramesetterCreateFrame(
+                CTFramesetterCreateWithAttributedString(attributed),
+                CFRangeMake(0, 0), CGPath(rect: size.insetBy(dx: 20, dy: 20), transform: nil), nil)
+            CTFrameDraw(frame, context)
+            context.endPDFPage()
+        }
+        context.closePDF()
+        return try XCTUnwrap(PDFKit.PDFDocument(data: data as Data))
+    }
+
+    /// 索引らしい紙面。**行ごとに頁番号がぶら下がる。**
+    private var indexPage: String {
+        "索引\n" + (1 ... 40).map { "架空の項目\($0)  \($0 * 3), \($0 * 7)" }.joined(separator: "\n")
+    }
+
+    private var bodyPage: String {
+        (1 ... 30).map { _ in "架空の本文である。ここには数字を置かない。" }.joined(separator: "\n")
+    }
+
+    /// **しおりが無くても、紙面から範囲が取れること。**
+    func test_しおりが無くても紙面から取る() throws {
+        let made = try pdf((0 ..< 18).map { _ in bodyPage } + [indexPage, indexPage])
+        XCTAssertNil(BackIndex.range(pageTitles: [String](repeating: "", count: made.pageCount)),
+                     "しおりから取れてしまっている（検査の前提が崩れている）")
+        let found = try XCTUnwrap(BackIndex.range(in: made,
+                                                  pageTitles: [String](repeating: "", count: made.pageCount)))
+        XCTAssertEqual(found, 18 ..< 20)
+    }
+
+    /// **見出しが無ければ拾わない。** 数字の多い紙面（表や参考文献）を巻き込まない。
+    func test_数字が多いだけの紙面は拾わない() throws {
+        let table = "架空の実験結果\n" + (1 ... 40).map { "行\($0)  \($0 * 3), \($0 * 7)" }.joined(separator: "\n")
+        let made = try pdf((0 ..< 18).map { _ in bodyPage } + [table, table])
+        XCTAssertNil(BackIndex.range(in: made,
+                                     pageTitles: [String](repeating: "", count: made.pageCount)))
+    }
+
+    /// **巻末に無ければ拾わない。** 本文の途中の索引らしい紙面は本文である。
+    func test_途中の索引らしい紙面は拾わない() throws {
+        let made = try pdf([indexPage] + (0 ..< 19).map { _ in bodyPage })
+        XCTAssertNil(BackIndex.range(in: made,
+                                     pageTitles: [String](repeating: "", count: made.pageCount)))
+    }
+
+    /// しおりがあればそちらが勝つこと。紙面を読みに行かない。
+    func test_しおりがあればそれを使う() throws {
+        let made = try pdf((0 ..< 18).map { _ in bodyPage } + [indexPage, indexPage])
+        var titles = [String](repeating: "第 1 章", count: made.pageCount)
+        titles[19] = "索引"
+        XCTAssertEqual(BackIndex.range(in: made, pageTitles: titles), 19 ..< 20,
+                       "しおりより紙面を優先している")
+    }
 }

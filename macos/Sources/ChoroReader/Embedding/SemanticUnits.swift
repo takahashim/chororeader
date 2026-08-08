@@ -163,7 +163,7 @@ enum SemanticUnits {
     private static func pdfPieces(_ pdf: PDFKit.PDFDocument, leastCharacters: Int) -> [Piece] {
         let titles = sectionTitles(pdf)
         // **巻末の索引は載せない**（`BackIndex`）。EPUB と同じ扱いである。
-        let skip = BackIndex.range(pageTitles: titles)
+        let skip = BackIndex.range(in: pdf, pageTitles: titles)
         var made: [Piece] = []
         // 節はアウトラインの区切り。見出しが変わるまでは同じ節とする。
         var at = 0

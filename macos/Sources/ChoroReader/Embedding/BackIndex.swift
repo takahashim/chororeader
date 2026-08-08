@@ -7,7 +7,7 @@ import PDFKit
 /// 何にでも少しずつ似てしまう。並べ直し（reranker）でも直らない
 /// （spikes/findings-reranker.md）。
 ///
-/// ## 目次の項目名だけで決める
+/// ## まず目次の項目名で決める
 ///
 /// 蔵書で数えた（EPUB 8 冊・PDF 9 冊、2026-08-08）。
 ///
@@ -21,9 +21,13 @@ import PDFKit
 ///
 /// **`epub:type="index"` は当てにしない。** 標本では 1 冊も付けていなかった。
 ///
-/// **紙面の形（短い行＋頁番号）では判定しない。** 索引を持たない 4 冊のうち
-/// **3 冊**で「索引らしい章」を誤検出した。目次に書いていない本は、そもそも
-/// 索引を持っていなかった（巻末に「索引」の語すら無い）。
+/// ## しおりの無い PDF は紙面で探す
+///
+/// 目次を持たない PDF は珍しくないので、そこだけ本文から探す（`byText`）。
+/// 決め手は**頁の頭にある「索引」の見出し**で、紙面の形は裏付けにしか使わない。
+///
+/// **形だけでは判定しない。** EPUB で試したところ、索引を持たない 4 冊のうち
+/// **3 冊**で「索引らしい章」を誤検出した。見出しと組にして初めて使える。
 ///
 /// ## 巻末に無ければ見ない
 ///
@@ -77,6 +81,76 @@ enum BackIndex {
     // MARK: - PDF
 
     /// ページのうち、索引が占める範囲。無ければ nil。
+    ///
+    /// **outline を先に見て、無ければ本文で探す。** しおりを持たない PDF は珍しくない。
+    ///
+    /// 本文で探すのは巻末だけなので、読むのは全体の 2 割で足りる。
+    static func range(in pdf: PDFKit.PDFDocument, pageTitles titles: [String]) -> Range<Int>? {
+        range(pageTitles: titles) ?? byText(pdf)
+    }
+
+    /// しおりが無いときに、紙面から探す。
+    ///
+    /// 手元の PDF 9 冊で、**outline から取れる正解を隠して**測った（2026-08-08）。
+    ///
+    /// | | |
+    /// |---|---|
+    /// | 索引を持つ 5 冊 | **5 冊とも当てた。始まりは全冊ぴたり** |
+    /// | 索引を持たない 4 冊 | **誤検出なし** |
+    /// | 終わりのずれ | −1 〜 +2 ページ |
+    ///
+    /// 手掛かりは 2 つだけである。
+    ///
+    /// - **頁の頭に「索引」の見出しがある。** 5 冊すべてで取れた。柱や頁番号が
+    ///   先に来るので、頭の 3 行まで見る
+    /// - **数字を含む行が多い。** 頁番号がぶら下がるためで、実測 0.56〜0.96 だった
+    ///
+    /// **行の短さは使わない。** 索引らしさの筋は良いが、PDFKit は段組みを
+    /// 1 行に繋いでしまうので、実測は 0.06〜0.95 とばらついて当てにならない。
+    private static func byText(_ pdf: PDFKit.PDFDocument) -> Range<Int>? {
+        let total = pdf.pageCount
+        guard total > 0 else { return nil }
+        var looksLike: [Int: Bool] = [:]
+        var titled: [Int: Bool] = [:]
+
+        func look(_ page: Int) {
+            guard looksLike[page] == nil else { return }
+            let lines = (pdf.page(at: page)?.string ?? "")
+                .split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            guard lines.count >= leastLines else {
+                looksLike[page] = false
+                titled[page] = false
+                return
+            }
+            let digits = lines.filter { $0.rangeOfCharacter(from: .decimalDigits) != nil }.count
+            looksLike[page] = Double(digits) / Double(lines.count) > leastDigitLines
+            // 柱や頁番号が先に来るので、頭の数行まで見る。
+            titled[page] = lines.prefix(3).contains { isIndexName($0) }
+        }
+
+        let tail = Int(Double(total) * leastPlace)
+        guard let from = (tail ..< total).first(where: { page in
+            look(page)
+            return titled[page] == true && looksLike[page] == true
+        }) else { return nil }
+
+        var until = from + 1
+        while until < total {
+            look(until)
+            guard looksLike[until] == true else { break }
+            until += 1
+        }
+        return from ..< until
+    }
+
+    /// 索引らしいと見なす、数字を含む行の割合。実測は 0.56〜0.96 だった。
+    private static let leastDigitLines = 0.5
+    /// これより行が少ない頁は見ない。扉や白紙を拾わないため。
+    private static let leastLines = 15
+
+    /// outline の見出しから決める。
     ///
     /// - Parameter titles: ページごとの「いまどの節か」（outline から引いたもの）。
     ///   節の見出しは次の区切りまで引き継がれるので、**名前が索引であるページを
