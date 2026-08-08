@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using ChoroReader.Core;
+using ChoroReader.Semantic;
 using Microsoft.Web.WebView2.Core;
 
 namespace ChoroReader.App;
@@ -30,6 +31,57 @@ public partial class App : Application
     /// </summary>
     private readonly ReadingStore _reading = ReadingStore.Default();
 
+    /// <summary>
+    /// 意味の索引の置き場所と、それを作る係。全窓で 1 つを共有する。
+    ///
+    /// <para>
+    /// <b>埋め込み器は要るときに 1 度だけ開く。</b>250 MB を読むので、
+    /// 窓ごとに持つわけにいかない。意味の層を切ったときに降ろす（spec-local-ai.md 4.5）。
+    /// </para>
+    /// </summary>
+    private readonly SemanticIndexStore _semantic = SemanticIndexStore.Default();
+
+    private SemanticIndexBuilder? _builder;
+
+    /// <summary>
+    /// モデルの置き場所。<b>アプリは出どころを知らない。</b>決まった場所を見るだけにしておく
+    /// （spec-local-ai.md 4.6）。配り方が決まったら、そこへ書く手順が足されるだけである。
+    /// </summary>
+    internal static string ModelDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "ChoroReader", "Models", ModelName);
+
+    internal const string ModelName = "ruri-v3-130m-onnx";
+
+    /// <summary>意味の索引を作る係。無ければ作る。</summary>
+    internal SemanticIndexBuilder Builder => _builder ??= NewBuilder();
+
+    private SemanticIndexBuilder NewBuilder()
+    {
+        var settings = _reading.Semantic;
+        var made = new SemanticIndexBuilder(_semantic,
+                                            () => OnnxEmbedder.Load(ModelDirectory),
+                                            ModelName)
+        {
+            OnPowerOnly = settings.OnPowerOnly,
+            // **モデルが無ければ入にしない。** 入れたつもりで走り出して、
+            // 1 冊目で落ちるより、初めから切れている方が分かりやすい。
+            Enabled = settings.Enabled && Directory.Exists(ModelDirectory),
+        };
+        return made;
+    }
+
+    /// <summary>意味の層の入/切を覚える。</summary>
+    internal void SaveSemantic(bool enabled)
+    {
+        _reading.SaveSemantic(_reading.Semantic with { Enabled = enabled });
+        Builder.Enabled = enabled;
+    }
+
+    /// <summary>手元にモデルが置いてあるか。無ければ意味の層は使えない。</summary>
+    internal static bool HasModel => Directory.Exists(ModelDirectory)
+                                     && File.Exists(Path.Combine(ModelDirectory, "tokenizer.json"));
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -38,6 +90,13 @@ public partial class App : Application
         var selftest = e.Args.Contains("--selftest");
         var shelf = e.Args.Contains("--shelf");
         var books = e.Args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+
+        // 速さを測るだけ。**窓を開かない。**画面を出すと、その支度まで測ることになる。
+        if (e.Args.Contains("--measure"))
+        {
+            Shutdown(books.Length > 0 ? Measure.Run(books[0]) : 2);
+            return;
+        }
 
         try
         {
@@ -63,12 +122,7 @@ public partial class App : Application
             var opened = await OpenBookAsync(books[0]);
             if (selftest)
             {
-                Shutdown(opened switch
-                {
-                    PdfWindow paper => await Selftest.RunPdfAsync(paper),
-                    ReaderWindow reader => await Selftest.RunAsync(reader),
-                    _ => 1,
-                });
+                Shutdown(await Selftest.RunAsync(opened));
             }
         }
         catch (Exception error)
@@ -88,19 +142,25 @@ public partial class App : Application
     /// （spikes/findings-tauri.md「同期の命令の中で窓を作ると、枠だけ出来て中身が空になる」）。
     /// </para>
     /// </summary>
-    internal async Task<Window> OpenBookAsync(string bookPath)
+    internal async Task<ReaderWindow> OpenBookAsync(string bookPath)
     {
-        // 形式で窓を分ける。EPUB は WebView2、PDF はネイティブ描画。
+        // **窓は形式で分けない。**差し替わるのは舞台だけである
+        // （windows/README.md「画面の組み立て」）。
+        IStage stage;
         if (DocumentFormats.Detect(bookPath) == DocumentFormat.Pdf)
         {
-            var paper = new PdfWindow(PdfSession.Open(bookPath)) { TitleSource = bookPath };
-            paper.Show();
-            await paper.StartAsync();
-            return paper;
+            stage = new PdfStage(PdfSession.Open(bookPath), _store, bookPath);
+        }
+        else
+        {
+            var environment = _environment ?? throw new InvalidOperationException("環境がまだ用意できていない");
+            stage = new WebStage(BookSession.Open(bookPath), environment);
         }
 
-        var environment = _environment ?? throw new InvalidOperationException("環境がまだ用意できていない");
-        var window = new ReaderWindow(BookSession.Open(bookPath), environment, _reading, bookPath);
+        // **開いた本を先に作る。** 読んでいる本の関連箇所が出ないのが、いちばん困る。
+        Builder.Prioritize(bookPath);
+
+        var window = new ReaderWindow(stage, _reading, bookPath);
         window.Show();
         await window.StartAsync();
         return window;
@@ -109,7 +169,7 @@ public partial class App : Application
     /// <summary>書棚を開く。WebView2 は使わないので、環境は要らない。</summary>
     internal ShelfWindow OpenShelf(params string[] books)
     {
-        var window = new ShelfWindow(_store);
+        var window = new ShelfWindow(_store, _reading, Builder, _semantic);
         window.Show();
         window.Add(books);
         return window;

@@ -81,5 +81,19 @@ internal static class Varint
         }
 
         internal byte[]? Rest() => At <= bytes.Length ? bytes[At..] : null;
+
+        /// <summary>
+        /// 読まずに読み飛ばす。長さの決まった塊（ベクトルの並びなど）を、
+        /// 切り出さずに跨ぐために使う。届かなければ何もせず false。
+        /// </summary>
+        internal bool Skip(int count)
+        {
+            if (count < 0 || At + count > bytes.Length)
+            {
+                return false;
+            }
+            At += count;
+            return true;
+        }
     }
 }

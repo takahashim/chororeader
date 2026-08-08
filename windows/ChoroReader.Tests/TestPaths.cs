@@ -24,7 +24,8 @@ internal static class TestPaths
     internal static string Fixture(string name) =>
         Path.Combine(Root, "conformance", "fixtures", name);
 
-    private static string Root { get; } = FindRoot();
+    /// <summary>リポジトリの根。macOS 側の凍結済みの期待値を借りるときに使う。</summary>
+    internal static string Root { get; } = FindRoot();
 
     private static string FindRoot()
     {

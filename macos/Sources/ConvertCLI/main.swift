@@ -16,8 +16,11 @@ let usage = """
   choro-convert --model-path <model.safetensors> --config-path <config.json> \\
                 --out-dir <置き場所> [--sequence-lengths …]
 
+  --format            coreml（既定）か onnx。onnx はバケットを取らない
+                      （長さが動くので、要らない）
   --sequence-lengths  バケットの長さ。既定は埋め込みが 64,128,256,512,1024,2048、
                       reranker が 256,512
+  --max-sequence      onnx のとき、rope の表を焼く長さ。既定 2048
   --cache             取ってきたものの置き場所（既定：~/Library/Caches/ChoroConvert）
 
 頭（埋め込みか reranker か）は config.json の architectures から判る。
@@ -46,6 +49,30 @@ do {
 
     let config = try EncoderConfig(json: String(contentsOf: materials.config, encoding: .utf8))
     let weights = try Safetensors(contentsOf: materials.weights)
+
+    if value("--format") == "onnx" {
+        // **ONNX はバケットを取らない。** 長さが動くので、焼き分ける理由が無い。
+        let limit = value("--max-sequence").flatMap { Int($0) } ?? 2048
+        print("変換します：\(config.isClassifier ? "reranker" : "埋め込み")"
+            + "（層 \(config.layers)・幅 \(config.hidden)）／ ONNX・最大 \(limit)")
+
+        let made = try ONNXEncoder(config: config, weights: weights,
+                                   maximumSequence: limit).convert()
+        try FileManager.default.createDirectory(at: output.appendingPathComponent("onnx"),
+                                                withIntermediateDirectories: true)
+        try made.model.write(to: output.appendingPathComponent("onnx/model.onnx"))
+        try HubFetch.place(materials, beside: output)
+        try HeadMarker.write(classifier: config.isClassifier, to: output)
+
+        print("書きました：\(output.path)")
+        print(String(format: "  onnx/model.onnx %.1f MB", Double(made.model.count) / 1048576))
+        if !made.unused.isEmpty {
+            // **読まなかった重みは黙らない。** 取りこぼしたまま通る形だからである。
+            print("  読まなかった重み \(made.unused.count) 個："
+                + made.unused.prefix(5).joined(separator: ", ") + "…")
+        }
+        exit(0)
+    }
 
     // バケットの既定は頭で変える。reranker は問いと本文の組なので短くてよい。
     let lengths = (value("--sequence-lengths")

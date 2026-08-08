@@ -124,13 +124,16 @@ jobs:
 
       # 窓の中は目で見られないので、判定をアプリに持たせてある。
       # 窓の数だけを見ていては、枠だけ出来て中身が空の状態を捕まえられない。
-      - name: 読書の窓の動作確認
+      #
+      # 窓は形式で分けない。同じ殻に舞台が差し替わるので、下の 2 つは
+      # 同じ動作確認を別の舞台で回している。殻の判定はどちらでも同じものが走る。
+      - name: 読書の窓の動作確認（本文の舞台）
         working-directory: windows
         timeout-minutes: 5
         run: dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- ../conformance/fixtures/epub3-basic.epub --selftest
 
       # 紙面は名乗る相手がいないので、出ている絵そのものを見る。
-      - name: 紙面の窓の動作確認
+      - name: 読書の窓の動作確認（紙面の舞台）
         working-directory: windows
         timeout-minutes: 5
         run: dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- ../samples/sample.pdf --selftest

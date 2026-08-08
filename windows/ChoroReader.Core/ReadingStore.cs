@@ -38,6 +38,23 @@ public sealed record Bookmark
     public string Text { get; init; } = string.Empty;
 }
 
+/// <summary>
+/// 意味の層の設定。
+///
+/// <para>
+/// <b>既定では入にしない。</b>二字組索引は 1 冊 1 秒で済むが、こちらは電池と時間を
+/// 目に見えて使う（1 冊で数十秒、蔵書 1,000 冊なら数時間）。黙って始めない
+/// （spec-local-ai.md 4.4）。
+/// </para>
+/// </summary>
+public sealed record SemanticSettings
+{
+    public bool Enabled { get; init; }
+
+    /// <summary>開いている本以外を進めるのは、電源に繋がっているときだけにするか。</summary>
+    public bool OnPowerOnly { get; init; } = true;
+}
+
 /// <summary>1 冊ぶんの覚え書き。</summary>
 public sealed record BookState
 {
@@ -65,6 +82,7 @@ public sealed class ReadingStore
     {
         public Dictionary<string, BookState> Books { get; init; } = new(StringComparer.Ordinal);
         public ReaderStyle Settings { get; init; } = new();
+        public SemanticSettings Semantic { get; init; } = new();
     }
 
     private static readonly JsonSerializerOptions Format = new()
@@ -190,6 +208,21 @@ public sealed class ReadingStore
         lock (_gate)
         {
             _state = _state with { Settings = settings };
+            Save();
+        }
+    }
+
+    /// <summary>意味の層の設定。既定では入っていない。</summary>
+    public SemanticSettings Semantic
+    {
+        get { lock (_gate) { return _state.Semantic; } }
+    }
+
+    public void SaveSemantic(SemanticSettings settings)
+    {
+        lock (_gate)
+        {
+            _state = _state with { Semantic = settings };
             Save();
         }
     }
