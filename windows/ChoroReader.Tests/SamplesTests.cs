@@ -56,7 +56,9 @@ public class SamplesTests
         using var archive = new EpubArchive(Where("sample-reflowable.epub"));
         var publication = EpubParser.Parse(archive);
         Assert.NotEmpty(publication.ReadingOrder);
-        Assert.NotEmpty(SearchUnits.OfEpub(archive, publication).Where(t => t.Trim().Length > 0));
+        // 章が並ぶだけでなく、**中身のある章が 1 つはある**こと。
+        // 読み順が空の章で埋まっていても、数だけなら揃ってしまう。
+        Assert.Contains(SearchUnits.OfEpub(archive, publication), one => one.Trim().Length > 0);
 
         using var paper = PdfInspector.Open(Where("sample.pdf"));
         Assert.True(paper.PageCount > 0);
