@@ -162,3 +162,35 @@ final class SemanticIndexStoreTests: XCTestCase {
         XCTAssertNil(SemanticIndexStore.cached(for: url), "やめたのに書きかけが置かれている")
     }
 }
+
+/// 置いてあるものの版を見分けるところ。
+///
+/// **「まだ作っていない」と「作ったが版が変わった」は人にとって違う。**
+/// 前者は待てば済むが、後者は全量が作り直しになる（spec-local-ai.md 第 4.4 節）。
+/// 黙って作り直さないために、数えて言えるようにしてある。
+extension SemanticIndexStoreTests {
+    func test_版が変わったことを見分ける() throws {
+        let url = try book([("架空の節", String(repeating: "架空の技術書の一節である。", count: 40))])
+        defer { SemanticIndexStore.discard(for: url) }
+
+        let source = try XCTUnwrap(SearchIndexStore.open(url))
+        _ = try SemanticIndexStore.build(for: url, source: source, embedder: embedder(),
+                                         model: "架空のモデル-v1")
+
+        XCTAssertEqual(SemanticIndexStore.recordedModel(for: url), "架空のモデル-v1")
+        XCTAssertFalse(SemanticIndexStore.isStale(for: url, model: "架空のモデル-v1"))
+        XCTAssertTrue(SemanticIndexStore.isStale(for: url, model: "架空のモデル-v2"),
+                      "版が変わったのに気付いていない")
+    }
+
+    /// 捨てたら「版違い」ではなく「無い」に戻ること。
+    func test_捨てれば版違いではなくなる() throws {
+        let url = try book([("架空の節", String(repeating: "架空の技術書の一節である。", count: 40))])
+        let source = try XCTUnwrap(SearchIndexStore.open(url))
+        _ = try SemanticIndexStore.build(for: url, source: source, embedder: embedder(),
+                                         model: "架空のモデル-v1")
+        SemanticIndexStore.discard(for: url)
+        XCTAssertNil(SemanticIndexStore.recordedModel(for: url))
+        XCTAssertFalse(SemanticIndexStore.isStale(for: url, model: "架空のモデル-v2"))
+    }
+}

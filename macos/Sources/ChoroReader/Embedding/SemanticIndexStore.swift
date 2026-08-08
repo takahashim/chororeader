@@ -49,6 +49,26 @@ enum SemanticIndexStore {
         cached(for: url, model: model) != nil
     }
 
+    /// 置いてあるものが、どのモデルで作られたか。無ければ nil。
+    ///
+    /// **頭だけ読む。** 版が上がったときに何冊作り直すのかを数えるのに使うので、
+    /// 蔵書ぶん呼ばれる。中身（数十 MB）まで読むわけにいかない。
+    static func recordedModel(for url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: location(for: url)) else { return nil }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 512) else { return nil }
+        return Head(head)?.model
+    }
+
+    /// 置いてあるが、いまのモデルとは版が違うもの。
+    ///
+    /// 「まだ作っていない」のと「作ったが版が変わった」のは、人にとって違う。
+    /// 前者は待てば済むが、後者は**全量が作り直しになる**（第 4.4 節）。
+    static func isStale(for url: URL, model: String = EmbeddingModelStore.defaultName) -> Bool {
+        guard let recorded = recordedModel(for: url) else { return false }
+        return recorded != model
+    }
+
     /// 置いてあるものの大きさ。無ければ nil。
     static func sizeOnDisk(for url: URL) -> Int? {
         try? location(for: url).resourceValues(forKeys: [.fileSizeKey]).fileSize

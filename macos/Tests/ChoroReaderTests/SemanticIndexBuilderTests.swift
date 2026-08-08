@@ -101,3 +101,39 @@ final class SemanticStopFlagTests: XCTestCase {
         XCTAssertTrue(flag.wanted)
     }
 }
+
+/// 書棚が落ち着いたら作り始めるところ。
+extension SemanticIndexBuilderTests {
+    /// **入にしていなければ、書棚を開いても何も始まらない。**
+    /// ここが崩れると、切っているつもりの人の機械で数時間ぶんの仕事が黙って走る。
+    func test_入にしていなければ書棚でも始まらない() async throws {
+        let urls = try (0 ..< 3).map { _ in try book() }
+        builder.enabled = false
+        builder.scheduleIdle(urls)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(builder.pending, 0, "入にしていないのに並べてしまった")
+        XCTAssertNil(builder.working)
+    }
+
+    /// すぐには始めないこと。書棚を開いた直後は表紙の読み込みなどが走っている。
+    func test_すぐには始めない() async throws {
+        try XCTSkipUnless(EmbeddingModelStore.installed() != nil, "手元にモデルがありません")
+        let urls = try (0 ..< 3).map { _ in try book() }
+        builder.enabled = true
+        builder.scheduleIdle(urls)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(builder.pending, 0, "待たずに始めている")
+        builder.stop()
+    }
+}
+
+/// 置いてあるものの版。
+final class SemanticIndexStaleTests: XCTestCase {
+    func test_無ければ版違いとは言わない() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("choro-none-\(UUID().uuidString).epub")
+        XCTAssertNil(SemanticIndexStore.recordedModel(for: url))
+        // **「無い」を「版違い」と言ってはいけない。** 作り直しを促す文言が出てしまう。
+        XCTAssertFalse(SemanticIndexStore.isStale(for: url))
+    }
+}

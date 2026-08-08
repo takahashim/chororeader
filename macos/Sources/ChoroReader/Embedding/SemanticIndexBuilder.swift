@@ -88,6 +88,29 @@ final class SemanticIndexBuilder: ObservableObject {
         start()
     }
 
+    /// 書棚が落ち着いたら、残りを作り始める。
+    ///
+    /// 二字組索引と同じ折で作る（spec-local-ai.md 第 4.4 節）。ただし
+    /// **入にしていなければ何もしない**し、開いた本以外は電源に繋がっている
+    /// ときだけ進む。「黙って始めない」という約束はそこで守られている。
+    ///
+    /// 書棚は開いたまま置かれることが多いので、少し待ってから始める。
+    /// 開いた直後は表紙の読み込みなどが走っており、そこへ重ねない。
+    func scheduleIdle(_ urls: [URL]) {
+        guard enabled, EmbeddingModelStore.installed() != nil else { return }
+        idleGeneration += 1
+        let mine = idleGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.idleDelay) { [weak self] in
+            // その間に書棚が動いたら、そちらの番に譲る。
+            guard let self, self.idleGeneration == mine else { return }
+            self.enqueue(urls)
+        }
+    }
+
+    /// 書棚が開いてから、これだけ待つ。
+    private static let idleDelay: TimeInterval = 8
+    private var idleGeneration = 0
+
     /// 残りを順に作る。既に索引のあるものは並べない。
     func enqueue(_ urls: [URL]) {
         guard enabled, EmbeddingModelStore.installed() != nil else { return }

@@ -62,16 +62,21 @@ struct SemanticSettingsView: View {
                         }
                     }
                 } else {
-                    HStack {
-                        Text(remaining == 0 ? "すべて読み込み済みです" : "\(remaining) 冊が未読み込みです")
-                            .font(.callout).foregroundStyle(.secondary)
+                    let left = remaining
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(left.label).font(.callout).foregroundStyle(.secondary)
                         Spacer()
-                        if remaining > 0 {
-                            Button("残りを読み込む") {
+                        if left.total > 0 {
+                            Button(left.stale > 0 ? "作り直す" : "残りを読み込む") {
                                 builder.enqueue(store.entries.compactMap { store.resolveURL(for: $0) })
                             }
                             .controlSize(.small)
                         }
+                    }
+                    // **黙って作り直さない**（spec-local-ai.md 第 4.4 節）。
+                    // 版が変わると全量が作り直しになるので、それと分かるように言う。
+                    if left.stale > 0 {
+                        note("モデルが変わったので、作ったものは使えません。作り直すまで、その書籍は結果に出ません。")
                     }
                 }
 
@@ -87,15 +92,34 @@ struct SemanticSettingsView: View {
         return false
     }
 
-    /// 索引の無い書籍の数。
+    /// まだ作っていない書籍と、版が変わって使えなくなった書籍の数。
     ///
-    /// **数えるのに全冊ぶんのファイルを見る。** 蔵書が多いと安くはないが、
+    /// **「作っていない」と「作り直しになった」は人にとって違う。**
+    /// 前者は待てば済むが、後者は全量が作り直しになる。
+    ///
+    /// 数えるのに全冊ぶんのファイルを見るが、**頭だけ**なので安い。
     /// この画面を開いたときにしか通らない。
-    private var remaining: Int {
-        store.entries.reduce(into: 0) { total, entry in
-            guard let url = store.resolveURL(for: entry) else { return }
-            if !SemanticIndexStore.hasIndex(for: url) { total += 1 }
+    private struct Remaining {
+        var fresh = 0     // まだ作っていない
+        var stale = 0     // 作ったが版が変わった
+        var total: Int { fresh + stale }
+
+        var label: String {
+            if total == 0 { return "すべて読み込み済みです" }
+            if stale == 0 { return "\(fresh) 冊が未読み込みです" }
+            if fresh == 0 { return "\(stale) 冊が作り直しになります" }
+            return "\(fresh) 冊が未読み込み、\(stale) 冊が作り直しになります"
         }
+    }
+
+    private var remaining: Remaining {
+        var made = Remaining()
+        for entry in store.entries {
+            guard let url = store.resolveURL(for: entry) else { continue }
+            guard !SemanticIndexStore.hasIndex(for: url) else { continue }
+            if SemanticIndexStore.isStale(for: url) { made.stale += 1 } else { made.fresh += 1 }
+        }
+        return made
     }
 
     private func note(_ text: String) -> some View {

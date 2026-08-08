@@ -109,6 +109,10 @@ struct LibraryView: View {
                 }
             }
         }
+        // 書棚が落ち着いたら、意味の索引の残りを作り始める（入にしているときだけ）。
+        .task(id: store.entries.count) {
+            builder.scheduleIdle(store.entries.compactMap { store.resolveURL(for: $0) })
+        }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             for provider in providers {
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
