@@ -142,6 +142,59 @@ internal static class Selftest
         return passed ? 0 : 1;
     }
 
+    /// <summary>
+    /// 書棚を確かめる。並べられるか、横断して引けるか。
+    ///
+    /// <para>
+    /// 引くのは <see cref="ChoroReader.Core.LibrarySearch"/> で、そちらは
+    /// ChoroReader.Tests が押さえている。ここで見るのは<b>画面までつながっているか</b>である。
+    /// </para>
+    /// </summary>
+    internal static async Task<int> RunShelfAsync(ShelfWindow window)
+    {
+        var result = new JsonObject();
+        var checks = new JsonArray();
+        var passed = true;
+
+        void Check(string what, bool ok, string? detail = null)
+        {
+            passed &= ok;
+            checks.Add(new JsonObject { ["what"] = what, ["ok"] = ok, ["detail"] = detail });
+        }
+
+        try
+        {
+            Check("蔵書が並んだ", window.BookCount > 0, $"BookCount={window.BookCount}");
+
+            await window.FindAsync("本文");
+            Check("横断で当たりが出た", window.HitCount > 0, $"Hits={window.HitCount}");
+
+            // 当たらない語では空になること。前の結果が残らない。
+            await window.FindAsync("そんな語はどこにも出てこない");
+            Check("当たらない語では空になる", window.HitCount == 0, $"Hits={window.HitCount}");
+
+            // 空の問い合わせでも落ちないこと。
+            await window.FindAsync("   ");
+            Check("空の問い合わせでも落ちない", window.HitCount == 0);
+
+            result["診断"] = new JsonObject
+            {
+                ["蔵書"] = window.BookCount,
+                ["最後の当たり"] = window.HitCount,
+            };
+        }
+        catch (Exception e)
+        {
+            passed = false;
+            result["error"] = e.ToString();
+        }
+
+        result["checks"] = checks;
+        result["passed"] = passed;
+        Write(result);
+        return passed ? 0 : 1;
+    }
+
     private static void Write(JsonObject result)
     {
         // 日本語が化けると読めない。標準出力を UTF-8 にしてから書く。

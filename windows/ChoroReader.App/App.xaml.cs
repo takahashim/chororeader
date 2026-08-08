@@ -18,44 +18,46 @@ public partial class App : Application
     /// </summary>
     private CoreWebView2Environment? _environment;
 
+    /// <summary>
+    /// 索引の置き場所。全窓で 1 つを共有する。
+    /// 別々に持つと、同じ書籍の索引を窓の数だけほどくことになる。
+    /// </summary>
+    private readonly SearchIndexStore _store = SearchIndexStore.Default();
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnLastWindowClose;
 
         var selftest = e.Args.Contains("--selftest");
-        var book = e.Args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
+        var shelf = e.Args.Contains("--shelf");
+        var books = e.Args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
 
         try
         {
             Directory.CreateDirectory(UserDataFolder);
             _environment = await CoreWebView2Environment.CreateAsync(userDataFolder: UserDataFolder);
 
-            if (book is null)
+            // 書棚。渡された書籍を並べて、横断して引ける。
+            if (shelf || books.Length == 0)
             {
-                // 開くものが無い。書棚を作るまでは、ここで終える。
-                await Console.Error.WriteLineAsync("使い方: chororeader <EPUB のパス> [--selftest]");
-                Shutdown(2);
-                return;
-            }
-
-            // 形式で窓を分ける。EPUB は WebView2、PDF はネイティブ描画。
-            if (DocumentFormats.Detect(book) == DocumentFormat.Pdf)
-            {
-                var paper = OpenPdf(book);
-                await paper.StartAsync();
+                var window = OpenShelf(books);
                 if (selftest)
                 {
-                    Shutdown(await Selftest.RunPdfAsync(paper));
+                    Shutdown(await Selftest.RunShelfAsync(window));
                 }
                 return;
             }
 
-            var window = await OpenAsync(book);
-
+            var opened = await OpenBookAsync(books[0]);
             if (selftest)
             {
-                Shutdown(await Selftest.RunAsync(window));
+                Shutdown(opened switch
+                {
+                    PdfWindow paper => await Selftest.RunPdfAsync(paper),
+                    ReaderWindow reader => await Selftest.RunAsync(reader),
+                    _ => 1,
+                });
             }
         }
         catch (Exception error)
@@ -75,8 +77,17 @@ public partial class App : Application
     /// （spikes/findings-tauri.md「同期の命令の中で窓を作ると、枠だけ出来て中身が空になる」）。
     /// </para>
     /// </summary>
-    internal async Task<ReaderWindow> OpenAsync(string bookPath)
+    internal async Task<Window> OpenBookAsync(string bookPath)
     {
+        // 形式で窓を分ける。EPUB は WebView2、PDF はネイティブ描画。
+        if (DocumentFormats.Detect(bookPath) == DocumentFormat.Pdf)
+        {
+            var paper = new PdfWindow(PdfSession.Open(bookPath)) { TitleSource = bookPath };
+            paper.Show();
+            await paper.StartAsync();
+            return paper;
+        }
+
         var environment = _environment ?? throw new InvalidOperationException("環境がまだ用意できていない");
         var window = new ReaderWindow(BookSession.Open(bookPath), environment);
         window.Show();
@@ -84,11 +95,12 @@ public partial class App : Application
         return window;
     }
 
-    /// <summary>紙面の窓を開く。WebView2 は使わないので、環境は要らない。</summary>
-    internal static PdfWindow OpenPdf(string bookPath)
+    /// <summary>書棚を開く。WebView2 は使わないので、環境は要らない。</summary>
+    internal ShelfWindow OpenShelf(params string[] books)
     {
-        var window = new PdfWindow(PdfSession.Open(bookPath)) { TitleSource = bookPath };
+        var window = new ShelfWindow(_store);
         window.Show();
+        window.Add(books);
         return window;
     }
 }

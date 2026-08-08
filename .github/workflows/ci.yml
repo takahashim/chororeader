@@ -135,6 +135,17 @@ jobs:
         timeout-minutes: 5
         run: dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- ../samples/sample.pdf --selftest
 
+      # 横断検索そのものは ChoroReader.Tests が押さえている。ここは画面までつながっているかを見る。
+      - name: 書棚の窓の動作確認
+        working-directory: windows
+        timeout-minutes: 5
+        run: >
+          dotnet run --project ChoroReader.App/ChoroReader.App.csproj --
+          --shelf --selftest
+          ../conformance/fixtures/epub3-basic.epub
+          ../conformance/fixtures/footnotes.epub
+          ../samples/sample.pdf
+
   webview2-spike:
     name: WebView2 の前提を確かめる
     runs-on: windows-latest
