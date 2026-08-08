@@ -90,4 +90,18 @@ public static class Paths
     /// macOS は分解形（NFD）を返すことがあり Windows は合成形。比較のため NFC へ揃える。
     /// </summary>
     public static string Normalize(string value) => value.Normalize(NormalizationForm.FormC);
+
+    /// <summary>最後の区切りより前。区切りが無ければ空。</summary>
+    public static string DirectoryOf(string path)
+    {
+        var index = path.LastIndexOf('/');
+        return index < 0 ? string.Empty : path[..index];
+    }
+
+    /// <summary>最後の区切りより後ろ。目次が題名を持たない章の見出しに使う。</summary>
+    public static string LastComponent(string path)
+    {
+        var index = path.LastIndexOf('/');
+        return index < 0 ? path : path[(index + 1)..];
+    }
 }

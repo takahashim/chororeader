@@ -318,15 +318,8 @@ public static class EpubParser
         return element.Attributes().FirstOrDefault(a => a.Name.LocalName == name)?.Value;
     }
 
-    internal static string DirectoryOf(string path)
-    {
-        var index = path.LastIndexOf('/');
-        return index < 0 ? string.Empty : path[..index];
-    }
+    // 経路の細工は Paths にまとめてある。ここは呼び名を残すだけ。
+    internal static string DirectoryOf(string path) => Paths.DirectoryOf(path);
 
-    internal static string LastComponent(string path)
-    {
-        var index = path.LastIndexOf('/');
-        return index < 0 ? path : path[(index + 1)..];
-    }
+    internal static string LastComponent(string path) => Paths.LastComponent(path);
 }
