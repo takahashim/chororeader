@@ -65,7 +65,85 @@ internal static class Selftest
 
         result["checks"] = checks;
         result["passed"] = passed;
+        Write(result);
+        return passed ? 0 : 1;
+    }
 
+    /// <summary>
+    /// 紙面の窓を確かめる。
+    ///
+    /// <para>
+    /// 本文の窓と違って名乗る相手がいないので、<b>出ている絵そのものを見る</b>。
+    /// 枠だけ出来て中身が空でも窓は開くので、絵が付いていること、
+    /// 寸法が紙面と辻褄が合うこと、ページを送ると描き直すことまで見る。
+    /// </para>
+    /// </summary>
+    internal static async Task<int> RunPdfAsync(PdfWindow window)
+    {
+        var result = new JsonObject();
+        var checks = new JsonArray();
+        var passed = true;
+
+        void Check(string what, bool ok, string? detail = null)
+        {
+            passed &= ok;
+            checks.Add(new JsonObject { ["what"] = what, ["ok"] = ok, ["detail"] = detail });
+        }
+
+        try
+        {
+            Check("紙面が描けた", window.Drawn is not null, $"DrawnCount={window.DrawnCount}");
+            var first = window.Drawn;
+            Check("絵に大きさがある", first is { PixelWidth: > 0, PixelHeight: > 0 },
+                  first is null ? null : $"{first.PixelWidth}x{first.PixelHeight}");
+
+            // ページを送って、描き直すこと。枠だけ出来る不具合はここで出る。
+            var before = window.DrawnCount;
+            await window.MoveAsync(1);
+            Check("次のページへ進めた", window.Page == 1, $"Page={window.Page}");
+            Check("描き直した", window.DrawnCount > before, $"{before} → {window.DrawnCount}");
+
+            await window.MoveAsync(-1);
+            Check("前のページへ戻れた", window.Page == 0, $"Page={window.Page}");
+
+            // 倍率を上げたら絵も大きくなること。
+            var small = window.Drawn!.PixelWidth;
+            await window.ZoomAsync(2.0);
+            Check("拡げたら絵も大きくなった", window.Drawn!.PixelWidth > small,
+                  $"{small} → {window.Drawn!.PixelWidth}（{window.Zoom:F2} 倍）");
+            await window.ZoomAsync(0.5);
+
+            // 当たりを引いて、囲みが乗ること。
+            await window.FindAsync("page", null);
+            Check("紙面から当たりが出た", window.Hits.Count > 0, $"Hits={window.Hits.Count}");
+            Check("当たりに囲みが乗った", window.MarkCount > 0, $"Marks={window.MarkCount}");
+
+            result["診断"] = new JsonObject
+            {
+                ["ページ数"] = window.Page,
+                ["倍率"] = window.Zoom,
+                ["描けた回数"] = window.DrawnCount,
+                ["絵の大きさ"] = window.Drawn is { } sheet ? $"{sheet.PixelWidth}x{sheet.PixelHeight}" : null,
+                ["当たり"] = new JsonArray(
+                    window.Hits.Take(5)
+                        .Select(h => (JsonNode?)$"p.{h.Page + 1} 矩形 {h.Rects.Count} 個: {h.Excerpt}")
+                        .ToArray()),
+            };
+        }
+        catch (Exception e)
+        {
+            passed = false;
+            result["error"] = e.ToString();
+        }
+
+        result["checks"] = checks;
+        result["passed"] = passed;
+        Write(result);
+        return passed ? 0 : 1;
+    }
+
+    private static void Write(JsonObject result)
+    {
         // 日本語が化けると読めない。標準出力を UTF-8 にしてから書く。
         Console.OutputEncoding = Encoding.UTF8;
         Console.Out.WriteLine(result.ToJsonString(new JsonSerializerOptions
@@ -73,8 +151,6 @@ internal static class Selftest
             WriteIndented = true,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         }));
-
-        return passed ? 0 : 1;
     }
 
     /// <summary>

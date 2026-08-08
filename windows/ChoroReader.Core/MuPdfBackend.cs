@@ -153,13 +153,23 @@ internal sealed class MuPdfBackend : IPdfBackend
         }
     }
 
-    /// <summary>ページを描く。UI が受け取って表示する。</summary>
-    public byte[] RenderPage(int index, double zoom)
+    /// <summary>
+    /// ページを描く。UI が受け取って表示する。
+    ///
+    /// <para>
+    /// 寸法は描くのと同じ丸め方で出す（<c>Rectangle.Round(zoom)</c>）。
+    /// 倍率を掛けて自分で丸めると、MuPDF と食い違って絵が 1 画素ずれる。
+    /// 画素の並びは縦横を名乗らないので、ここで取り違えると全体が斜めに崩れる。
+    /// </para>
+    /// </summary>
+    public RenderedPage RenderPage(int index, double zoom)
     {
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            return _document.Render(index, zoom, PixelFormats.RGB, includeAnnotations: true);
+            var box = _document.Pages[index].Bounds.Round(zoom);
+            var pixels = _document.Render(index, zoom, PixelFormats.RGB, includeAnnotations: true);
+            return new RenderedPage(box.Width, box.Height, pixels);
         }
     }
 

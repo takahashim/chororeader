@@ -166,7 +166,8 @@ spec.md 15.1 の不変条件（書籍の script は走らず、こちらの注�
    WebView 単位の全か無か）、催しの一覧にスクロールも無い。
    エンジンの段で止めると、位置の追従はポーリングでしか作れなくなる。
    **二層にはできない。1 層で組む**というのがここでの判断である
-   **配るものすべてに付ける。** 種類で見分けて付けると、見分け損ねたものが漏れる。
+
+   1 層である以上、**配るものすべてに付ける**。種類で見分けて付けると、見分け損ねたものが漏れる。
    SVG は画像の顔をして文書として開かれうるし（固定レイアウトの SVG ページ型、spec.md 3 章）、
    拡張子を持たない章もある。下位資源に付いていても無害なので、条件を挟まない。
    実際、`DeliveredResource` を作る枝のうち 1 つが付け忘れていて、SVG が素通りしていた
@@ -236,19 +237,20 @@ macOS ではコンパイル検査まで。実行と動作確認は Windows で�
 9. ~~検索の索引~~（済。二字組の転置索引。39 万字・86 章の書籍で 151 KB、作るのに 107 ms）
 10. ~~PDF の当たりの矩形とページの絞り込み~~（済。紙面に囲みを重ねられる）
 11. UI（ChoroReader.App）。設計は「UI の設計」の節。中の順序:
-    1. 配信層。`WebResourceRequested` で横取りし、CssCompat・Mark.Insert・ReaderStyle をここで通す
-    2. 読書の窓（EPUB）と注入スクリプト
-    3. `--selftest` と CI の動作確認
-    4. PDF の窓（RenderPage → WriteableBitmap、PageHit.Rects の囲み）
+    1. ~~配信層~~（済。`WebResourceRequested` で横取りし、CssCompat・Mark.Insert をここで通す）
+    2. ~~読書の窓（EPUB）と注入スクリプト~~（済）
+    3. ~~`--selftest` と CI の動作確認~~（済。窓の中は目で見られないので、判定をアプリに持たせた）
+    4. ~~PDF の窓~~（済。MuPDF の画素をネイティブに出し、`PageHit.Rects` を重ねる）
     5. 書棚と蔵書の横断検索（SearchIndexStore は済）
     6. 位置・しおり・設定の保存
+    7. 表示設定の画面、目次、窓の中の検索欄
 
 各段階で `./choroconf diff swift csharp` を回すと、食い違いがその場で出る。
 実際、この突き合わせは macOS 版の目次の不具合を 1 件見つけた（findings-windows.md）。
 
 ## 踏みやすいところ
 
-CONTRACT.md の「正規化の規約」に書いてあるが、特に次の 3 点で差が出る。
+CONTRACT.md の「正規化の規約」に書いてあるが、特に次で差が出る。
 
 - **Unicode の正規化形**：macOS のファイルシステムは分解形（NFD）を返すことがある。出力前に NFC へ揃える（C# なら `string.Normalize(NormalizationForm.FormC)`）
 - **パス区切り**：Windows で `Path.Combine` を使うと `\` になる。EPUB 内のパスは常に `/` で扱う

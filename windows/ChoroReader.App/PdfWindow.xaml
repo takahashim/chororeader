@@ -1,0 +1,30 @@
+<Window x:Class="ChoroReader.App.PdfWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ChoroReader" Height="800" Width="700">
+    <!--
+        紙面はネイティブで描く。WebView2 には載せない。
+        MuPDF が描いた画素をそのまま出し、当たりの囲みを上に重ねる。
+    -->
+    <DockPanel>
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="PageLabel" Text="" />
+            </StatusBarItem>
+            <StatusBarItem HorizontalAlignment="Right">
+                <TextBlock x:Name="ZoomLabel" Text="" />
+            </StatusBarItem>
+        </StatusBar>
+        <ScrollViewer x:Name="Scroll"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Auto"
+                      Background="#3c3c3c">
+            <!-- 絵と囲みを重ねる。囲みは絵と同じ座標系に置くので、
+                 Grid で丁度重ねておけば倍率を変えても位置が揃う。 -->
+            <Grid x:Name="Stack" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12">
+                <Image x:Name="Paper" Stretch="None" SnapsToDevicePixels="True" />
+                <Canvas x:Name="Marks" IsHitTestVisible="False" />
+            </Grid>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

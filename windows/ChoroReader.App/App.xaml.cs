@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using ChoroReader.Core;
 using Microsoft.Web.WebView2.Core;
 
 namespace ChoroReader.App;
@@ -38,6 +39,18 @@ public partial class App : Application
                 return;
             }
 
+            // 形式で窓を分ける。EPUB は WebView2、PDF はネイティブ描画。
+            if (DocumentFormats.Detect(book) == DocumentFormat.Pdf)
+            {
+                var paper = OpenPdf(book);
+                await paper.StartAsync();
+                if (selftest)
+                {
+                    Shutdown(await Selftest.RunPdfAsync(paper));
+                }
+                return;
+            }
+
             var window = await OpenAsync(book);
 
             if (selftest)
@@ -68,6 +81,14 @@ public partial class App : Application
         var window = new ReaderWindow(BookSession.Open(bookPath), environment);
         window.Show();
         await window.StartAsync();
+        return window;
+    }
+
+    /// <summary>紙面の窓を開く。WebView2 は使わないので、環境は要らない。</summary>
+    internal static PdfWindow OpenPdf(string bookPath)
+    {
+        var window = new PdfWindow(PdfSession.Open(bookPath)) { TitleSource = bookPath };
+        window.Show();
         return window;
     }
 }

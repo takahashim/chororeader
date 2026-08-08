@@ -71,6 +71,48 @@ public class PdfSearchTests
         }
     }
 
+    /// <summary>
+    /// 描いた絵は、名乗る寸法と辻褄が合っていること。
+    ///
+    /// <para>
+    /// 画素の並びは縦横を名乗らない。寸法を取り違えると、絵は「出るが崩れる」。
+    /// 落ちてくれないぶん質が悪いので、長さで縛る。
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(1.5)]
+    [InlineData(0.5)]
+    public void 描いた絵の寸法と画素の数が合う(double zoom)
+    {
+        using var document = PdfInspector.Open(TestPaths.SamplePdf);
+
+        for (var page = 0; page < document.PageCount; page++)
+        {
+            var drawn = document.RenderPage(page, zoom);
+
+            Assert.True(drawn.Width > 0 && drawn.Height > 0, $"{page} ページ目の寸法が 0");
+            // RGB は 1 画素 3 バイト。ここが合わなければ、寸法か形式のどちらかが違う。
+            Assert.Equal(drawn.Stride * drawn.Height, drawn.Pixels.Length);
+
+            // 紙面の縦横比と、描いた絵の縦横比が揃っていること。
+            var (width, height) = document.PageSize(page);
+            Assert.Equal(width / height, (double)drawn.Width / drawn.Height, 1);
+        }
+    }
+
+    [Fact]
+    public void 倍率を上げると絵も大きくなる()
+    {
+        using var document = PdfInspector.Open(TestPaths.SamplePdf);
+
+        var small = document.RenderPage(0, 1.0);
+        var large = document.RenderPage(0, 2.0);
+
+        Assert.True(large.Width > small.Width, $"{small.Width} → {large.Width}");
+        Assert.True(large.Height > small.Height, $"{small.Height} → {large.Height}");
+    }
+
     [Fact]
     public void 抜粋に前後の文脈が入る()
     {

@@ -58,10 +58,11 @@ internal static class PdfSpike
         }
 
         var renderTimer = Stopwatch.StartNew();
-        var pixels = document.RenderPage(0, 1.5);
+        var drawn = document.RenderPage(0, 1.5);
         renderTimer.Stop();
         var size = document.PageSize(0);
-        Console.WriteLine($"描画: {renderTimer.ElapsedMilliseconds} ms  {pixels.Length} バイト  " +
+        Console.WriteLine($"描画: {renderTimer.ElapsedMilliseconds} ms  " +
+                          $"{drawn.Width}x{drawn.Height} 画素 / {drawn.Pixels.Length} バイト  " +
                           $"ページ寸法 {size.Width:F0}x{size.Height:F0}");
 
         return 0;

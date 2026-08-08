@@ -129,6 +129,12 @@ jobs:
         timeout-minutes: 5
         run: dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- ../conformance/fixtures/epub3-basic.epub --selftest
 
+      # 紙面は名乗る相手がいないので、出ている絵そのものを見る。
+      - name: 紙面の窓の動作確認
+        working-directory: windows
+        timeout-minutes: 5
+        run: dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- ../samples/sample.pdf --selftest
+
   webview2-spike:
     name: WebView2 の前提を確かめる
     runs-on: windows-latest
