@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ChoroReader.Core;
 
 namespace ChoroReader.App;
 
@@ -57,6 +58,25 @@ internal static class Selftest
                 // 位置は本文が名乗るたびに届く。覚え書きに残っていること。
                 var remembered = window.Remembered;
                 Check("読んだ場所を覚えた", remembered.Href.Length > 0, $"Href={remembered.Href}");
+
+                Check("目次が並んだ", window.TocCount > 0, $"Toc={window.TocCount}");
+
+                // この本の中を引き、当たりへ飛んで、印が本文に入ること。
+                await window.FindAsync("本文");
+                Check("窓の中で当たりが出た", window.HitCount > 0, $"Hits={window.HitCount}");
+                Check("当たらない語では空になる", await Empty(window, "そんな語はどこにも出てこない"));
+
+                await window.FindAsync("本文");
+                await window.GoAsync(remembered.Href, null, ("本文", 0));
+                var marked = await window.AskAsync($"!!document.querySelector('.{Mark.ClassName}')");
+                Check("飛んだ先で当たりを囲んだ", marked.Trim() == "true", marked.Trim());
+
+                // 表示設定が本文に当たること。
+                await window.ApplyStyleAsync(new ReaderStyle { Theme = ReaderTheme.Dark });
+                var styled = await window.AskAsync(
+                    "(document.getElementById('choro-style') || {}).textContent ? " +
+                    "document.getElementById('choro-style').textContent.indexOf('#1c1c1e') >= 0 : false");
+                Check("表示設定が本文に当たった", styled.Trim() == "true", styled.Trim());
             }
 
             result["診断"] = await DiagnoseAsync(window);
@@ -71,6 +91,12 @@ internal static class Selftest
         result["passed"] = passed;
         Write(result);
         return passed ? 0 : 1;
+    }
+
+    private static async Task<bool> Empty(ReaderWindow window, string query)
+    {
+        await window.FindAsync(query);
+        return window.HitCount == 0;
     }
 
     /// <summary>

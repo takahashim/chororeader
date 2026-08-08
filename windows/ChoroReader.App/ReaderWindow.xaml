@@ -2,12 +2,33 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        Title="ChoroReader" Height="800" Width="700">
+        Title="ChoroReader" Height="800" Width="900">
     <!--
         殻はネイティブ、本文だけ WebView2。
-        道具帯・目次・検索はこの殻へ足していく。WebView には入れない。
+        道具帯・目次・検索・表示設定はすべてこちら側にあり、WebView の中には入れない。
     -->
     <DockPanel>
+        <!-- 道具帯 -->
+        <DockPanel DockPanel.Dock="Top" Margin="8,8,8,4">
+            <ToggleButton x:Name="TocToggle" DockPanel.Dock="Left" Content="目次"
+                          Padding="10,4" Click="OnToggleToc" />
+            <ComboBox x:Name="ThemePicker" DockPanel.Dock="Right" Width="90" Margin="8,0,0,0"
+                      SelectionChanged="OnStyleChanged" ToolTip="明暗テーマ">
+                <ComboBoxItem Content="明るい" IsSelected="True" />
+                <ComboBoxItem Content="セピア" />
+                <ComboBoxItem Content="暗い" />
+            </ComboBox>
+            <ComboBox x:Name="SizePicker" DockPanel.Dock="Right" Width="80" Margin="8,0,0,0"
+                      SelectionChanged="OnStyleChanged" ToolTip="文字サイズ">
+                <ComboBoxItem Content="90%" />
+                <ComboBoxItem Content="100%" IsSelected="True" />
+                <ComboBoxItem Content="120%" />
+                <ComboBoxItem Content="150%" />
+            </ComboBox>
+            <TextBox x:Name="Query" Margin="8,0,0,0" Padding="6,4"
+                     KeyDown="OnQueryKey" ToolTip="この本の中を引く" />
+        </DockPanel>
+
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
                 <TextBlock x:Name="ChapterLabel" Text="" />
@@ -16,6 +37,24 @@
                 <TextBlock x:Name="PositionLabel" Text="" />
             </StatusBarItem>
         </StatusBar>
-        <wv2:WebView2 x:Name="Body" />
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="SideColumn" Width="0" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 目次と検索結果。押した行へ飛ぶ。 -->
+            <TabControl x:Name="Side" Grid.Column="0" Margin="8,0,4,8">
+                <TabItem Header="目次">
+                    <ListBox x:Name="Toc" MouseDoubleClick="OnGoToc" />
+                </TabItem>
+                <TabItem Header="検索">
+                    <ListBox x:Name="Found" MouseDoubleClick="OnGoHit" />
+                </TabItem>
+            </TabControl>
+
+            <wv2:WebView2 x:Name="Body" Grid.Column="1" Margin="4,0,8,8" />
+        </Grid>
     </DockPanel>
 </Window>

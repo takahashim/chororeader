@@ -1,7 +1,15 @@
 # Windows 実装（C#）
 
-Core と Probe と検査を実装済み。UI は WPF で作ると決めた（「UI の設計」の節）。
+Core と Probe と検査に加えて、UI（WPF）も一通り動く。
+書棚から本を開き、EPUB と PDF を読み、目次と検索から飛び、位置を覚えるところまで。
 スパイクの結果は [../spikes/findings-windows.md](../spikes/findings-windows.md)。
+
+```sh
+cd windows
+dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- 本.epub   # 1 冊開く
+dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- --shelf 本.epub 紙.pdf
+dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- 本.epub --selftest
+```
 
 **この実装は一度畳み、戻した。**
 Windows 版は Tauri（Rust）へ移したが、Windows での具合が芳しくないため C# へ戻すことを検討している。
@@ -243,7 +251,7 @@ macOS ではコンパイル検査まで。実行と動作確認は Windows で�
     4. ~~PDF の窓~~（済。MuPDF の画素をネイティブに出し、`PageHit.Rects` を重ねる）
     5. ~~書棚と蔵書の横断検索~~（済。1 冊ずつ索引で絞り、当たった本から順に並べる）
     6. ~~位置・しおり・設定の保存~~（済。設定の置き場所へ JSON 1 枚。書籍には触れない）
-    7. 表示設定の画面、目次、窓の中の検索欄
+    7. ~~表示設定の画面、目次、窓の中の検索欄~~（済。殻はすべてネイティブ）
 
 各段階で `./choroconf diff swift csharp` を回すと、食い違いがその場で出る。
 実際、この突き合わせは macOS 版の目次の不具合を 1 件見つけた（findings-windows.md）。

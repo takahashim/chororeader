@@ -2,6 +2,8 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using ChoroReader.Core;
 using Microsoft.Web.WebView2.Core;
 
@@ -121,6 +123,9 @@ public partial class ReaderWindow : Window
         };
 
         await core.AddScriptToExecuteOnDocumentCreatedAsync(ReaderScripts.Main);
+
+        FillToc();
+        ShowStyle();
 
         await ShowAsync(_session.Index);
     }
@@ -293,6 +298,163 @@ public partial class ReaderWindow : Window
 
     /// <summary>覚えている位置。動作確認が「戻せたか」を見る。</summary>
     internal Position Remembered => _store.StateOf(_bookPath).Position;
+
+    // MARK: 目次
+
+    internal int TocCount => Toc.Items.Count;
+
+    /// <summary>
+    /// 目次を並べる。階層は字下げで示す。
+    /// 押した行の飛び先は、章の経路と章内の位置で決まる。
+    /// </summary>
+    private void FillToc()
+    {
+        Toc.Items.Clear();
+        Walk(_session.Publication.TableOfContents, 0);
+
+        void Walk(IReadOnlyList<TocEntry> entries, int depth)
+        {
+            foreach (var entry in entries)
+            {
+                if (entry.Href is { } href)
+                {
+                    Toc.Items.Add(new TocRow(href, entry.Fragment, new string(' ', depth * 2) + entry.Title));
+                }
+                Walk(entry.Children, depth + 1);
+            }
+        }
+    }
+
+    private sealed record TocRow(string Href, string? Fragment, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    private void OnToggleToc(object sender, RoutedEventArgs e) =>
+        SideColumn.Width = TocToggle.IsChecked == true ? new GridLength(280) : new GridLength(0);
+
+    private async void OnGoToc(object sender, MouseButtonEventArgs e)
+    {
+        if (Toc.SelectedItem is TocRow row)
+        {
+            await GoAsync(row.Href, row.Fragment, mark: null);
+        }
+    }
+
+    // MARK: この本の中を引く
+
+    internal int HitCount => Found.Items.Count;
+
+    private sealed record HitRow(string Href, int Nth, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    /// <summary>
+    /// 本文を引く。走査は背後のスレッドで行う。章を丸ごと読むので、画面で回すと固まる。
+    /// </summary>
+    internal async Task FindAsync(string query)
+    {
+        Found.Items.Clear();
+        query = query.Trim();
+        if (query.Length == 0)
+        {
+            return;
+        }
+
+        var outcome = await Task.Run(() =>
+            DocumentSearch.SearchEpub(_session.Resources, _session.Publication, query));
+
+        foreach (var hit in outcome.Results)
+        {
+            var label = $"{hit.ChapterTitle}: {hit.Before}{hit.Match}{hit.After}".Replace('\n', ' ');
+            Found.Items.Add(new HitRow(hit.Locator.Href ?? string.Empty, hit.Nth, label));
+        }
+        // 引いたら結果を出す。開いていなければ開く。
+        TocToggle.IsChecked = true;
+        OnToggleToc(this, new RoutedEventArgs());
+        Side.SelectedIndex = 1;
+        ChapterLabel.Text = outcome.Results.Count == 0
+            ? $"「{query}」は見つかりませんでした"
+            : $"{outcome.Results.Count} 件{(outcome.Truncated ? "（打ち切り）" : "")}";
+    }
+
+    private async void OnQueryKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            await FindAsync(Query.Text);
+        }
+    }
+
+    private async void OnGoHit(object sender, MouseButtonEventArgs e)
+    {
+        if (Found.SelectedItem is HitRow row)
+        {
+            // 飛んだ先で当たりを囲む。印は配信の瞬間に入る。
+            await GoAsync(row.Href, null, (Query.Text.Trim(), row.Nth));
+        }
+    }
+
+    /// <summary>章へ飛ぶ。印を指定すると、配信のときに本文へ入る。</summary>
+    internal async Task GoAsync(string href, string? fragment, (string Query, int Nth)? mark)
+    {
+        var at = _session.Publication.ReadingOrder
+            .Select((link, index) => (link, index))
+            .FirstOrDefault(pair => pair.link.Href == href);
+        if (at.link is null)
+        {
+            return;
+        }
+
+        _session.Delivery.SearchMark = mark;
+        await ShowAsync(at.index);
+        await WaitForReadyAsync(TimeSpan.FromSeconds(10));
+        if (mark is not null)
+        {
+            await Send(new { kind = "approach" });
+        }
+        else if (fragment is { Length: > 0 })
+        {
+            await Send(new { kind = "go", fragment });
+        }
+    }
+
+    // MARK: 表示設定
+
+    /// <summary>覚えていた設定を道具帯へ映す。組み立ての途中なので、当てるのはまだしない。</summary>
+    private void ShowStyle()
+    {
+        SizePicker.SelectedIndex = _style.FontSizePercent switch { 90 => 0, 120 => 2, 150 => 3, _ => 1 };
+        ThemePicker.SelectedIndex = _style.Theme switch
+        {
+            ReaderTheme.Sepia => 1,
+            ReaderTheme.Dark => 2,
+            _ => 0,
+        };
+    }
+
+    private async void OnStyleChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded)
+        {
+            return; // 組み立ての途中では触らない。
+        }
+        var style = _style with
+        {
+            FontSizePercent = SizePicker.SelectedIndex switch { 0 => 90, 2 => 120, 3 => 150, _ => 100 },
+            Theme = ThemePicker.SelectedIndex switch
+            {
+                1 => ReaderTheme.Sepia,
+                2 => ReaderTheme.Dark,
+                _ => ReaderTheme.Light,
+            },
+        };
+        await ApplyStyleAsync(style);
+        // 次に開く窓も同じ見え方にする。
+        _store.SaveSettings(style);
+    }
 
     // MARK: 移動
 

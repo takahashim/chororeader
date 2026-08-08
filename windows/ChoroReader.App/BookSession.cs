@@ -18,6 +18,9 @@ internal sealed class BookSession : IDisposable
 
     internal ResourceDelivery Delivery { get; }
 
+    /// <summary>本文の供給元。窓の中を引くときに走査へ渡す。</summary>
+    internal IResourceProvider Resources => _archive;
+
     /// <summary>いま開いている読み順の位置。</summary>
     internal int Index { get; private set; }
 
