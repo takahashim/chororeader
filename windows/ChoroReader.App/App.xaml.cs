@@ -63,12 +63,7 @@ public partial class App : Application
             var opened = await OpenBookAsync(books[0]);
             if (selftest)
             {
-                Shutdown(opened switch
-                {
-                    PdfWindow paper => await Selftest.RunPdfAsync(paper),
-                    ReaderWindow reader => await Selftest.RunAsync(reader),
-                    _ => 1,
-                });
+                Shutdown(await Selftest.RunAsync(opened));
             }
         }
         catch (Exception error)
@@ -88,19 +83,22 @@ public partial class App : Application
     /// （spikes/findings-tauri.md「同期の命令の中で窓を作ると、枠だけ出来て中身が空になる」）。
     /// </para>
     /// </summary>
-    internal async Task<Window> OpenBookAsync(string bookPath)
+    internal async Task<ReaderWindow> OpenBookAsync(string bookPath)
     {
-        // 形式で窓を分ける。EPUB は WebView2、PDF はネイティブ描画。
+        // **窓は形式で分けない。**差し替わるのは舞台だけである
+        // （windows/README.md「画面の組み立て」）。
+        IStage stage;
         if (DocumentFormats.Detect(bookPath) == DocumentFormat.Pdf)
         {
-            var paper = new PdfWindow(PdfSession.Open(bookPath)) { TitleSource = bookPath };
-            paper.Show();
-            await paper.StartAsync();
-            return paper;
+            stage = new PdfStage(PdfSession.Open(bookPath), _store, bookPath);
+        }
+        else
+        {
+            var environment = _environment ?? throw new InvalidOperationException("環境がまだ用意できていない");
+            stage = new WebStage(BookSession.Open(bookPath), environment);
         }
 
-        var environment = _environment ?? throw new InvalidOperationException("環境がまだ用意できていない");
-        var window = new ReaderWindow(BookSession.Open(bookPath), environment, _reading, bookPath);
+        var window = new ReaderWindow(stage, _reading, bookPath);
         window.Show();
         await window.StartAsync();
         return window;
@@ -109,7 +107,7 @@ public partial class App : Application
     /// <summary>書棚を開く。WebView2 は使わないので、環境は要らない。</summary>
     internal ShelfWindow OpenShelf(params string[] books)
     {
-        var window = new ShelfWindow(_store);
+        var window = new ShelfWindow(_store, _reading);
         window.Show();
         window.Add(books);
         return window;

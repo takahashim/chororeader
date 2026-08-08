@@ -1,393 +1,325 @@
-using System.IO;
-using System.Text;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using ChoroReader.Core;
-using Microsoft.Web.WebView2.Core;
 
 namespace ChoroReader.App;
+
+/// <summary>サイドバーの面。</summary>
+internal enum Pane
+{
+    Toc,
+    Pages,
+    Found,
+    Marks,
+}
 
 /// <summary>
 /// 読書の窓。1 窓 1 文書（spec.md 4.1）。
 ///
 /// <para>
+/// <b>形式で窓を分けない。</b>道具帯・サイドバー・下辺は形式に依らず同じ場所にあり、
+/// 差し替わるのは舞台（<see cref="IStage"/>）だけである
+/// （windows/README.md「画面の組み立て」）。
+/// </para>
+/// <para>
 /// 殻はネイティブで、本文だけが WebView2 に入る。
-/// 書籍の script はエンジンの段で止め、注入したものだけを動かす（spec.md 15.1）。
+/// 書籍の script は CSP で止め、注入したものだけを動かす（spec.md 15.1）。
 /// </para>
 /// </summary>
 public partial class ReaderWindow : Window
 {
-    private readonly BookSession _session;
-    private readonly CoreWebView2Environment _environment;
+    private readonly IStage _stage;
     private readonly ReadingStore _store;
     private readonly string _bookPath;
+
+    /// <summary>戻る／進む。目次や検索から飛んだあと元へ帰る道。</summary>
+    private readonly History<Place> _history = new();
+
     private ReaderStyle _style;
-    private TaskCompletionSource<bool>? _awaitingReady;
 
-    /// <summary>位置の便りを待つための札。間引かれて届くので、待てるようにしておく。</summary>
-    private TaskCompletionSource<bool>? _awaitingPosition;
+    /// <summary>いま出している面。</summary>
+    private Pane _pane = Pane.Toc;
 
-    /// <summary>位置の便りが届いた回数。動作確認が「追従しているか」を見る。</summary>
-    internal int PositionCount { get; private set; }
+    /// <summary>直前に引いた結果。面を切り替えて戻ってきても消えないように控える。</summary>
+    private IReadOnlyList<Place> _found = [];
 
-    /// <summary>覚えていた位置。最初の章が名乗ったら、そこへ戻す。</summary>
-    private Position? _restoring;
+    /// <summary>組み立ての途中では設定を当てない。部品を初期値にするだけで便りが飛ぶ。</summary>
+    private bool _settling = true;
 
-    /// <summary>本文が名乗った回数。動作確認が「枠だけ出来ていないか」を見る。</summary>
-    internal int ReadyCount { get; private set; }
-
-    internal double Progression { get; private set; }
-
-    /// <summary>
-    /// 転んだときに「どこまで進んだか」を言えるようにする覚え書き。
-    ///
-    /// <para>
-    /// 窓の中は目で見られない。名乗らなかったときに、読み込めていないのか、
-    /// 読み込めたが注入が走らないのか、走ったが便りが届かないのかを見分けられないと、
-    /// 直しようがない（spikes/findings-tauri.md）。
-    /// </para>
-    /// </summary>
-    internal List<string> RequestedUris { get; } = [];
-
-    internal List<string> RawMessages { get; } = [];
-
-    internal string? LastNavigationStatus { get; private set; }
-
-    internal bool? LastNavigationSucceeded { get; private set; }
-
-    internal List<string> CancelledNavigations { get; } = [];
-
-    internal ReaderWindow(BookSession session, CoreWebView2Environment environment,
-                          ReadingStore store, string bookPath)
+    internal ReaderWindow(IStage stage, ReadingStore store, string bookPath)
     {
         InitializeComponent();
-        _session = session;
-        _environment = environment;
+        _stage = stage;
         _store = store;
         _bookPath = bookPath;
         _style = store.Settings;
 
-        // 覚えていた場所から始める。無ければ最初の章。
-        var remembered = store.StateOf(bookPath).Position;
-        if (remembered.Href.Length > 0)
-        {
-            var at = session.Publication.ReadingOrder
-                .Select((link, index) => (link, index))
-                .FirstOrDefault(pair => pair.link.Href == remembered.Href);
-            if (at.link is not null)
-            {
-                session.MoveTo(at.index);
-                _restoring = remembered;
-            }
-        }
-        store.RememberTitle(bookPath, session.Publication.Title);
+        StageHost.Content = stage.View;
+        stage.Moved += OnStageMoved;
 
-        Closed += (_, _) => _session.Dispose();
+        // 覚えていた場所から始める。無ければ最初から。
+        _stage.ResumeFrom(store.StateOf(bookPath).Position);
+        store.RememberTitle(bookPath, stage.BookTitle);
+
+        // 縦は読むための軸、横は移動するための軸（spec.md 10.2）。
+        // 矢印はメニューのキー等価にしない。窓が焦点を持っているときだけ処理する。
+        PreviewKeyDown += OnKeyDown;
+        Closed += (_, _) => _stage.Dispose();
     }
 
-    /// <summary>
-    /// 本文を出せる状態にして、最初の章を開く。
-    ///
-    /// <para>
-    /// <b>初期化は必ず await する。</b><c>GetAwaiter().GetResult()</c> で待つと、
-    /// メッセージポンプを自分で止めて永久に待つ（spikes/findings-windows.md）。
-    /// </para>
-    /// </summary>
     internal async Task StartAsync()
     {
-        await Body.EnsureCoreWebView2Async(_environment);
-        var core = Body.CoreWebView2;
-
-        // 書籍側の JavaScript は CSP（script-src 'none'）で止める。ResourceDelivery が付ける。
-        //
-        // **エンジンの段（IsScriptEnabled = false）では止めない。**
-        // あれは「その文書に紐づく script を走らせない」という意味で、
-        // 注入したスクリプトが張ったリスナまで発火しなくなる。
-        // 注入そのものは走るので、同期の便りだけを見ていると気付けない。
-        // Tauri 版が sandbox で踏んだのと同じ性質である（spikes/findings-tauri.md）。
-        // 読書はリスナ（スクロール・鍵盤・DOMContentLoaded）の上に成り立っているので、
-        // ここを切ると本文の中で何も動かなくなる。
-        core.Settings.IsScriptEnabled = true;
-        core.Settings.IsWebMessageEnabled = true;
-        core.Settings.AreDefaultContextMenusEnabled = false;
-        core.Settings.IsPasswordAutosaveEnabled = false;
-        core.Settings.IsGeneralAutofillEnabled = false;
-        core.Settings.AreDevToolsEnabled = false;
-        core.Settings.IsStatusBarEnabled = false;
-
-        core.AddWebResourceRequestedFilter($"{ResourceDelivery.Origin}/*", CoreWebView2WebResourceContext.All);
-        core.WebResourceRequested += OnResourceRequested;
-        core.WebMessageReceived += OnWebMessage;
-        core.NavigationStarting += OnNavigationStarting;
-        core.NewWindowRequested += OnNewWindowRequested;
-        core.NavigationCompleted += (_, e) =>
-        {
-            LastNavigationSucceeded = e.IsSuccess;
-            LastNavigationStatus = e.WebErrorStatus.ToString();
-        };
-
-        await core.AddScriptToExecuteOnDocumentCreatedAsync(ReaderScripts.Main);
-
-        FillToc();
+        FillPane();
         ShowStyle();
+        await _stage.StartAsync();
+        Remember();
+        ShowWhere();
 
-        await ShowAsync(_session.Index);
+        // 開いた場所を履歴の起点にする。積まないと、1 度飛んだだけでは戻り先が無い。
+        _history.Visit(Anchor());
+        ShowHistory();
     }
 
-    // MARK: 配信
+    // MARK: 舞台からの便り
 
     /// <summary>
-    /// 供給できるものだけを返す。範囲の外は 404 にする。
-    /// 何を配るかは <see cref="ResourceDelivery"/> が決める。ここは配線だけ。
+    /// 舞台が動いたら、道具帯と下辺を書き直し、読んだ場所を控える。
     /// </summary>
-    private void OnResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    private void OnStageMoved()
     {
-        var made = _session.Delivery.Deliver(e.Request.Uri);
-        if (RequestedUris.Count < 50)
-        {
-            RequestedUris.Add($"{(made is null ? 404 : 200)} {e.Request.Uri}");
-        }
-        if (made is null)
-        {
-            e.Response = _environment.CreateWebResourceResponse(null, 404, "Not Found", string.Empty);
-            return;
-        }
-
-        // CSP は配るものすべてに付く。書籍の script を止める唯一の層なので、
-        // ここで条件を挟まない（挟むと、挟み損ねたものが漏れる）。
-        var headers = new StringBuilder()
-            .Append("Content-Type: ").Append(made.ContentType)
-            .Append("\nContent-Security-Policy: ").Append(made.ContentSecurityPolicy)
-            // 覚え直しはこちらが決める。書籍を差し替えたときに古い本文を出さない。
-            .Append("\nCache-Control: no-store");
-
-        e.Response = _environment.CreateWebResourceResponse(
-            new MemoryStream(made.Body), 200, "OK", headers.ToString());
+        ShowWhere();
+        Remember();
     }
 
-    /// <summary>
-    /// 本文の配信元から出ようとする移動は取り消す。外部 URL は OS のブラウザで開く。
-    ///
-    /// <para>
-    /// <c>about:blank</c> は通す。WebView2 は初期化のときに自分でここへ移るので、
-    /// 取り消すと出だしで躓かせることになる。
-    /// </para>
-    /// </summary>
-    private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+    private void ShowWhere()
     {
-        if (ResourceDelivery.HrefOf(e.Uri) is not null || e.Uri.StartsWith("about:", StringComparison.Ordinal))
-        {
-            return;
-        }
-        e.Cancel = true;
-        if (CancelledNavigations.Count < 20)
-        {
-            CancelledNavigations.Add(e.Uri);
-        }
-        OpenOutside(e.Uri);
+        var (title, position) = _stage.Where;
+        PlaceLabel.Text = $"{_stage.BookTitle} — {title}";
+        Title = $"{_stage.BookTitle} — {title}";
+        PositionLabel.Text = position;
+        BookmarkButton.IsChecked = HasBookmarkHere();
     }
-
-    private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
-    {
-        // 窓の開き方はこちらで決める。WebView に勝手に開かせない。
-        e.Handled = true;
-        OpenOutside(e.Uri);
-    }
-
-    private static void OpenOutside(string uri)
-    {
-        if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed))
-        {
-            return;
-        }
-        if (parsed.Scheme is not ("http" or "https"))
-        {
-            return;
-        }
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri) { UseShellExecute = true });
-        }
-        catch (Exception)
-        {
-            // 開けなくても読書は続けられる。
-        }
-    }
-
-    // MARK: 出先とのやり取り
-
-    private async void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
-    {
-        string raw;
-        try
-        {
-            raw = e.TryGetWebMessageAsString() ?? e.WebMessageAsJson;
-        }
-        catch (Exception)
-        {
-            return;
-        }
-        if (RawMessages.Count < 50)
-        {
-            RawMessages.Add(raw);
-        }
-
-        JsonElement message;
-        try
-        {
-            message = JsonDocument.Parse(raw).RootElement;
-        }
-        catch (JsonException)
-        {
-            return;
-        }
-        if (!message.TryGetProperty("kind", out var kindValue) || kindValue.GetString() is not { } kind)
-        {
-            return;
-        }
-
-        switch (kind)
-        {
-            case "ready":
-                ReadyCount++;
-                await Send(new { kind = "style", css = _style.Css() });
-                // 覚えていた場所へは、本文が出てから戻す。出る前に送っても行き先が無い。
-                if (_restoring is { } back)
-                {
-                    _restoring = null;
-                    await Send(new { kind = "go", fragment = back.Fragment, progression = back.Progression });
-                }
-                _awaitingReady?.TrySetResult(true);
-                break;
-
-            case "position":
-                if (message.TryGetProperty("progression", out var at) && at.TryGetDouble(out var value))
-                {
-                    PositionCount++;
-                    Progression = value;
-                    PositionLabel.Text = $"{value * 100:F0}%";
-                    Remember(value, message.TryGetProperty("text", out var text) ? text.GetString() : null);
-                    _awaitingPosition?.TrySetResult(true);
-                }
-                break;
-
-            case "arrow":
-                // 綴じ方向が右開きなら左右の意味を入れ替える（spec.md 10.2）。
-                var forward = message.TryGetProperty("side", out var side) && side.GetString() == "right";
-                if (_session.Publication.Direction == ReadingDirection.Rtl)
-                {
-                    forward = !forward;
-                }
-                await MoveAsync(forward ? 1 : -1);
-                break;
-        }
-    }
-
-    private Task Send(object message) =>
-        Body.CoreWebView2.ExecuteScriptAsync(ReaderScripts.Apply(message));
 
     /// <summary>
     /// どこまで読んだかを控える。
     ///
     /// <para>
-    /// 便りは間引いて届くので、来たぶんだけ書く。
-    /// 書き出しも一緒に残す。文字サイズを変えると割合はずれるためである。
+    /// <b>章は移った瞬間に、章の中の位置は便りが届いてから。</b>
+    /// 位置の便りは間引いて届くので、それを待って章まで書いていると、
+    /// 開いてすぐ閉じたときに覚え書きが前の章のまま残る（<see cref="ReadingStore.RememberChapter"/>）。
     /// </para>
     /// </summary>
-    private void Remember(double progression, string? text) =>
-        _store.Remember(_bookPath, new Position
+    private void Remember()
+    {
+        if (_stage.PositionPending)
         {
-            Href = _session.HrefAt(_session.Index),
-            Progression = progression,
-            Text = text ?? string.Empty,
-        });
+            _store.RememberChapter(_bookPath, _stage.Position.Href);
+        }
+        else
+        {
+            _store.Remember(_bookPath, _stage.Position);
+        }
+    }
 
     /// <summary>覚えている位置。動作確認が「戻せたか」を見る。</summary>
     internal Position Remembered => _store.StateOf(_bookPath).Position;
 
-    // MARK: 目次
+    // MARK: サイドバー
 
-    internal int TocCount => Toc.Items.Count;
+    private void OnToggleSide(object sender, RoutedEventArgs e) =>
+        SideColumn.Width = SideToggle.IsChecked == true ? new GridLength(300) : new GridLength(0);
 
-    /// <summary>
-    /// 目次を並べる。階層は字下げで示す。
-    /// 押した行の飛び先は、章の経路と章内の位置で決まる。
-    /// </summary>
-    private void FillToc()
+    private void ShowSide(Pane pane)
     {
-        Toc.Items.Clear();
-        Walk(_session.Publication.TableOfContents, 0);
-
-        void Walk(IReadOnlyList<TocEntry> entries, int depth)
+        _pane = pane;
+        SideToggle.IsChecked = true;
+        OnToggleSide(this, new RoutedEventArgs());
+        (pane switch
         {
-            foreach (var entry in entries)
-            {
-                if (entry.Href is { } href)
-                {
-                    Toc.Items.Add(new TocRow(href, entry.Fragment, new string(' ', depth * 2) + entry.Title));
-                }
-                Walk(entry.Children, depth + 1);
-            }
-        }
+            Pane.Pages => PagesTab,
+            Pane.Found => FoundTab,
+            Pane.Marks => MarksTab,
+            _ => TocTab,
+        }).IsChecked = true;
+        FillPane();
     }
 
-    private sealed record TocRow(string Href, string? Fragment, string Label)
+    private void OnPaneChanged(object sender, RoutedEventArgs e)
     {
-        public override string ToString() => Label;
-    }
-
-    private void OnToggleToc(object sender, RoutedEventArgs e) =>
-        SideColumn.Width = TocToggle.IsChecked == true ? new GridLength(280) : new GridLength(0);
-
-    private async void OnGoToc(object sender, MouseButtonEventArgs e)
-    {
-        if (Toc.SelectedItem is TocRow row)
-        {
-            await GoAsync(row.Href, row.Fragment, mark: null);
-        }
-    }
-
-    // MARK: この本の中を引く
-
-    internal int HitCount => Found.Items.Count;
-
-    internal sealed record HitRow(string Href, int Nth, string Label)
-    {
-        public override string ToString() => Label;
-    }
-
-    /// <summary>最初の当たり。動作確認が飛び先として使う。</summary>
-    internal HitRow? FirstHit => Found.Items.Count > 0 ? Found.Items[0] as HitRow : null;
-
-    /// <summary>
-    /// 本文を引く。走査は背後のスレッドで行う。章を丸ごと読むので、画面で回すと固まる。
-    /// </summary>
-    internal async Task FindAsync(string query)
-    {
-        Found.Items.Clear();
-        query = query.Trim();
-        if (query.Length == 0)
+        if (_settling)
         {
             return;
         }
-
-        var outcome = await Task.Run(() =>
-            DocumentSearch.SearchEpub(_session.Resources, _session.Publication, query));
-
-        foreach (var hit in outcome.Results)
+        _pane = sender switch
         {
-            var label = $"{hit.ChapterTitle}: {hit.Before}{hit.Match}{hit.After}".Replace('\n', ' ');
-            Found.Items.Add(new HitRow(hit.Locator.Href ?? string.Empty, hit.Nth, label));
+            var t when ReferenceEquals(t, PagesTab) => Pane.Pages,
+            var t when ReferenceEquals(t, FoundTab) => Pane.Found,
+            var t when ReferenceEquals(t, MarksTab) => Pane.Marks,
+            _ => Pane.Toc,
+        };
+        FillPane();
+    }
+
+    /// <summary>
+    /// いま選ばれている面を並べる。
+    ///
+    /// <para>
+    /// <b>空のときは、空である理由を出す。</b>ただ空の一覧を出すと、
+    /// 目次を持たない書籍なのか、こちらが読み損ねたのかが読者に分からない。
+    /// </para>
+    /// </summary>
+    private void FillPane()
+    {
+        // 紙面を持たない書籍では、ページの札そのものを出さない。
+        PagesTab.Visibility = _stage.Pages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var (rows, note) = _pane switch
+        {
+            Pane.Pages => (_stage.Pages, "この書籍にはページ画像がありません"),
+            Pane.Found => (_found, Query.Text.Trim().Length == 0
+                ? "語句を入力してください"
+                : _stage.CannotSearch ?? "見つかりませんでした"),
+            Pane.Marks => (Bookmarks(), "しおりはまだありません（☆ で追加）"),
+            _ => (_stage.Toc, "目次がありません"),
+        };
+
+        Rows.ItemsSource = rows;
+        PaneNote.Text = note;
+        PaneNote.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void OnGoRow(object sender, MouseButtonEventArgs e)
+    {
+        if (Rows.SelectedItem is Place place)
+        {
+            await GoAsync(place);
         }
-        // 引いたら結果を出す。開いていなければ開く。
-        TocToggle.IsChecked = true;
-        OnToggleToc(this, new RoutedEventArgs());
-        Side.SelectedIndex = 1;
-        ChapterLabel.Text = outcome.Results.Count == 0
-            ? $"「{query}」は見つかりませんでした"
-            : $"{outcome.Results.Count} 件{(outcome.Truncated ? "（打ち切り）" : "")}";
+    }
+
+    // MARK: 移動
+
+    /// <summary>
+    /// 行き先へ飛ぶ。
+    ///
+    /// <para>
+    /// 飛んだ先は履歴に積む。<b>前後へ送っただけのものも積む</b>ので、
+    /// 章をいくつか送ってから検索で飛んでも、送った道を辿って帰れる。
+    /// </para>
+    /// </summary>
+    internal async Task GoAsync(Place place)
+    {
+        await _stage.GoAsync(place);
+        _history.Visit(Anchor(place.Fragment));
+        ShowHistory();
+    }
+
+    /// <summary>
+    /// 履歴に積む形。
+    ///
+    /// <para>
+    /// <b>行き先そのものではなく、着いた場所を積む。</b>
+    /// 当たりの一覧から積むと、書き出しが 1 件ずつ違うので同じ章でも別のものになり、
+    /// 同じ章の当たりを行き来しただけで履歴が伸びて、戻るを押しても同じ章に留まり続ける。
+    /// 語と番号も落とす（戻ったときに前の印を引きずらないため）。
+    /// </para>
+    /// </summary>
+    private Place Anchor(string? fragment = null) =>
+        new(_stage.Where.Title, _stage.Position.Href, fragment, _stage.Position.Page);
+
+    private void ShowHistory()
+    {
+        BackButton.IsEnabled = _history.CanGoBack;
+        ForwardButton.IsEnabled = _history.CanGoForward;
+    }
+
+    internal async Task GoBackAsync()
+    {
+        if (_history.GoBack() is { } place)
+        {
+            await _stage.GoAsync(place);
+            ShowHistory();
+        }
+    }
+
+    internal async Task GoForwardAsync()
+    {
+        if (_history.GoForward() is { } place)
+        {
+            await _stage.GoAsync(place);
+            ShowHistory();
+        }
+    }
+
+    private async void OnGoBack(object sender, RoutedEventArgs e) => await GoBackAsync();
+
+    private async void OnGoForward(object sender, RoutedEventArgs e) => await GoForwardAsync();
+
+    internal async Task MoveAsync(int delta)
+    {
+        if (await _stage.MoveAsync(delta))
+        {
+            _history.Visit(Anchor());
+            ShowHistory();
+        }
+    }
+
+    private async void OnGoPrev(object sender, RoutedEventArgs e) => await MoveAsync(-1);
+
+    private async void OnGoNext(object sender, RoutedEventArgs e) => await MoveAsync(1);
+
+    private async void OnKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.KeyboardDevice.Modifiers is not ModifierKeys.None || Query.IsKeyboardFocusWithin)
+        {
+            return;
+        }
+        switch (e.Key)
+        {
+            // 横は移動するための軸。前後の章・ページへ。
+            case Key.Right:
+                e.Handled = true;
+                await MoveAsync(1);
+                break;
+            case Key.Left:
+                e.Handled = true;
+                await MoveAsync(-1);
+                break;
+        }
+    }
+
+    // MARK: 引く
+
+    internal int HitCount => _found.Count;
+
+    /// <summary>最初の当たり。動作確認が飛び先として使う。</summary>
+    internal Place? FirstHit => _found.Count > 0 ? _found[0] : null;
+
+    internal int TocCount => _stage.Toc.Count;
+
+    internal async Task FindAsync(string query)
+    {
+        query = query.Trim();
+        Query.Text = query;
+
+        if (_stage.CannotSearch is { } reason)
+        {
+            _found = [];
+            ShowSide(Pane.Found);
+            StatusLabel.Text = reason;
+            return;
+        }
+
+        StatusLabel.Text = query.Length == 0 ? string.Empty : "引いています…";
+        var (hits, truncated) = await _stage.FindAsync(query);
+        _found = hits;
+
+        ShowSide(Pane.Found);
+        StatusLabel.Text = query.Length == 0
+            ? string.Empty
+            : hits.Count == 0
+                ? $"「{query}」は見つかりませんでした"
+                : $"{hits.Count} 件{(truncated ? "（打ち切り）" : "")}";
     }
 
     private async void OnQueryKey(object sender, KeyEventArgs e)
@@ -399,160 +331,164 @@ public partial class ReaderWindow : Window
         }
     }
 
-    private async void OnGoHit(object sender, MouseButtonEventArgs e)
+    // MARK: しおり
+
+    /// <summary>
+    /// しおりを行き先の形にする。
+    ///
+    /// <para>
+    /// <b>章の中の位置も渡す。</b>章の頭へ飛ばすだけでは、長い章に挟んだしおりが役に立たない。
+    /// </para>
+    /// </summary>
+    private IReadOnlyList<Place> Bookmarks() =>
+        [.. _store.StateOf(_bookPath).Bookmarks.Select(mark => new Place(
+            Label: mark.Label.Length > 0 ? mark.Label : mark.Text,
+            Href: mark.Href,
+            Page: mark.Page,
+            Progression: mark.Progression))];
+
+    private Bookmark Here() => new()
     {
-        if (Found.SelectedItem is HitRow row)
-        {
-            // 飛んだ先で当たりを囲む。印は配信の瞬間に入る。
-            await GoAsync(row.Href, null, (Query.Text.Trim(), row.Nth));
-        }
+        Href = _stage.Position.Href,
+        Progression = _stage.Position.Progression,
+        Page = _stage.Position.Page,
+        Label = _stage.Where.Title,
+        Text = _stage.Position.Text,
+    };
+
+    private bool HasBookmarkHere()
+    {
+        var here = Here();
+        return _store.StateOf(_bookPath).Bookmarks.Any(
+            mark => mark.Href == here.Href && mark.Page == here.Page
+                    && Math.Abs(mark.Progression - here.Progression) < 0.0005);
     }
 
-    /// <summary>章へ飛ぶ。印を指定すると、配信のときに本文へ入る。</summary>
-    internal async Task GoAsync(string href, string? fragment, (string Query, int Nth)? mark)
+    /// <summary>いまの場所にしおりを付ける。もう付いていれば外す。</summary>
+    internal void ToggleBookmark()
     {
-        var at = _session.Publication.ReadingOrder
-            .Select((link, index) => (link, index))
-            .FirstOrDefault(pair => pair.link.Href == href);
-        if (at.link is null)
+        var after = _store.ToggleBookmark(_bookPath, Here());
+        BookmarkButton.IsChecked = HasBookmarkHere();
+        StatusLabel.Text = HasBookmarkHere() ? "しおりを付けました" : "しおりを外しました";
+        if (_pane == Pane.Marks)
         {
-            return;
+            FillPane();
         }
-
-        _session.Delivery.SearchMark = mark;
-        await ShowAsync(at.index);
-        await WaitForReadyAsync(TimeSpan.FromSeconds(10));
-        if (mark is not null)
-        {
-            await Send(new { kind = "approach" });
-        }
-        else if (fragment is { Length: > 0 })
-        {
-            await Send(new { kind = "go", fragment });
-        }
+        BookmarkCount = after.Count;
     }
+
+    /// <summary>いまのしおりの数。動作確認が見る。</summary>
+    internal int BookmarkCount { get; private set; }
+
+    private void OnToggleBookmark(object sender, RoutedEventArgs e) => ToggleBookmark();
 
     // MARK: 表示設定
 
-    /// <summary>覚えていた設定を道具帯へ映す。組み立ての途中なので、当てるのはまだしない。</summary>
+    private void OnToggleStyle(object sender, RoutedEventArgs e) =>
+        StylePanel.IsOpen = StyleButton.IsChecked == true;
+
+    /// <summary>
+    /// 覚えていた設定を部品へ映す。
+    ///
+    /// <para>
+    /// 組み直せない書籍では、効く設定だけを出す。
+    /// 触れるのに何も起きない部品を並べると、効かないのか壊れているのか分からない。
+    /// </para>
+    /// </summary>
     private void ShowStyle()
     {
-        SizePicker.SelectedIndex = _style.FontSizePercent switch { 90 => 0, 120 => 2, 150 => 3, _ => 1 };
+        _settling = true;
+
+        SizeSlider.Value = _style.FontSizePercent;
+        LineSlider.Value = _style.LineHeight;
+        WidthSlider.Value = _style.MaxWidthEm;
+        CodeWrapBox.IsChecked = _style.CodeWrap;
+        PublisherBox.IsChecked = _style.PublisherStyle;
         ThemePicker.SelectedIndex = _style.Theme switch
         {
             ReaderTheme.Sepia => 1,
             ReaderTheme.Dark => 2,
             _ => 0,
         };
+
+        ReflowableOnly.Visibility = _stage.Reflowable ? Visibility.Visible : Visibility.Collapsed;
+        StyleNote.Visibility = _stage.Reflowable ? Visibility.Collapsed : Visibility.Visible;
+
+        ShowStyleValues();
+        _settling = false;
     }
 
-    private async void OnStyleChanged(object sender, SelectionChangedEventArgs e)
+    private void ShowStyleValues()
     {
-        if (!IsLoaded)
+        SizeValue.Text = $"{SizeSlider.Value:F0}%";
+        LineValue.Text = $"{LineSlider.Value:F1}";
+        WidthValue.Text = WidthSlider.Value >= 100 ? "制限なし" : $"{WidthSlider.Value:F0}em";
+    }
+
+    private async void OnStyleSlid(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        ShowStyleValues();
+        await ApplyPickedStyleAsync();
+    }
+
+    private async void OnStyleChanged(object sender, RoutedEventArgs e) => await ApplyPickedStyleAsync();
+
+    private async void OnStyleChanged(object sender, SelectionChangedEventArgs e) => await ApplyPickedStyleAsync();
+
+    private async Task ApplyPickedStyleAsync()
+    {
+        if (_settling)
         {
-            return; // 組み立ての途中では触らない。
+            return;
         }
-        var style = _style with
+        await ApplyStyleAsync(_style with
         {
-            FontSizePercent = SizePicker.SelectedIndex switch { 0 => 90, 2 => 120, 3 => 150, _ => 100 },
+            FontSizePercent = SizeSlider.Value,
+            LineHeight = LineSlider.Value,
+            MaxWidthEm = WidthSlider.Value,
+            CodeWrap = CodeWrapBox.IsChecked == true,
+            PublisherStyle = PublisherBox.IsChecked == true,
             Theme = ThemePicker.SelectedIndex switch
             {
                 1 => ReaderTheme.Sepia,
                 2 => ReaderTheme.Dark,
                 _ => ReaderTheme.Light,
             },
-        };
-        await ApplyStyleAsync(style);
+        });
         // 次に開く窓も同じ見え方にする。
-        _store.SaveSettings(style);
-    }
-
-    // MARK: 移動
-
-    internal async Task MoveAsync(int delta)
-    {
-        if (_session.Move(delta))
-        {
-            await ShowAsync(_session.Index);
-        }
-    }
-
-    /// <summary>読み順の 1 つを出す。名乗るまで待てるようにしておく（動作確認が使う）。</summary>
-    internal async Task ShowAsync(int index)
-    {
-        _session.MoveTo(index);
-        var href = _session.HrefAt(_session.Index);
-        ChapterLabel.Text = _session.TitleAt(_session.Index);
-        Title = $"{_session.Publication.Title} — {ChapterLabel.Text}";
-
-        // **開いた時点で章を控える。**
-        // 章の中のどこかは、便りが届いたときに書き足す（理由は RememberChapter に）。
-        _store.RememberChapter(_bookPath, href);
-
-        _awaitingReady = new TaskCompletionSource<bool>();
-        _awaitingPosition = new TaskCompletionSource<bool>();
-        Body.CoreWebView2.Navigate(ResourceDelivery.UrlOf(href));
-    }
-
-    /// <summary>
-    /// 本文が名乗るまで待つ。
-    ///
-    /// <b>窓の数だけを見ていては、枠だけ出来て中身が空の状態を捕まえられない。</b>
-    /// 画面が名乗るところまで見る（spikes/findings-tauri.md）。
-    /// </summary>
-    internal async Task<bool> WaitForReadyAsync(TimeSpan timeout)
-    {
-        var waiting = _awaitingReady;
-        if (waiting is null)
-        {
-            return false;
-        }
-        var finished = await Task.WhenAny(waiting.Task, Task.Delay(timeout));
-        return finished == waiting.Task && waiting.Task.Result;
-    }
-
-    /// <summary>
-    /// 位置の便りが届くまで待つ。
-    ///
-    /// <para>
-    /// 便りは 120 ミリ秒に間引いてある。<b>待たずに次へ進むと、毎回捨てられる。</b>
-    /// 追従が生きているかを確かめたいときは、ここで待つ。
-    /// </para>
-    /// </summary>
-    internal async Task<bool> WaitForPositionAsync(TimeSpan timeout)
-    {
-        var waiting = _awaitingPosition;
-        if (waiting is null)
-        {
-            return false;
-        }
-        var finished = await Task.WhenAny(waiting.Task, Task.Delay(timeout));
-        return finished == waiting.Task && waiting.Task.Result;
-    }
-
-    /// <summary>
-    /// ページの中の様子を聞く。名乗らなかったときの切り分けに使う。
-    ///
-    /// <para>
-    /// <c>ExecuteScriptAsync</c> は <c>IsScriptEnabled = false</c> でも使える
-    /// （spikes/findings-windows.md のスパイク 3）。書籍の script を動かさずに中を覗ける。
-    /// </para>
-    /// </summary>
-    internal async Task<string> AskAsync(string expression)
-    {
-        try
-        {
-            return await Body.CoreWebView2.ExecuteScriptAsync(expression);
-        }
-        catch (Exception e)
-        {
-            return $"\"{e.GetType().Name}\"";
-        }
+        _store.SaveSettings(_style);
     }
 
     internal async Task ApplyStyleAsync(ReaderStyle style)
     {
         _style = style;
-        await Send(new { kind = "style", css = _style.Css() });
+        await _stage.ApplyStyleAsync(style);
     }
+
+    // MARK: 書棚
+
+    /// <summary>
+    /// 書棚を開く。
+    ///
+    /// <para>
+    /// <b>いったん催しの列へ戻してから開く。</b>WebView2 は自分の呼び返しの最中に
+    /// 次の WebView を作らせず、枠だけ出来て中身が空になる（windows/README.md の規則）。
+    /// </para>
+    /// </summary>
+    private void OnOpenShelf(object sender, RoutedEventArgs e) =>
+        Dispatcher.BeginInvoke(new Action(() => ((App)Application.Current).OpenShelf()));
+
+    // MARK: 動作確認のための覗き口
+
+    /// <summary>舞台。動作確認が形式ごとの中身を見る。</summary>
+    internal IStage Stage => _stage;
+
+    /// <summary>戻れるか。動作確認が「飛んだあと帰れるか」を見る。</summary>
+    internal bool CanGoBack => _history.CanGoBack;
+
+    internal bool CanGoForward => _history.CanGoForward;
+
+    internal WebStage? Web => _stage as WebStage;
+
+    internal PdfStage? Paper => _stage as PdfStage;
 }

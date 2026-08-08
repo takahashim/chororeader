@@ -1,40 +1,61 @@
 <Window x:Class="ChoroReader.App.ReaderWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        Title="ChoroReader" Height="800" Width="900">
+        Title="ChoroReader" Height="820" Width="1000">
     <!--
-        殻はネイティブ、本文だけ WebView2。
-        道具帯・目次・検索・表示設定はすべてこちら側にあり、WebView の中には入れない。
+        読書の窓。形式で分けない。
+        道具帯・サイドバー・下辺は形式に依らず同じ場所にあり、差し替わるのは舞台だけ。
+        殻はすべてネイティブで、WebView の中には入れない。
     -->
+    <Window.Resources>
+        <Style x:Key="ToolButton" TargetType="ButtonBase">
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="Margin" Value="2,0" />
+            <Setter Property="MinWidth" Value="28" />
+        </Style>
+        <Style x:Key="PaneTab" TargetType="RadioButton">
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="Margin" Value="1,0" />
+        </Style>
+    </Window.Resources>
+
     <DockPanel>
         <!-- 道具帯 -->
-        <DockPanel DockPanel.Dock="Top" Margin="8,8,8,4">
-            <ToggleButton x:Name="TocToggle" DockPanel.Dock="Left" Content="目次"
-                          Padding="10,4" Click="OnToggleToc" />
-            <ComboBox x:Name="ThemePicker" DockPanel.Dock="Right" Width="90" Margin="8,0,0,0"
-                      SelectionChanged="OnStyleChanged" ToolTip="明暗テーマ">
-                <ComboBoxItem Content="明るい" IsSelected="True" />
-                <ComboBoxItem Content="セピア" />
-                <ComboBoxItem Content="暗い" />
-            </ComboBox>
-            <ComboBox x:Name="SizePicker" DockPanel.Dock="Right" Width="80" Margin="8,0,0,0"
-                      SelectionChanged="OnStyleChanged" ToolTip="文字サイズ">
-                <ComboBoxItem Content="90%" />
-                <ComboBoxItem Content="100%" IsSelected="True" />
-                <ComboBoxItem Content="120%" />
-                <ComboBoxItem Content="150%" />
-            </ComboBox>
-            <TextBox x:Name="Query" Margin="8,0,0,0" Padding="6,4"
-                     KeyDown="OnQueryKey" ToolTip="この本の中を引く" />
+        <DockPanel DockPanel.Dock="Top" Margin="8,6,8,4" LastChildFill="True">
+            <ToggleButton x:Name="SideToggle" DockPanel.Dock="Left" Style="{StaticResource ToolButton}"
+                          Content="☰" ToolTip="サイドバー" Click="OnToggleSide" />
+            <Button x:Name="BackButton" DockPanel.Dock="Left" Style="{StaticResource ToolButton}"
+                    Content="‹" ToolTip="戻る" Click="OnGoBack" IsEnabled="False" />
+            <Button x:Name="ForwardButton" DockPanel.Dock="Left" Style="{StaticResource ToolButton}"
+                    Content="›" ToolTip="進む" Click="OnGoForward" IsEnabled="False" />
+
+            <Button x:Name="ShelfButton" DockPanel.Dock="Right" Style="{StaticResource ToolButton}"
+                    Content="書棚" ToolTip="書棚を開く" Click="OnOpenShelf" />
+            <ToggleButton x:Name="StyleButton" DockPanel.Dock="Right" Style="{StaticResource ToolButton}"
+                          Content="Aa" ToolTip="表示設定" Click="OnToggleStyle" />
+            <ToggleButton x:Name="BookmarkButton" DockPanel.Dock="Right" Style="{StaticResource ToolButton}"
+                          Content="☆" ToolTip="しおり" Click="OnToggleBookmark" />
+            <TextBox x:Name="Query" DockPanel.Dock="Right" Width="220" Margin="8,0,2,0" Padding="6,3"
+                     KeyDown="OnQueryKey" ToolTip="この書籍を検索（Enter で実行）" />
+
+            <!-- 書名と、いま出しているところ。残った幅をすべて使う。 -->
+            <TextBlock x:Name="PlaceLabel" Margin="12,0" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" />
         </DockPanel>
 
+        <!-- 下辺。状態・前後・進み具合。 -->
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
-                <TextBlock x:Name="ChapterLabel" Text="" />
+                <TextBlock x:Name="StatusLabel" Text="" />
             </StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
-                <TextBlock x:Name="PositionLabel" Text="" />
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="PrevButton" Style="{StaticResource ToolButton}"
+                            Content="‹" ToolTip="前へ" Click="OnGoPrev" />
+                    <Button x:Name="NextButton" Style="{StaticResource ToolButton}"
+                            Content="›" ToolTip="次へ" Click="OnGoNext" />
+                    <TextBlock x:Name="PositionLabel" Text="" Margin="10,0,4,0" VerticalAlignment="Center" />
+                </StackPanel>
             </StatusBarItem>
         </StatusBar>
 
@@ -44,17 +65,78 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- 目次と検索結果。押した行へ飛ぶ。 -->
-            <TabControl x:Name="Side" Grid.Column="0" Margin="8,0,4,8">
-                <TabItem Header="目次">
-                    <ListBox x:Name="Toc" MouseDoubleClick="OnGoToc" />
-                </TabItem>
-                <TabItem Header="検索">
-                    <ListBox x:Name="Found" MouseDoubleClick="OnGoHit" />
-                </TabItem>
-            </TabControl>
+            <!-- サイドバー。目次・ページ・検索・しおり。中身は面ごとに差し替わる。 -->
+            <DockPanel x:Name="Side" Grid.Column="0" Margin="8,0,4,8">
+                <StackPanel x:Name="PaneTabs" DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                    <RadioButton x:Name="TocTab" Style="{StaticResource PaneTab}" GroupName="pane"
+                                 Content="目次" IsChecked="True" Checked="OnPaneChanged" />
+                    <RadioButton x:Name="PagesTab" Style="{StaticResource PaneTab}" GroupName="pane"
+                                 Content="ページ" Checked="OnPaneChanged" />
+                    <RadioButton x:Name="FoundTab" Style="{StaticResource PaneTab}" GroupName="pane"
+                                 Content="検索" Checked="OnPaneChanged" />
+                    <RadioButton x:Name="MarksTab" Style="{StaticResource PaneTab}" GroupName="pane"
+                                 Content="しおり" Checked="OnPaneChanged" />
+                </StackPanel>
 
-            <wv2:WebView2 x:Name="Body" Grid.Column="1" Margin="4,0,8,8" />
+                <Grid>
+                    <ListBox x:Name="Rows" MouseDoubleClick="OnGoRow" />
+                    <!-- 一覧が空のときは、空であることの理由を出す。 -->
+                    <TextBlock x:Name="PaneNote" Visibility="Collapsed" Margin="12"
+                               TextWrapping="Wrap" Foreground="Gray" />
+                </Grid>
+            </DockPanel>
+
+            <!-- 舞台。形式によって WebView2 かネイティブ描画が入る。 -->
+            <ContentControl x:Name="StageHost" Grid.Column="1" Margin="4,0,8,8" />
+
+            <!-- 表示設定。道具帯の Aa から出す。 -->
+            <Popup x:Name="StylePanel" Grid.Column="1" PlacementTarget="{Binding ElementName=StyleButton}"
+                   Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+                <Border Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"
+                        BorderBrush="Gray" BorderThickness="1" Padding="14" Width="300">
+                    <StackPanel>
+                        <TextBlock Text="テーマ" Margin="0,0,0,4" />
+                        <ComboBox x:Name="ThemePicker" SelectionChanged="OnStyleChanged">
+                            <ComboBoxItem Content="明るい" IsSelected="True" />
+                            <ComboBoxItem Content="セピア" />
+                            <ComboBoxItem Content="暗い" />
+                        </ComboBox>
+
+                        <StackPanel x:Name="ReflowableOnly" Margin="0,12,0,0">
+                            <DockPanel>
+                                <TextBlock Text="文字サイズ" />
+                                <TextBlock x:Name="SizeValue" HorizontalAlignment="Right" Foreground="Gray" />
+                            </DockPanel>
+                            <Slider x:Name="SizeSlider" Minimum="70" Maximum="220" TickFrequency="5"
+                                    IsSnapToTickEnabled="True" ValueChanged="OnStyleSlid" />
+
+                            <DockPanel Margin="0,8,0,0">
+                                <TextBlock Text="行間" />
+                                <TextBlock x:Name="LineValue" HorizontalAlignment="Right" Foreground="Gray" />
+                            </DockPanel>
+                            <Slider x:Name="LineSlider" Minimum="1.2" Maximum="2.6" TickFrequency="0.1"
+                                    IsSnapToTickEnabled="True" ValueChanged="OnStyleSlid" />
+
+                            <DockPanel Margin="0,8,0,0">
+                                <TextBlock Text="本文幅" />
+                                <TextBlock x:Name="WidthValue" HorizontalAlignment="Right" Foreground="Gray" />
+                            </DockPanel>
+                            <Slider x:Name="WidthSlider" Minimum="28" Maximum="100" TickFrequency="2"
+                                    IsSnapToTickEnabled="True" ValueChanged="OnStyleSlid" />
+
+                            <CheckBox x:Name="CodeWrapBox" Content="コードを折り返す" Margin="0,10,0,0"
+                                      Click="OnStyleChanged" />
+                            <CheckBox x:Name="PublisherBox" Content="出版社のスタイルを優先" Margin="0,6,0,0"
+                                      Click="OnStyleChanged" />
+                        </StackPanel>
+
+                        <!-- 紙面には効かない設定を並べても、触れるだけで何も起きない。 -->
+                        <TextBlock x:Name="StyleNote" Visibility="Collapsed" Margin="0,10,0,0"
+                                   TextWrapping="Wrap" Foreground="Gray"
+                                   Text="この書籍はページの見た目が決まっているため、文字の組み直しはできません。" />
+                    </StackPanel>
+                </Border>
+            </Popup>
         </Grid>
     </DockPanel>
 </Window>
