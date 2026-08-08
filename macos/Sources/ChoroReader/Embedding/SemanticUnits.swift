@@ -161,7 +161,7 @@ enum SemanticUnits {
     /// **ページごとに切る。** 節の範囲でまとめると、着いた先が節の頭になってしまう。
     /// ページ単位なら飛び先のページが正確に決まり、目印で行まで寄せられる。
     private static func pdfPieces(_ pdf: PDFKit.PDFDocument, leastCharacters: Int) -> [Piece] {
-        let titles = sectionTitles(pdf)
+        let titles = pageTitles(pdf)
         // **巻末の索引は載せない**（`BackIndex`）。EPUB と同じ扱いである。
         let skip = BackIndex.range(in: pdf, pageTitles: titles)
         var made: [Piece] = []
@@ -190,7 +190,9 @@ enum SemanticUnits {
     }
 
     /// ページごとの「いまどの節か」。アウトラインから引く。
-    private static func sectionTitles(_ pdf: PDFKit.PDFDocument) -> [String] {
+    ///
+    /// **巻末の索引を見つける側（`BackIndex`）でも使う。** 同じものを 2 つ持たない。
+    static func pageTitles(_ pdf: PDFKit.PDFDocument) -> [String] {
         var titles = [String](repeating: "", count: pdf.pageCount)
         guard let root = pdf.outlineRoot else { return titles }
 

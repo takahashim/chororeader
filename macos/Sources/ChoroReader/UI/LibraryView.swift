@@ -35,6 +35,8 @@ struct LibraryView: View {
     @State private var confirmingRemoval = false
     @StateObject private var search = LibrarySearchModel()
     @StateObject private var semantic = SemanticSearchModel()
+    /// 蔵書の用語索引を横断して引く。**著者が扱うと認めた語だけが当たる。**
+    @StateObject private var terms = TermSearchModel()
     /// 一覧に出す本文。索引には控えていないので、原書から読む。
     @StateObject private var passages = PassageTextLoader()
     /// 並べ直し。**押されたときにだけ走る**（spec-local-ai.md 第 5.3 節）。
@@ -259,6 +261,7 @@ struct LibraryView: View {
                 .onChange(of: searchKind) { _, _ in
                     search.clear()
                     semantic.clear()
+                    terms.clear()
                     rerank.clear()
                     if !queryText.isEmpty { runSearch() }
                 }
@@ -276,6 +279,7 @@ struct LibraryView: View {
                     queryText = ""
                     search.clear()
                     semantic.clear()
+                    terms.clear()
                     rerank.clear()
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -284,7 +288,7 @@ struct LibraryView: View {
                 .help("検索をやめる")
             }
             if searchKind == .semantic, !semantic.found.isEmpty { rerankButton }
-            if search.running || semantic.running || rerank.running {
+            if search.running || semantic.running || rerank.running || terms.reading {
                 ProgressView().controlSize(.small)
             }
             if !progressLabel.isEmpty {
@@ -344,10 +348,15 @@ struct LibraryView: View {
 
     /// いま引いている問い。画面を切り替える判断に使う。
     private var currentQuery: String {
-        searchKind == .semantic ? semantic.query : search.query
+        switch searchKind {
+        case .semantic: return semantic.query
+        case .term: return terms.query
+        case .exact: return search.query
+        }
     }
 
     private var progressLabel: String {
+        if searchKind == .term { return terms.status }
         if searchKind == .semantic {
             if semantic.running { return "探しています" }
             if rerank.running { return "並べ直しています" }
@@ -370,6 +379,8 @@ struct LibraryView: View {
         switch searchKind {
         case .exact:
             search.run(queryText, over: store.recent) { store.resolveURL(for: $0) }
+        case .term:
+            terms.run(queryText, over: store.recent) { store.resolveURL(for: $0) }
         case .semantic:
             rerank.clear()
             semantic.run(queryText, over: store.recent) { store.resolveURL(for: $0) }
@@ -378,10 +389,56 @@ struct LibraryView: View {
 
     private var results: some View {
         Group {
-            if searchKind == .semantic {
-                semanticResults
+            switch searchKind {
+            case .semantic: semanticResults
+            case .term: termResults
+            case .exact: exactResults
+            }
+        }
+    }
+
+    /// 用語索引で引いた結果。
+    ///
+    /// **件数を出してよい。** 意味の近さと違い、載っているか載っていないかで
+    /// 決まる当たりだからである。ただし「索引の無い本」は隠さない。
+    private var termResults: some View {
+        Group {
+            if terms.found.hits.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "text.book.closed")
+                        .font(.system(size: 36)).foregroundStyle(.secondary)
+                    Text(terms.reading ? "索引を読んでいます"
+                                       : "この語を索引に載せている本はありません")
+                        .foregroundStyle(.secondary)
+                    if !terms.reading, terms.found.withoutIndex > 0 {
+                        Text("巻末に索引のある本だけを引いています（索引の無い本 \(terms.found.withoutIndex) 冊）")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                exactResults
+                List(terms.found.hits) { hit in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(hit.book.displayTitle).font(.callout).lineLimit(1)
+                            // 載っていた形。問いと同じとは限らない。
+                            Text(hit.term)
+                                .font(.caption)
+                                .foregroundStyle(hit.isExact ? Color.primary : Color.secondary)
+                        }
+                        Spacer(minLength: 6)
+                        if hit.isExact {
+                            Text("そのもの").font(.caption2).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        // 索引の語を、その本の中で引き直す。索引は頁を指すが、
+                        // こちらは本文を引ける（二字組の索引が既にある）。
+                        openWindow(value: BookRoute(path: hit.book.path, locator: nil, query: hit.term))
+                    }
+                }
             }
         }
     }
@@ -786,12 +843,13 @@ private struct HitRow: View {
 /// 当たった語を囲める。意味の近さには当たりが無く、囲むものも無い。
 /// 同じ一覧に並べると、どちらの目で見ればよいのか分からなくなる。
 enum SearchKind: String, CaseIterable, Identifiable {
-    case exact, semantic
+    case exact, term, semantic
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .exact: return "語句"
+        case .term: return "用語"
         case .semantic: return "意味"
         }
     }
