@@ -69,9 +69,10 @@ final class SemanticIndexBuilder: ObservableObject {
         guard enabled, !warmed, EmbeddingModelStore.installed() != nil else { return }
         warmed = true
         Task.detached(priority: .utility) {
-            guard #available(macOS 15, *), let model = EmbeddingModelStore.installed() else { return }
+            guard #available(macOS 15, *) else { return }
             // 短い問いを 1 回通す。これで問いが使うバケットが開く。
-            _ = try? CoreMLEmbedder(model: model).embed("架空", as: .query)
+            // **持ち回る係を通す**（その場で作って捨てると、温めた先が残らない）。
+            _ = try? EmbedderHolder.shared.use { try $0.embed("架空", as: .query) }
         }
     }
 
@@ -165,15 +166,15 @@ final class SemanticIndexBuilder: ObservableObject {
                                           stop: StopFlag,
                                           report: @escaping (Int, Int) -> Void) -> Outcome {
         guard #available(macOS 15, *) else { return .done }
-        guard let model = EmbeddingModelStore.installed() else { return .done }
         guard let source = SearchIndexStore.open(url) else {
             return .failure("\(url.lastPathComponent) を開けませんでした")
         }
         do {
-            let embedder = try CoreMLEmbedder(model: model)
-            _ = try SemanticIndexStore.build(for: url, source: source, embedder: embedder,
+            _ = try EmbedderHolder.shared.use { embedder in
+                try SemanticIndexStore.build(for: url, source: source, embedder: embedder,
                                              progress: { report($0.done, $0.total) },
                                              shouldStop: { stop.wanted })
+            }
             return .done
         } catch {
             return .failure(error.localizedDescription)

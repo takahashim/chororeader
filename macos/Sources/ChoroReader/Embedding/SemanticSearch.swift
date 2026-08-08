@@ -42,7 +42,7 @@ final class SemanticSearchModel: ObservableObject {
         generation += 1
         let mine = generation
         query = text
-        guard #available(macOS 15, *), let model = EmbeddingModelStore.installed() else {
+        guard #available(macOS 15, *), EmbeddingModelStore.installed() != nil else {
             found = []
             reason = "意味検索は macOS 15 以降で、モデルを入れてから使えます"
             return
@@ -62,8 +62,10 @@ final class SemanticSearchModel: ObservableObject {
         Task.detached(priority: .userInitiated) {
             let vector: [Float]
             do {
-                let embedder = try CoreMLEmbedder(model: model)
-                vector = try embedder.embed(text, as: .query).vector
+                // 持ち回っているものを使う。作り直すと 1 回 600 ms かかる。
+                guard let made = try EmbedderHolder.shared.use({ try $0.embed(text, as: .query) })
+                else { return }
+                vector = made.vector
             } catch {
                 await MainActor.run { [weak self] in
                     guard let self, self.generation == mine else { return }

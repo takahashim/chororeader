@@ -274,10 +274,12 @@ struct LibraryView: View {
         if searchKind == .semantic {
             if semantic.running { return "探しています" }
             guard !semantic.query.isEmpty else { return "" }
-            // まだ読み込んでいない本があることを隠さない。
-            // 「無かった」のか「見ていない」のかで、次にすることが変わる。
-            let missing = semantic.missing > 0 ? "・未読み込み \(semantic.missing) 冊" : ""
-            return "\(semantic.found.count) 件\(missing)"
+            // **件数は出さない**（spec-local-ai.md 第 5.2 節）。
+            // 「17 件」と言えるのは、当たりを数えられる正確な検索だけである。
+            // 意味の近さに当たりは無いので、数を出すと「全部見つけた」に見えてしまう。
+            // 一方で、まだ読み込んでいない本があることは隠さない。
+            // 「無かった」のか「見ていない」のかで、人が次にすることが変わる。
+            return semantic.missing > 0 ? "未読み込み \(semantic.missing) 冊" : ""
         }
         if let building = search.building { return "索引を作成中：\(building)" }
         if search.running { return "\(search.searched) / \(search.total) 冊" }

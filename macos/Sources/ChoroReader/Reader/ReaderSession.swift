@@ -183,7 +183,7 @@ final class ReaderSession: ObservableObject {
     }
 
     private func run(seed text: String) {
-        guard #available(macOS 15, *), let model = EmbeddingModelStore.installed() else {
+        guard #available(macOS 15, *), EmbeddingModelStore.installed() != nil else {
             relatedReason = "意味の層を使えません"
             return
         }
@@ -192,17 +192,12 @@ final class ReaderSession: ObservableObject {
         relatedReason = nil
         let mine = document.id
         Task.detached(priority: .userInitiated) {
-            let vector: [Float]?
-            do {
-                // 本文どうしの比較なので、種も文書として埋め込む（両側を揃える）。
-                vector = try CoreMLEmbedder(model: model).embed(text, as: .document).vector
-            } catch {
-                vector = nil
-            }
+            // 本文どうしの比較なので、種も文書として埋め込む（両側を揃える）。
+            let vector = try? EmbedderHolder.shared.use { try $0.embed(text, as: .document).vector }
             await MainActor.run { [weak self] in
                 guard let self, self.relatedSeed == text else { return }
                 self.relatedRunning = false
-                guard let vector else {
+                guard let vector = vector ?? nil else {
                     self.relatedReason = "うまく引けませんでした"
                     return
                 }
