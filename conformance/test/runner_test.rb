@@ -63,3 +63,24 @@ class CompareTest < Minitest::Test
     assert_empty @runner.compare({ "progression" => 0.123 }, { "progression" => 0.123 })
   end
 end
+
+# 期待値の置き場所は事例の名前から作る。記号や漢字は潰れるので、
+# 長さの同じ問い合わせ 2 つが同じ名前に落ちうる。そのまま通すと、
+# 片方の期待値がもう片方を上書きし、両方とも通ったように見えてしまう。
+class ExpectedPathTest < Minitest::Test
+  def setup
+    @runner = Runner.new(out: StringIO.new)
+  end
+
+  def test_detects_colliding_expected_paths
+    cases = [{ id: "search/counting/まま" }, { id: "search/counting/こう" }]
+    error = assert_raises(RuntimeError) { @runner.send(:ensure_distinct_expected_paths, cases) }
+    assert_includes error.message, "まま"
+    assert_includes error.message, "こう"
+  end
+
+  def test_allows_distinct_expected_paths
+    cases = [{ id: "search/counting/まま" }, { id: "search/counting/っこう" }]
+    @runner.send(:ensure_distinct_expected_paths, cases)
+  end
+end

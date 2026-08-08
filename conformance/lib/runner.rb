@@ -117,7 +117,24 @@ class Runner
         list << kase.merge(fixture: path)
       end
     end
+    ensure_distinct_expected_paths(list)
     list
+  end
+
+  # 期待値の置き場所は、事例の名前から作る。
+  # 記号や漢字は `_` に均すので、長さの同じ問い合わせ 2 つが同じ名前に落ちうる。
+  # そうなると片方の期待値がもう片方を上書きし、両方とも通ったように見えてしまう。
+  # 名前を作る規則を変えると既存の期待値が全部引っ越すので、重なりを見つけて止めるだけにする。
+  def ensure_distinct_expected_paths(cases)
+    seen = {}
+    cases.each do |kase|
+      name = File.basename(expected_path(kase[:id]))
+      if (other = seen[name])
+        raise "事例「#{other}」と「#{kase[:id]}」の期待値が同じ置き場所（#{name}）になります。" \
+              "どちらかの名前を変えてください。"
+      end
+      seen[name] = kase[:id]
+    end
   end
 
   # 手元の実書籍に対する突き合わせ。期待値は持たず、2 実装の出力差だけを見る。
@@ -145,11 +162,13 @@ class Runner
     end
 
     @out.puts "#{label}: #{total} 件中 #{failures.size} 件が不一致"
-    failures.each do |id, diffs|
-      @out.puts "\n  #{id}"
-      Array(diffs).first(12).each { |line| @out.puts "    #{line}" }
-      @out.puts "    （ほか #{Array(diffs).size - 12} 件）" if Array(diffs).size > 12
-    end
+    failures.each { |id, diffs| print_case(id, diffs) }
     false
+  end
+
+  def print_case(id, diffs)
+    @out.puts "\n  #{id}"
+    Array(diffs).first(12).each { |line| @out.puts "    #{line}" }
+    @out.puts "    （ほか #{Array(diffs).size - 12} 件）" if Array(diffs).size > 12
   end
 end
