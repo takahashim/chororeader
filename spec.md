@@ -498,10 +498,13 @@ NavigationHistoryEntry
 注入したスクリプトだけが動く。窓との通信は `WKUserContentController` の
 メッセージハンドラ（native bridge）1 本に限る。
 
-**C# 版**（これから作る。設計は windows/README.md）も本文専用の WebView2 を持つので、
-webview 単位で切れる。`IsScriptEnabled = false` にしても
-`AddScriptToExecuteOnDocumentCreated` の注入は走るという WebView2 の性質に乗る。
-macOS 版と同じ形で、窓との通信は `WebMessageReceived` の 1 本に限る。
+**C# 版**（これから作る。設計は windows/README.md）は本文専用の WebView2 を持つが、
+**止めるのは webview 単位ではなく CSP である。**
+`IsScriptEnabled = false` にすると、注入したスクリプトが張ったリスナまで発火しなくなり、
+スクロールも鍵盤も動かない（Tauri 版が sandbox で踏んだのと同じ性質）。
+配信する本文に `script-src 'none'` を付け、
+`AddScriptToExecuteOnDocumentCreated` の注入は CSP の外にあるという性質に乗る。
+窓との通信は `WebMessageReceived` の 1 本に限る。
 配信は `https://choro.invalid/` への要求の横取りで行い（独自スキームは登録できなかった。
 spikes/findings-windows.md）、アーカイブ外の要求は拒む。
 `.invalid` は名前解決に成功しないので、横取りに漏れがあっても外へ出ない。

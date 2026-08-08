@@ -308,3 +308,58 @@ WKUserScript がページの CSP に縛られないのと同じ扱いで、こ�
 
 巻き込まれた場合は `script-src` を緩めるつもりだったが、その必要は無かった。
 `webview2-spike` ジョブが毎回この 2 周目まで回すので、版が上がって変わったら落ちる。
+
+
+## IsScriptEnabled = false ではリスナが発火しない（2026-08-08）
+
+読書の窓を組んで動作確認を回したら、本文が名乗らなかった。
+判定に理由を出させたところ、こうなった。
+
+```
+移動が成った  true      配った要求  200 ch01.xhtml / 200 book.css / 200 cover.png
+本文の状態    "complete"  本文の丈    313
+注入が走った  true      橋がある    true      便りの失敗  null
+届いた便り    []
+```
+
+読み込めていて、注入も走っていて、橋もあって、postMessage も失敗していないのに、
+便りが 1 つも届かない。**`ready()` そのものが呼ばれていなかった。**
+`ready()` は `DOMContentLoaded` に預けてあった。
+
+**`IsScriptEnabled = false` は「その文書に紐づく script を走らせない」という意味で、
+注入したスクリプトが張ったリスナも発火しない。**
+Tauri 版が `sandbox` で踏んだのと同じ性質である（spikes/findings-tauri.md
+「本文の中では何も動いていなかった」）。機構は違うが帰結は同じだった。
+
+WKWebView は違う。`allowsContentJavaScript = false` にしても `WKUserScript` は
+リスナごと生きる。macOS 版はその性質に乗っている。**WebView2 では乗れない。**
+
+### スパイクが見落とした理由
+
+スパイク 3 の注入スクリプトは、**同期に** postMessage していた。
+
+```js
+window.__choroInjected = true;
+window.chrome.webview.postMessage(...);   // リスナを経由しない
+```
+
+注入が走ることと、リスナが発火することは別である。前者だけを見て
+「macOS 版と同じ前提が成り立つ」と結論していた。
+読書が要るのは後者（スクロール・鍵盤・DOMContentLoaded）のほうである。
+
+スパイクに、リスナ越しの便りを足した。あわせて設定の組み合わせを測る。
+
+- エンジンで止める（`IsScriptEnabled = false`）＋ CSP
+- CSP だけで止める（`IsScriptEnabled = true`）＋ CSP
+
+通す条件は、出荷する設定（CSP だけで止める）で
+「書籍の script が止まり、注入もリスナも便りも生きている」ことである。
+
+### 止め方を CSP へ移した
+
+書籍の script を止めるのは `script-src 'none'` の役目とし、エンジンの段では止めない。
+CSP はブラウザが強制するので、`<script>` 要素・`on…=` 属性・`javascript:` URL・
+`<svg><script>` という書き方の違いに依らない（spec.md 15.1）。
+Tauri 版が sandbox をやめて CSP へ移したのと同じ筋である。
+
+層が 1 つ減る。エンジンとの二重の網は、リスナを殺さずには張れない。

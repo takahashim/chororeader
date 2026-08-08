@@ -41,13 +41,13 @@ public sealed class ResourceDelivery
     /// 本文に付ける CSP。資源の取り寄せ先を配信元だけに限り、外への通信を塞ぐ。
     ///
     /// <para>
-    /// 書籍の script はエンジンの段で止める（<c>IsScriptEnabled = false</c>）。
-    /// ここはその上に重ねる二重の網なので <c>script-src 'none'</c> にしてある。
-    /// <b>注入するスクリプト（<c>AddScriptToExecuteOnDocumentCreated</c>）まで
-    /// 巻き込まれると読書の仕掛けが全部死ぬ</b>ので、巻き込まれないことを
-    /// WebView2 のスパイクが毎回確かめる（<c>cspAssumptionHolds</c>）。
-    /// 巻き込まれると分かったら、<c>script-src</c> を緩める。
-    /// エンジンの段で止まっているので、緩めても書籍の script は動かない。
+    /// <b>書籍の script を止めるのはここである。</b><c>script-src 'none'</c> がその役を負う。
+    /// エンジンの段（<c>IsScriptEnabled = false</c>）では止めない。
+    /// あれは「その文書に紐づく script を走らせない」という意味で、
+    /// 注入したスクリプトが張ったリスナまで発火しなくなり、読書の仕掛けが止まる。
+    /// <c>AddScriptToExecuteOnDocumentCreated</c> の注入は CSP の外にあり、そのまま走る。
+    /// 書籍の script が止まり、注入もリスナも便りも生きていることは、
+    /// WebView2 のスパイクが毎回確かめる（spikes/findings-windows.md）。
     /// </para>
     /// <para>
     /// <c>style-src</c> にだけ <c>'unsafe-inline'</c> が要る。

@@ -32,14 +32,29 @@ internal static class Program
         </body></html>
         """;
 
-    /// <summary>アプリが注入するスクリプト。macOS 版の注入スクリプトと同じ役割。</summary>
+    /// <summary>
+    /// アプリが注入するスクリプト。macOS 版の注入スクリプトと同じ役割。
+    ///
+    /// <para>
+    /// <b>同期の便りと、リスナ越しの便りを別々に出す。</b>
+    /// 読書の窓が要るのは後者（スクロール・鍵盤・DOMContentLoaded）だが、
+    /// 前者だけを見ていると「注入は動く」と早合点する。実際それで見落とした。
+    /// </para>
+    /// </summary>
     private const string InjectedScript = """
         window.__choroInjected = true;
-        try {
-          window.chrome.webview.postMessage(JSON.stringify({ kind: 'hello', title: document.title }));
-        } catch (e) {
-          window.__choroPostFailed = String(e);
+        function choroPost(m) {
+          try {
+            window.chrome.webview.postMessage(JSON.stringify(m));
+          } catch (e) {
+            window.__choroPostFailed = String(e);
+          }
         }
+        choroPost({ kind: 'hello', title: document.title });
+        document.addEventListener('DOMContentLoaded', function () {
+          window.__choroListenerFired = true;
+          choroPost({ kind: 'listener' });
+        });
         """;
 
     private const string SchemeName = "choro";
@@ -187,62 +202,74 @@ internal static class Program
             return 1;
         }
 
-        var injected = await core.ExecuteScriptAsync("window.__choroInjected === true");
-        var paragraph = await core.ExecuteScriptAsync("document.getElementById('p').textContent");
-        var title = await core.ExecuteScriptAsync("document.title");
-        var postFailure = await core.ExecuteScriptAsync("window.__choroPostFailed || null");
-        Step("判定用のスクリプトを実行した");
-
-        var injectedRan = injected.Trim() == "true";
-        var bookScriptRan = paragraph.Contains("CONTENT-JS-RAN", StringComparison.Ordinal)
-                            || title.Contains("CONTENT-JS-RAN", StringComparison.Ordinal);
-        var messageArrived = messages.Any(m => m.Contains("hello", StringComparison.Ordinal));
-        var executeScriptWorks = paragraph.Contains("untouched", StringComparison.Ordinal);
-
-        result["injectedScriptRan"] = injectedRan;
-        result["bookScriptRan"] = bookScriptRan;
-        result["webMessageArrived"] = messageArrived;
-        result["executeScriptWorks"] = executeScriptWorks;
-        result["postMessageFailure"] = postFailure.Trim() == "null" ? null : postFailure;
-        result["messages"] = new JsonArray(messages.Select(m => (JsonNode?)m).ToArray());
-
-        // 本番と同じ CSP を添えて、もう一度読み込む。
-        //
-        // 配信する本文には script-src 'none' が付く。書籍の script はエンジンの段
-        // （IsScriptEnabled = false）で既に止まっているので、CSP はその上に重ねる網である。
-        // ただし**注入したスクリプトまで CSP に巻き込まれると読書の仕掛けが全部死ぬ**ので、
-        // 巻き込まれないことをここで確かめる。巻き込まれるなら script-src を緩める。
-        attachCsp = true;
-        messages.Clear();
-        var reloaded = await Load();
-        result["reloadedWithCsp"] = reloaded;
         result["contentSecurityPolicy"] = ResourceDelivery.ContentSecurityPolicy;
-        Step($"CSP を添えた読み込みが{(reloaded ? "成功した" : "失敗した")}");
 
-        var injectedUnderCsp = (await core.ExecuteScriptAsync("window.__choroInjected === true")).Trim() == "true";
-        var paragraphUnderCsp = await core.ExecuteScriptAsync("document.getElementById('p').textContent");
-        var titleUnderCsp = await core.ExecuteScriptAsync("document.title");
-        var bookScriptUnderCsp = paragraphUnderCsp.Contains("CONTENT-JS-RAN", StringComparison.Ordinal)
-                                 || titleUnderCsp.Contains("CONTENT-JS-RAN", StringComparison.Ordinal);
-        var messageUnderCsp = messages.Any(m => m.Contains("hello", StringComparison.Ordinal));
-
-        result["injectedScriptRanUnderCsp"] = injectedUnderCsp;
-        result["bookScriptRanUnderCsp"] = bookScriptUnderCsp;
-        result["webMessageArrivedUnderCsp"] = messageUnderCsp;
-
-        // macOS と同じ前提が成り立つ条件。
-        var holds = injectedRan && !bookScriptRan && messageArrived && executeScriptWorks;
-        var cspHolds = reloaded && injectedUnderCsp && !bookScriptUnderCsp && messageUnderCsp;
-        result["assumptionHolds"] = holds;
-        result["cspAssumptionHolds"] = cspHolds;
-        result["conclusion"] = (holds, cspHolds) switch
+        /// <summary>1 通りを測る。書籍の script が止まり、注入とリスナと便りが生きているかを見る。</summary>
+        async Task<JsonObject> Measure(string label, bool scriptEnabled, bool withCsp)
         {
-            (false, _) => "前提が崩れる。EPUB ナビゲータの作りを見直す必要がある。",
-            (true, false) => "注入は動くが、配信する CSP がそれを巻き込む。script-src を緩める必要がある。",
-            (true, true) => "macOS 版と同じ前提が成り立つ。配信する CSP のままで組める。",
+            core.Settings.IsScriptEnabled = scriptEnabled;
+            attachCsp = withCsp;
+            messages.Clear();
+            var ok = await Load();
+
+            var paragraph = await core.ExecuteScriptAsync("document.getElementById('p').textContent");
+            var title = await core.ExecuteScriptAsync("document.title");
+            var bookRan = paragraph.Contains("CONTENT-JS-RAN", StringComparison.Ordinal)
+                          || title.Contains("CONTENT-JS-RAN", StringComparison.Ordinal);
+
+            var measured = new JsonObject
+            {
+                ["読み込めた"] = ok,
+                ["注入が走った"] =
+                    (await core.ExecuteScriptAsync("window.__choroInjected === true")).Trim() == "true",
+                ["書籍の script が走った"] = bookRan,
+                ["同期の便りが届いた"] = messages.Any(m => m.Contains("hello", StringComparison.Ordinal)),
+                // ここが要点。読書の窓が要るのはリスナ越しの便りである。
+                ["リスナが発火した"] =
+                    (await core.ExecuteScriptAsync("window.__choroListenerFired === true")).Trim() == "true",
+                ["リスナの便りが届いた"] = messages.Any(m => m.Contains("listener", StringComparison.Ordinal)),
+                ["ExecuteScript が効く"] = paragraph.Contains("untouched", StringComparison.Ordinal),
+                ["便りの失敗"] = (await core.ExecuteScriptAsync("window.__choroPostFailed || null")).Trim() is var f
+                                 && f != "null" ? f : null,
+            };
+            Step($"{label} を測った");
+            return measured;
+        }
+
+        // 書籍の script を止める道は 2 つある。どちらが読書に足りるかをここで決める。
+        //
+        // エンジンの段（IsScriptEnabled = false）で止めると、**その文書に紐づく script が
+        // 走らない**という意味になり、注入したスクリプトが張ったリスナまで発火しなくなる。
+        // Tauri 版が sandbox で踏んだのと同じ性質である（spikes/findings-tauri.md）。
+        // 注入そのものは走るので、同期の便りだけを見ていると気付けない。
+        var engineOff = await Measure("エンジンで止める", scriptEnabled: false, withCsp: true);
+        var cspOnly = await Measure("CSP だけで止める", scriptEnabled: true, withCsp: true);
+
+        result["エンジンで止める"] = engineOff;
+        result["CSP だけで止める"] = cspOnly;
+
+        static bool Reads(JsonObject m) =>
+            (bool)m["読み込めた"]! && (bool)m["注入が走った"]!
+            && !(bool)m["書籍の script が走った"]!
+            && (bool)m["同期の便りが届いた"]! && (bool)m["リスナの便りが届いた"]!;
+
+        var engineWorks = Reads(engineOff);
+        var cspWorks = Reads(cspOnly);
+        result["読書に足りる設定"] = (engineWorks, cspWorks) switch
+        {
+            (true, _) => "エンジンで止める",
+            (false, true) => "CSP だけで止める",
+            _ => null,
+        };
+        result["conclusion"] = (engineWorks, cspWorks) switch
+        {
+            (_, true) => "書籍の script は止まり、注入もリスナも便りも生きている。この設定で組める。",
+            (true, false) => "エンジンで止める側だけが足りる。CSP だけでは書籍の script が漏れる。",
+            _ => "どちらの設定でも読書に足りない。EPUB ナビゲータの作りを見直す必要がある。",
         };
 
-        return holds && cspHolds ? 0 : 1;
+        // 出荷する設定（CSP だけで止める）が成り立つことを、通す条件にする。
+        return cspWorks ? 0 : 1;
     }
 
     /// <summary>

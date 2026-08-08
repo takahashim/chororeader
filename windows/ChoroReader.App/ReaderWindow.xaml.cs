@@ -67,8 +67,16 @@ public partial class ReaderWindow : Window
         await Body.EnsureCoreWebView2Async(_environment);
         var core = Body.CoreWebView2;
 
-        // 書籍側の JavaScript を止める。macOS 版の allowsContentJavaScript = false に当たる。
-        core.Settings.IsScriptEnabled = false;
+        // 書籍側の JavaScript は CSP（script-src 'none'）で止める。ResourceDelivery が付ける。
+        //
+        // **エンジンの段（IsScriptEnabled = false）では止めない。**
+        // あれは「その文書に紐づく script を走らせない」という意味で、
+        // 注入したスクリプトが張ったリスナまで発火しなくなる。
+        // 注入そのものは走るので、同期の便りだけを見ていると気付けない。
+        // Tauri 版が sandbox で踏んだのと同じ性質である（spikes/findings-tauri.md）。
+        // 読書はリスナ（スクロール・鍵盤・DOMContentLoaded）の上に成り立っているので、
+        // ここを切ると本文の中で何も動かなくなる。
+        core.Settings.IsScriptEnabled = true;
         core.Settings.IsWebMessageEnabled = true;
         core.Settings.AreDefaultContextMenusEnabled = false;
         core.Settings.IsPasswordAutosaveEnabled = false;

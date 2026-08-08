@@ -133,34 +133,42 @@ Tauri 版が Windows で踏んだ不具合（findings-tauri.md）は、ほとん
 
 | Tauri 版が Windows で踏んだもの | この形では |
 | --- | --- |
-| sandbox の文書でリスナが 1 つも発火しない | 消える（iframe が無い） |
 | CSP に `choro:` と書くと何にも当たらない | 消える（配信元が普通の https） |
 | `event.origin` が処方どおりにならない | 消える（相手がネイティブ） |
 | 焦点が殻と本文を往復して命令が遅れる | 消える（殻に DOM が無い） |
+| sandbox の文書でリスナが 1 つも発火しない | **残る。止め方の選び方で避ける（下記）** |
 | WebView の呼び返し中に窓を作ると真っ白 | **残る。下の規則で守る** |
 | 初期化の同期待ちで永久に待つ | **残る。下の規則で守る** |
 
 ### 書籍の script の止め方
 
 spec.md 15.1 の不変条件（書籍の script は走らず、こちらの注入だけが走る）を、層で満たす。
-前提はすべてスパイク 3（findings-windows.md）で確認済みである。
+前提は WebView2 のスパイク（findings-windows.md）が毎回確かめる。
 
-1. **エンジンで止める。** `IsScriptEnabled = false`。
-   この状態でも `AddScriptToExecuteOnDocumentCreated` の注入は走り、
-   `chrome.webview.postMessage` も `ExecuteScriptAsync` も使える。
-   WKWebView の `allowsContentJavaScript = false` + `WKUserScript` と同型である。
-   エンジンの段で止めるので、`<script>` 要素・`on…=` 属性・`javascript:` URL という
-   書き方の違いに依らない
+1. **CSP で止める。** 配信する本文に `script-src 'none'` を付ける。
+   応答は自分で組み立てるのでヘッダを足せる。
+   配信元が普通の https なので、スキームの書き方で当たらない事故も起きない。
+   ブラウザが強制するので、`<script>` 要素・`on…=` 属性・`javascript:` URL・
+   `<svg><script>` という書き方の違いに依らない。
+   `AddScriptToExecuteOnDocumentCreated` の注入は CSP の外にあり、そのまま走る
+
+   **エンジンの段（`IsScriptEnabled = false`）では止めない。**
+   あれは「その文書に紐づく script を走らせない」という意味で、
+   注入したスクリプトが張ったリスナまで発火しなくなる。
+   読書はリスナ（スクロール・鍵盤・DOMContentLoaded）の上に成り立っているので、
+   ここを切ると本文の中で何も動かない。
+   Tauri 版が sandbox で踏んだのと同じ性質で、こちらも一度踏んだ
+   （spikes/findings-windows.md）。
+   **注入そのものは走るので、同期の便りだけを見ていると気付けない。**
+   WebView2 のスパイクは、リスナ越しの便りが届くところまで毎回見る
 2. **配信を許可制にする。** `https://choro.invalid/` へ navigate し、
    `WebResourceRequested` で全要求を横取りする。アーカイブ内のものだけを返し、それ以外は拒む。
    `.invalid` は名前解決に成功しないので、横取りに漏れがあっても外へ出ない。
    読書時にネットワークを使わない不変条件はここで担保する
-3. **CSP を応答に付ける。** 応答を自分で組み立てるのでヘッダを足せる。
-   配信元が普通の https なので、スキームの書き方で当たらない事故が起きない。
-   エンジンで止めた上に重ねる二重の網である
-4. **ナビゲーションを縛る。** `NavigationStarting` で choro.invalid 以外を取り消し、
-   外部 URL は OS のブラウザで開く。`NewWindowRequested` も握って、窓の開き方はこちらで決める
-5. **橋は 1 本。** 通信は `WebMessageReceived` だけにし、ネイティブ側が中身を検証する。
+3. **ナビゲーションを縛る。** `NavigationStarting` で choro.invalid 以外を取り消し、
+   外部 URL は OS のブラウザで開く。`NewWindowRequested` も握って、窓の開き方はこちらで決める。
+   `about:blank` は通す（WebView2 が初期化のとき自分でここへ移る）
+4. **橋は 1 本。** 通信は `WebMessageReceived` だけにし、ネイティブ側が中身を検証する。
    殻がネイティブなので、WebView の中にアプリの DOM がそもそも無い。破られても触る相手がない
 
 そのほか、DevTools は配布時に切り、autofill とパスワード保存を切り、

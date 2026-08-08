@@ -97,7 +97,10 @@ internal static class Selftest
         ["本文の状態"] = await window.AskAsync("document.readyState"),
         ["本文の丈"] = await window.AskAsync("document.documentElement.outerHTML.length"),
         ["本文の頭"] = await window.AskAsync("document.documentElement.outerHTML.slice(0, 200)"),
-        ["注入が走った"] = await window.AskAsync("window.__choroReady === true"),
+        // 入口が始まったことと、名乗るところまで来たことを分けて聞く。
+        // 一緒にすると、リスナが死んでいても「注入は走った」と読めてしまう。
+        ["入口が始まった"] = await window.AskAsync("window.__choroReady === true"),
+        ["名乗るまで来た"] = await window.AskAsync("window.__choroNamed === true"),
         ["橋がある"] = await window.AskAsync("!!(window.chrome && window.chrome.webview)"),
         ["便りの失敗"] = await window.AskAsync("window.__choroPostFailed || null"),
     };

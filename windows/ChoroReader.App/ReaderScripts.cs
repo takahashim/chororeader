@@ -111,6 +111,9 @@ internal static class ReaderScripts
           };
 
           function ready() {
+            // 名乗るところまで来たことを残す。窓から聞けるようにしておく。
+            // 「入口の IIFE が始まった」だけでは、リスナが死んでいても気付けない。
+            window.__choroNamed = true;
             post({ kind: 'ready', href: location.pathname, title: document.title || '' });
             tellPosition();
           }
