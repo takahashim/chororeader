@@ -25,6 +25,7 @@ internal static class Program
         <html><head><meta charset="utf-8"><title>original</title></head>
         <body>
         <p id="p">untouched</p>
+        <div style="height: 3000px"></div>
         <script>
           document.title = "CONTENT-JS-RAN";
           document.getElementById('p').textContent = "CONTENT-JS-RAN";
@@ -54,6 +55,11 @@ internal static class Program
         document.addEventListener('DOMContentLoaded', function () {
           window.__choroListenerFired = true;
           choroPost({ kind: 'listener' });
+        });
+        // 読書が実際に頼るのはこれ。位置の追従はスクロールの出来事に乗っている。
+        window.addEventListener('scroll', function () {
+          window.__choroScrolled = true;
+          choroPost({ kind: 'scroll', y: window.scrollY });
         });
         """;
 
@@ -217,6 +223,14 @@ internal static class Program
             var bookRan = paragraph.Contains("CONTENT-JS-RAN", StringComparison.Ordinal)
                           || title.Contains("CONTENT-JS-RAN", StringComparison.Ordinal);
 
+            // スクロールさせてみる。
+            //
+            // ExecuteScriptAsync は script を切っていても効く（この API の仕様）。
+            // だから合成入力を使わずに、出来事だけを起こせる。
+            // ここで発火しなければ、位置の追従はポーリングでしか作れない。
+            await core.ExecuteScriptAsync("window.scrollTo(0, 200)");
+            await Task.Delay(300);
+
             var measured = new JsonObject
             {
                 ["読み込めた"] = ok,
@@ -229,6 +243,11 @@ internal static class Program
                     (await core.ExecuteScriptAsync("window.__choroListenerFired === true")).Trim() == "true",
                 ["リスナの便りが届いた"] = messages.Any(m => m.Contains("listener", StringComparison.Ordinal)),
                 ["ExecuteScript が効く"] = paragraph.Contains("untouched", StringComparison.Ordinal),
+                // 位置は本当に動いたか。動いていなければ、次の 2 行は測れていない。
+                ["実際に動いた位置"] = (await core.ExecuteScriptAsync("window.scrollY")).Trim(),
+                ["スクロールのリスナが発火した"] =
+                    (await core.ExecuteScriptAsync("window.__choroScrolled === true")).Trim() == "true",
+                ["スクロールの便りが届いた"] = messages.Any(m => m.Contains("scroll", StringComparison.Ordinal)),
                 ["便りの失敗"] = (await core.ExecuteScriptAsync("window.__choroPostFailed || null")).Trim() is var f
                                  && f != "null" ? f : null,
             };
@@ -248,10 +267,14 @@ internal static class Program
         result["エンジンで止める"] = engineOff;
         result["CSP だけで止める"] = cspOnly;
 
+        // 読書に足りるかどうかは、リスナ越しの便りが届くかで決まる。
+        // 位置の追従（スクロール）まで含めて見る。ここが要点である。
         static bool Reads(JsonObject m) =>
             (bool)m["読み込めた"]! && (bool)m["注入が走った"]!
             && !(bool)m["書籍の script が走った"]!
-            && (bool)m["同期の便りが届いた"]! && (bool)m["リスナの便りが届いた"]!;
+            && (bool)m["同期の便りが届いた"]!
+            && (bool)m["リスナの便りが届いた"]!
+            && (bool)m["スクロールの便りが届いた"]!;
 
         var engineWorks = Reads(engineOff);
         var cspWorks = Reads(cspOnly);
