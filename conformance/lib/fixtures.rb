@@ -517,12 +517,22 @@ module Fixtures
       "OEBPS/content.opf" => opf,
       "OEBPS/nav.xhtml" => simple_nav("text/p001.xhtml", "1 ページ"),
     }
+    # ページの寸法は meta viewport で名乗る。名乗り方を 3 通り置いて、
+    # 読める場合・名乗らない場合・書き損じの場合が実装間で揃うことを見る。
+    #
+    # 3 ページ目は `height` に `=` が無い。半端に読めたぶん（width だけ）を使うと、
+    # 書き損じた書籍で妙な寸法を掴むことになるので、並び全体を捨てる。
+    viewports = {
+      3 => %(<meta name="viewport" content="width=1200, height"/>),
+      4 => "",
+    }
     (1..count).each do |i|
       n = format("%03d", i)
+      viewport = viewports.fetch(i, %(<meta name="viewport" content="width=1200, height=1700"/>))
       entries["OEBPS/text/p#{n}.xhtml"] = <<~XHTML
         <?xml version="1.0" encoding="UTF-8"?>
         <html xmlns="http://www.w3.org/1999/xhtml">
-        <head><title>#{i}</title><meta name="viewport" content="width=1200, height=1700"/></head>
+        <head><title>#{i}</title>#{viewport}</head>
         <body style="margin:0"><img src="../images/p#{n}.png" alt=""/></body>
         </html>
       XHTML

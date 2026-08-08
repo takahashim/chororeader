@@ -5,12 +5,20 @@
     {
       "href": "OEBPS/images/p001.png",
       "index": 0,
-      "kind": "image"
+      "kind": "image",
+      "viewport": {
+        "height": 1700,
+        "width": 1200
+      }
     },
     {
       "href": "OEBPS/images/p002.png",
       "index": 1,
-      "kind": "image"
+      "kind": "image",
+      "viewport": {
+        "height": 1700,
+        "width": 1200
+      }
     },
     {
       "href": "OEBPS/images/p003.png",
@@ -25,7 +33,11 @@
     {
       "href": "OEBPS/images/p005.png",
       "index": 4,
-      "kind": "image"
+      "kind": "image",
+      "viewport": {
+        "height": 1700,
+        "width": 1200
+      }
     }
   ],
   "schema": 2,

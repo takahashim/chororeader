@@ -152,6 +152,39 @@ mod tests {
         assert_eq!(viewport("p.xhtml", &none), None);
     }
 
+    /// 書き損じた並びは、半端に読めたぶんも使わない。
+    ///
+    /// `width` だけ拾うと、書き損じた書籍で妙な寸法を掴んだまま画面を組むことになる。
+    /// 名乗っていないのと同じ扱いにして、寸法を与えない側へ倒す。
+    #[test]
+    fn 書き損じた並びは全体を捨てる() {
+        struct One(String);
+        impl ResourceProvider for One {
+            fn contains(&self, _: &str) -> bool { true }
+            fn read(&self, _: &str) -> Option<Vec<u8>> { Some(self.0.clone().into_bytes()) }
+        }
+        let page = |content: &str| {
+            One(format!(
+                r#"<html><head><meta name="viewport" content="{content}"/></head><body/></html>"#
+            ))
+        };
+
+        // height に `=` が無い。
+        assert_eq!(viewport("p.xhtml", &page("width=1200, height")), None);
+        // 片方しか名乗っていない。
+        assert_eq!(viewport("p.xhtml", &page("width=1200")), None);
+        // 数として読めない。
+        assert_eq!(viewport("p.xhtml", &page("width=そこそこ, height=1700")), None);
+        // 0 や負の寸法は枠にならない。
+        assert_eq!(viewport("p.xhtml", &page("width=0, height=1700")), None);
+        assert_eq!(viewport("p.xhtml", &page("width=1200, height=-1")), None);
+        // 知らない鍵が混ざっていても、幅と高さが揃っていれば読む。
+        assert_eq!(
+            viewport("p.xhtml", &page("width=1200, height=1700, initial-scale=1")),
+            Some((1200.0, 1700.0))
+        );
+    }
+
     #[test]
     fn 見開きは表紙を単独にする() {
         assert_eq!(spreads(5), vec![vec![0], vec![1, 2], vec![3, 4]]);

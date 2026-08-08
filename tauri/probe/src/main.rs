@@ -228,6 +228,10 @@ fn fixed(args: &[String]) -> Result<Value, DocumentError> {
                 "index": index,
                 "kind": content.kind,
                 "href": norm(&content.href),
+                // 寸法は元の章から読む。画像 1 枚のページでも、名乗っているのは章のほうである。
+                "viewport": fixed_layout::viewport(&link.href, &archive)
+                    .map(|(width, height)| json!({ "width": width, "height": height }))
+                    .unwrap_or(Value::Null),
             })
         })
         .collect();

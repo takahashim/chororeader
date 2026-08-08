@@ -56,6 +56,37 @@ enum FixedLayoutPlan {
         return found.count == 1 ? found.first : nil
     }
 
+    /// ページの寸法。固定レイアウトの各ページは meta viewport で大きさを名乗る。
+    ///
+    /// 拡大の枠を先に決めるために要る。大きさを与えないと画像がすべて同じ位置に積まれ、
+    /// 遅延読み込みが効かなくなる。名乗っていなければ nil。
+    ///
+    /// content の並びは、1 つでも `=` を欠いていたら全体を捨てる。
+    /// 半端に読めたぶんだけ使うと、書き損じた書籍で妙な寸法を掴むことになる。
+    static func viewport(for href: String, resources: ResourceProvider) -> (width: Double, height: Double)? {
+        guard let data = try? resources.read(href) else { return nil }
+        let source = CSSCompat.decodeText(data)
+        let pattern = #"(?i)<meta\b[^>]*\bname\s*=\s*["']viewport["'][^>]*\bcontent\s*=\s*["']([^"']+)["']"#
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              let match = re.firstMatch(in: source, range: NSRange(source.startIndex..., in: source)),
+              let range = Range(match.range(at: 1), in: source) else { return nil }
+
+        var width: Double?
+        var height: Double?
+        for part in source[range].split(separator: ",", omittingEmptySubsequences: false) {
+            guard let equals = part.firstIndex(of: "=") else { return nil }
+            let key = part[..<equals].trimmingCharacters(in: .whitespaces)
+            let value = part[part.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+            switch key {
+            case "width": width = Double(value)
+            case "height": height = Double(value)
+            default: break
+            }
+        }
+        guard let w = width, let h = height, w > 0, h > 0 else { return nil }
+        return (w, h)
+    }
+
     /// 見開きの組み方。表紙は単独で見せ、以降を 2 枚ずつまとめる。
     /// 綴じ方向は左右の並べ方だけに効き、組み方そのものは変えない。
     static func spreads(pageCount: Int, rtl: Bool) -> [[Int]] {
