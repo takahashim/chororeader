@@ -19,6 +19,8 @@ macos/Tests/local-books.json
 # .NET のビルド生成物
 windows/**/bin/
 windows/**/obj/
+spikes/**/bin/
+spikes/**/obj/
 
 # Rust と Node のビルド生成物
 target/
