@@ -45,13 +45,9 @@ PY
 ```sh
 SNAP=$(dirname $(find ~/.cache/huggingface/hub -name "model.safetensors" -path "*ruri-v3-130m*" | head -1))
 
-# 変換する
+# 変換する（材料の取得と写しは道具がやる）
 swift build -c release
-.build/release/choro-convert --model-path "$SNAP/model.safetensors" \
-  --config-path "$SNAP/config.json" \
-  --sequence-lengths 64,128,256,512,1024,2048 --out-dir /tmp/mine
-cp "$SNAP/tokenizer.json" "$SNAP/config.json" /tmp/mine/
-mkdir -p /tmp/mine/1_Pooling && cp "$SNAP/1_Pooling/config.json" /tmp/mine/1_Pooling/
+.build/release/choro-convert --model-id cl-nagoya/ruri-v3-130m --out-dir /tmp/mine
 
 # 凍結済みの期待値（kohagi の変換物で作ったもの）を、自作の束で通す
 #   Tests/ChoroReaderTests/CoreMLEmbedderTests.swift の置き場所を /tmp/mine に向けて実行

@@ -9,9 +9,9 @@ import Foundation
 /// 拒む理由は全部まとめて言う。使えない checkpoint を見ている人が欲しいのは
 /// 一覧であって、最初の 1 つではない（kohagi の `graph_assumptions` から移した）。
 public struct EncoderConfig {
-    var hidden: Int
+    public var hidden: Int
     var heads: Int
-    var layers: Int
+    public var layers: Int
     var intermediate: Int
     var vocab: Int
     var eps: Float
@@ -29,7 +29,7 @@ public struct EncoderConfig {
     /// 中間層の門の活性。
     var activation: Activation
     /// 分類頭を持つか（reranker）。
-    var isClassifier: Bool
+    public var isClassifier: Bool
     /// 分類頭のプーリング。**推測しない**（transformers の実装から確かめた）。
     var classifierPooling: Pooling
     /// 分類頭の活性。

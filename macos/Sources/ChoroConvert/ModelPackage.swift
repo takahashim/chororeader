@@ -140,3 +140,23 @@ public struct ModelBytes {
 
     init(_ wire: Protowire) { data = wire.data }
 }
+
+/// 束が何の頭を持つかを、そばに書き添える。
+///
+/// 埋め込みは `1_Pooling/config.json` を持つが、reranker は持たない。
+/// **無いことで見分けるのは弱い**（写し忘れと区別が付かない）ので、
+/// 印を 1 つ置く。
+public enum HeadMarker {
+    public static let name = "choro-head.json"
+
+    public static func write(classifier: Bool, to directory: URL) throws {
+        let head = classifier ? "classifier" : "embedding"
+        let text = """
+        {
+          "head": "\(head)"
+        }
+
+        """
+        try Data(text.utf8).write(to: directory.appendingPathComponent(name))
+    }
+}
