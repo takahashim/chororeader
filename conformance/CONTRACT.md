@@ -1,10 +1,14 @@
 # 実装間の契約
 
 実装が同じ振る舞いをすることを、機械的に確かめるための取り決め。
-いまは macOS 版（Swift）と Windows 版（Rust）の 2 つがある。
+いまは macOS 版（Swift）、Windows 版（Rust）、Windows 版（C#）の 3 つがある。
 
-Swift と Rust は独立して書かれており、XML の解析も ZIP の読み出しも正規表現も別物である。
-両方が同じ誤り方をすることは考えにくい、というのがこの突き合わせの拠り所になっている。
+3 つは独立して書かれており、XML の解析も ZIP の読み出しも正規表現も別物である。
+どれかが誤ったときに残り 2 つが同じ誤り方をすることは考えにくい、
+というのがこの突き合わせの拠り所になっている。
+
+C# 版は Tauri へ移ったときに一度畳んだが、Windows での Tauri の具合を受けて戻した。
+経緯は spikes/findings-windows.md にある。
 
 ## 揃えるもの
 
@@ -70,6 +74,7 @@ Swift と Rust は独立して書かれており、XML の解析も ZIP の読�
 ```
 macos/build/ChoroReader.app/Contents/MacOS/ChoroReader probe parse foo.epub
 tauri/target/release/choroprobe probe parse foo.epub
+dotnet windows/ChoroReader.Probe/bin/Debug/net10.0/choroprobe.dll probe parse foo.epub
 ```
 
 ## 正規化の規約
@@ -84,6 +89,24 @@ tauri/target/release/choroprobe probe parse foo.epub
   寄せ方を決めていなかったころ、境目に当たる値が出るまで実装の違いが隠れていた。
 - **順序**：`readingOrder` と `tableOfContents` は書籍が定める順のまま。`changes` と診断レポートの配列は辞書順に整列する。
 - **値の無いキー**：出力しない。「キーが無い」と「キーがあって null」を揃えないと差になる。
+
+## まだ揃っていないところ
+
+契約に書いてありながら、実装がまだ揃っていない箇所がある。
+どちらへ寄せるかを決めていないだけで、揃えない対象ではない。
+`conformance/known-differences.json` に事例ごとに載せてあり、
+`choroconf check` と `choroconf diff` は不一致として数えず、差の中身だけを毎回出す。
+別々の組に居る実装どうしのときにしか見逃さないので、
+同じ組の中で新しく壊れたものは、これまでどおり不一致として落ちる。
+
+| 何が | 分かれ方 |
+| --- | --- |
+| 本文の位置の数え方 | Swift は書記素クラスタ、Rust と C# は Unicode スカラー |
+| 重なる当たり | Swift は照合した長さのぶん進めて飛ばし、Rust と C# は 1 文字ぶん進めて拾う |
+
+前者は上の「正規化の規約」がスカラーと定めているので、文言に沿っていないのは Swift である。
+後者はどちらとも決めていない。`nth` は「揃えるもの」に入っているため、いずれ片方へ寄せる必要がある。
+`counting` フィクスチャがこの 2 つを踏む。
 
 ## エラーの分類
 

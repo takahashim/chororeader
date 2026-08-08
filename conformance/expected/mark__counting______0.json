@@ -1,0 +1,10 @@
+{
+  "before": "\"/></head>\n<body><p>",
+  "command": "mark",
+  "found": true,
+  "href": "OEBPS/text/overlap.xhtml",
+  "marked": "まま",
+  "nth": 0,
+  "query": "まま",
+  "schema": 2
+}

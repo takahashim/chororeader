@@ -52,6 +52,8 @@ module Cases
     "legacy-css" => ["OEBPS/text/ch01.xhtml"],
     "malformed-xhtml" => ["OEBPS/text/ch01.xhtml"],
     "footnotes" => ["OEBPS/text/ch01.xhtml"],
+    # 結合文字を含む章。本文の位置を書記素で数えるかスカラーで数えるかが codeRanges に出る。
+    "counting" => ["OEBPS/text/combining.xhtml"],
   }.freeze
 
   # リンク先の抜粋。脚注と節と、見つからない fragment を見る。
@@ -76,6 +78,9 @@ module Cases
     "encoded-paths" => ["ファイル名"],
     # 同じ章が読み順に 2 度出る。通し番号を読み順の項目ごとに数え直しているかを見る。
     "repeated-spine" => ["語"],
+    # 「まま」は「ままま」に重なって 2 度当たる。重なりを拾うかどうかで件数と nth が変わる。
+    # 「っこう」は結合文字の直後から始まるので、progression に数え方の違いが出る。
+    "counting" => ["まま", "っこう"],
   }.freeze
 
   # 検索結果から飛んだ先で、どの語をどこで囲むか。
@@ -93,6 +98,12 @@ module Cases
     "repeated-spine" => [
       ["OEBPS/text/ch01.xhtml", "語", 0],
       ["OEBPS/text/ch01.xhtml", "語", 1],
+    ],
+    # 重なる当たりの 2 つ目と、結合文字を挟んだ語。囲む場所を数え方から割り出す。
+    "counting" => [
+      ["OEBPS/text/overlap.xhtml", "まま", 0],
+      ["OEBPS/text/overlap.xhtml", "まま", 1],
+      ["OEBPS/text/combining.xhtml", "っこう", 0],
     ],
   }.freeze
 

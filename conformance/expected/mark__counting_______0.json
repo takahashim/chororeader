@@ -1,0 +1,10 @@
+{
+  "before": "/></head>\n<body><p>が",
+  "command": "mark",
+  "found": true,
+  "href": "OEBPS/text/combining.xhtml",
+  "marked": "っこう",
+  "nth": 0,
+  "query": "っこう",
+  "schema": 2
+}
