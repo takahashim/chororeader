@@ -33,6 +33,8 @@ final class BookDocument: ObservableObject {
     let source: Source
     let title: String
     let authors: [String]
+    /// 出版社・発行日・ISBN・副題。揃わない本の方が多い。
+    let bibliography: Bibliography
     let tableOfContents: [TOCEntry]
     /// CSS 互換レイヤーが書き換えた内容。表示崩れの切り分けに使う。
     private(set) var cssChanges: [String] = []
@@ -76,6 +78,7 @@ final class BookDocument: ObservableObject {
                 authors = []
             }
             tableOfContents = BookDocument.outline(of: doc)
+            bibliography = Bibliography.of(doc)
 
         case .reflowableEPUB, .fixedEPUB:
             let archive: ZipArchive
@@ -97,6 +100,7 @@ final class BookDocument: ObservableObject {
             title = pub.title.isEmpty ? url.deletingPathExtension().lastPathComponent : pub.title
             authors = pub.authors
             tableOfContents = pub.tableOfContents
+            bibliography = Bibliography.of(pub)
 
         case .markdown:
             throw OpenError.unsupportedFormat("Markdown の表示は未対応です")

@@ -15,6 +15,8 @@ struct LibraryEntry: Codable, Identifiable, Hashable {
     var lastOpenedAt: Date
     var lastLocator: Locator?
     var bookmarks: [Bookmark] = []
+    /// 出版社・発行日・ISBN・副題。**古い書棚には無い**ので、既定は空。
+    var bibliography = Bibliography()
     /// 書棚に並べる表紙の置き場所。取れなかった書籍では nil。
     var coverName: String?
     /// 人が付けた名前。書籍の名乗りより優先する。消せば名乗りに戻る。
@@ -98,6 +100,9 @@ final class LibraryStore: ObservableObject {
         entry.authors = doc.authors
         entry.format = doc.format
         entry.lastOpenedAt = Date()
+        // **前に取り込んだ本にも後から入る。** 書誌を拾うようになる前に
+        // 並べた本は空のままなので、開いたときに埋める。
+        entry.bibliography = doc.bibliography
         // 表紙は開いたときに 1 度だけ取り出す。書棚を開くたびに書籍を触らずに済む。
         if entry.coverName == nil { entry.coverName = CoverCache.store(from: doc) }
         if entry.bookmarkData == nil {
@@ -123,6 +128,7 @@ final class LibraryStore: ObservableObject {
                                  title: document.title, authors: document.authors,
                                  format: document.format,
                                  lastOpenedAt: modified ?? Date(), lastLocator: nil)
+        entry.bibliography = document.bibliography
         entry.coverName = CoverCache.store(from: document)
         entry.bookmarkData = try? url.bookmarkData(options: [.withSecurityScope],
                                                    includingResourceValuesForKeys: nil,
