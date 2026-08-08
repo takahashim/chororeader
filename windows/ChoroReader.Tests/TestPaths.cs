@@ -6,8 +6,10 @@ namespace ChoroReader.Tests;
 /// </summary>
 internal static class TestPaths
 {
-    /// <summary>リポジトリに入っている見本の PDF。実書籍は共有しないため、これで確かめる。</summary>
-    internal static string SamplePdf => Path.Combine(Root, "samples", "sample.pdf");
+    /// <summary>リポジトリに入っている見本の置き場所。実書籍は共有しないため、これで確かめる。</summary>
+    internal static string Samples => Path.Combine(Root, "samples");
+
+    internal static string SamplePdf => Path.Combine(Samples, "sample.pdf");
 
     /// <summary>
     /// 突き合わせ用の合成 EPUB。生成物なので追跡していない。

@@ -59,7 +59,7 @@ public class PdfConcurrencyTests
 
                         case 2:
                             // 描いた絵の中身までは見ない。長さが 0 なら描けていない。
-                            if (document.RenderPage(page, 1.0).Length == 0)
+                            if (document.RenderPage(page, 1.0).Pixels.Length == 0)
                             {
                                 mistakes.Add($"{page} ページ目が描けなかった");
                             }

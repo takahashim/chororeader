@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- WPF は Windows 専用。Core と Probe は net10.0 のままにしておくこと
+         （macOS で突き合わせを回す条件）。 -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>chororeader</AssemblyName>
+    <RootNamespace>ChoroReader.App</RootNamespace>
+    <!-- macOS でもコンパイルだけは通せるようにする。実行は Windows でしかできないが、
+         CI へ出す前に型と API の誤りを開発機で潰せる。 -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- 動作確認（selftest）の結果を標準出力へ書くため、コンソールを持たせる。 -->
+    <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../ChoroReader.Core/ChoroReader.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 同梱の見本。書籍を 1 冊も持たないマシンでも、アプリだけで読み方を確かめられるようにする。
+         3 つで 11 KB なので、実行ファイルへ埋め込んでしまう。
+         macOS 版も同じ 3 つを束に入れている（Samples.swift）。 -->
+    <EmbeddedResource Include="../../samples/sample-reflowable.epub" LogicalName="sample-reflowable.epub" />
+    <EmbeddedResource Include="../../samples/sample-fixed.epub" LogicalName="sample-fixed.epub" />
+    <EmbeddedResource Include="../../samples/sample.pdf" LogicalName="sample.pdf" />
+  </ItemGroup>
+
+</Project>

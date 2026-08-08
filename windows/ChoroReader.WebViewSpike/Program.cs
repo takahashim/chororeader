@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
+using ChoroReader.Core;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -24,6 +25,7 @@ internal static class Program
         <html><head><meta charset="utf-8"><title>original</title></head>
         <body>
         <p id="p">untouched</p>
+        <div style="height: 3000px"></div>
         <script>
           document.title = "CONTENT-JS-RAN";
           document.getElementById('p').textContent = "CONTENT-JS-RAN";
@@ -31,14 +33,34 @@ internal static class Program
         </body></html>
         """;
 
-    /// <summary>アプリが注入するスクリプト。macOS 版の注入スクリプトと同じ役割。</summary>
+    /// <summary>
+    /// アプリが注入するスクリプト。macOS 版の注入スクリプトと同じ役割。
+    ///
+    /// <para>
+    /// <b>同期の便りと、リスナ越しの便りを別々に出す。</b>
+    /// 読書の窓が要るのは後者（スクロール・鍵盤・DOMContentLoaded）だが、
+    /// 前者だけを見ていると「注入は動く」と早合点する。実際それで見落とした。
+    /// </para>
+    /// </summary>
     private const string InjectedScript = """
         window.__choroInjected = true;
-        try {
-          window.chrome.webview.postMessage(JSON.stringify({ kind: 'hello', title: document.title }));
-        } catch (e) {
-          window.__choroPostFailed = String(e);
+        function choroPost(m) {
+          try {
+            window.chrome.webview.postMessage(JSON.stringify(m));
+          } catch (e) {
+            window.__choroPostFailed = String(e);
+          }
         }
+        choroPost({ kind: 'hello', title: document.title });
+        document.addEventListener('DOMContentLoaded', function () {
+          window.__choroListenerFired = true;
+          choroPost({ kind: 'listener' });
+        });
+        // 読書が実際に頼るのはこれ。位置の追従はスクロールの出来事に乗っている。
+        window.addEventListener('scroll', function () {
+          window.__choroScrolled = true;
+          choroPost({ kind: 'scroll', y: window.scrollY });
+        });
         """;
 
     private const string SchemeName = "choro";
@@ -140,26 +162,42 @@ internal static class Program
         };
 
         // 要求を横取りして、メモリ上の文書を返す。
+        // 2 周目は本番と同じ CSP を添える。どちらで転んだかを見分けられるよう、別々に測る。
+        var attachCsp = false;
         core.AddWebResourceRequestedFilter(filter, CoreWebView2WebResourceContext.All);
         core.WebResourceRequested += (_, e) =>
         {
             var bytes = Encoding.UTF8.GetBytes(BookHtml);
+            var headers = "Content-Type: text/html; charset=utf-8";
+            if (attachCsp)
+            {
+                headers += $"\nContent-Security-Policy: {ResourceDelivery.ContentSecurityPolicy}";
+            }
             e.Response = environment.CreateWebResourceResponse(
-                new MemoryStream(bytes), 200, "OK", "Content-Type: text/html; charset=utf-8");
+                new MemoryStream(bytes), 200, "OK", headers);
         };
 
         await core.AddScriptToExecuteOnDocumentCreatedAsync(InjectedScript);
         Step("注入スクリプトを登録した");
 
-        var loaded = new TaskCompletionSource<bool>();
+        TaskCompletionSource<bool>? loaded = null;
         core.NavigationCompleted += (_, e) =>
         {
             result["navigationStatus"] = e.WebErrorStatus.ToString();
-            loaded.TrySetResult(e.IsSuccess);
+            loaded?.TrySetResult(e.IsSuccess);
         };
 
-        core.Navigate(bookUrl);
-        var navigated = await WithTimeout(loaded.Task, TimeSpan.FromSeconds(30));
+        async Task<bool> Load()
+        {
+            loaded = new TaskCompletionSource<bool>();
+            core.Navigate(bookUrl);
+            var ok = await WithTimeout(loaded.Task, TimeSpan.FromSeconds(30));
+            // メッセージは読み込み完了と前後しうる。少し待つ。
+            await Task.Delay(500);
+            return ok;
+        }
+
+        var navigated = await Load();
         result["navigatedTo"] = bookUrl;
         result["navigationSucceeded"] = navigated;
         Step($"読み込みが{(navigated ? "成功した" : "失敗した")}");
@@ -170,36 +208,91 @@ internal static class Program
             return 1;
         }
 
-        // メッセージは読み込み完了と前後しうる。少し待つ。
-        await Task.Delay(500);
+        result["contentSecurityPolicy"] = ResourceDelivery.ContentSecurityPolicy;
 
-        var injected = await core.ExecuteScriptAsync("window.__choroInjected === true");
-        var paragraph = await core.ExecuteScriptAsync("document.getElementById('p').textContent");
-        var title = await core.ExecuteScriptAsync("document.title");
-        var postFailure = await core.ExecuteScriptAsync("window.__choroPostFailed || null");
-        Step("判定用のスクリプトを実行した");
+        /// <summary>1 通りを測る。書籍の script が止まり、注入とリスナと便りが生きているかを見る。</summary>
+        async Task<JsonObject> Measure(string label, bool scriptEnabled, bool withCsp)
+        {
+            core.Settings.IsScriptEnabled = scriptEnabled;
+            attachCsp = withCsp;
+            messages.Clear();
+            var ok = await Load();
 
-        var injectedRan = injected.Trim() == "true";
-        var bookScriptRan = paragraph.Contains("CONTENT-JS-RAN", StringComparison.Ordinal)
-                            || title.Contains("CONTENT-JS-RAN", StringComparison.Ordinal);
-        var messageArrived = messages.Any(m => m.Contains("hello", StringComparison.Ordinal));
-        var executeScriptWorks = paragraph.Contains("untouched", StringComparison.Ordinal);
+            var paragraph = await core.ExecuteScriptAsync("document.getElementById('p').textContent");
+            var title = await core.ExecuteScriptAsync("document.title");
+            var bookRan = paragraph.Contains("CONTENT-JS-RAN", StringComparison.Ordinal)
+                          || title.Contains("CONTENT-JS-RAN", StringComparison.Ordinal);
 
-        result["injectedScriptRan"] = injectedRan;
-        result["bookScriptRan"] = bookScriptRan;
-        result["webMessageArrived"] = messageArrived;
-        result["executeScriptWorks"] = executeScriptWorks;
-        result["postMessageFailure"] = postFailure.Trim() == "null" ? null : postFailure;
-        result["messages"] = new JsonArray(messages.Select(m => (JsonNode?)m).ToArray());
+            // スクロールさせてみる。
+            //
+            // ExecuteScriptAsync は script を切っていても効く（この API の仕様）。
+            // だから合成入力を使わずに、出来事だけを起こせる。
+            // ここで発火しなければ、位置の追従はポーリングでしか作れない。
+            await core.ExecuteScriptAsync("window.scrollTo(0, 200)");
+            await Task.Delay(300);
 
-        // macOS と同じ前提が成り立つ条件。
-        var holds = injectedRan && !bookScriptRan && messageArrived && executeScriptWorks;
-        result["assumptionHolds"] = holds;
-        result["conclusion"] = holds
-            ? "macOS 版と同じ前提が成り立つ。注入スクリプトとメッセージで組める。"
-            : "前提が崩れる。EPUB ナビゲータの作りを見直す必要がある。";
+            var measured = new JsonObject
+            {
+                ["読み込めた"] = ok,
+                ["注入が走った"] =
+                    (await core.ExecuteScriptAsync("window.__choroInjected === true")).Trim() == "true",
+                ["書籍の script が走った"] = bookRan,
+                ["同期の便りが届いた"] = messages.Any(m => m.Contains("hello", StringComparison.Ordinal)),
+                // ここが要点。読書の窓が要るのはリスナ越しの便りである。
+                ["リスナが発火した"] =
+                    (await core.ExecuteScriptAsync("window.__choroListenerFired === true")).Trim() == "true",
+                ["リスナの便りが届いた"] = messages.Any(m => m.Contains("listener", StringComparison.Ordinal)),
+                ["ExecuteScript が効く"] = paragraph.Contains("untouched", StringComparison.Ordinal),
+                // 位置は本当に動いたか。動いていなければ、次の 2 行は測れていない。
+                ["実際に動いた位置"] = (await core.ExecuteScriptAsync("window.scrollY")).Trim(),
+                ["スクロールのリスナが発火した"] =
+                    (await core.ExecuteScriptAsync("window.__choroScrolled === true")).Trim() == "true",
+                ["スクロールの便りが届いた"] = messages.Any(m => m.Contains("scroll", StringComparison.Ordinal)),
+                ["便りの失敗"] = (await core.ExecuteScriptAsync("window.__choroPostFailed || null")).Trim() is var f
+                                 && f != "null" ? f : null,
+            };
+            Step($"{label} を測った");
+            return measured;
+        }
 
-        return holds ? 0 : 1;
+        // 書籍の script を止める道は 2 つある。どちらが読書に足りるかをここで決める。
+        //
+        // エンジンの段（IsScriptEnabled = false）で止めると、**その文書に紐づく script が
+        // 走らない**という意味になり、注入したスクリプトが張ったリスナまで発火しなくなる。
+        // Tauri 版が sandbox で踏んだのと同じ性質である（spikes/findings-tauri.md）。
+        // 注入そのものは走るので、同期の便りだけを見ていると気付けない。
+        var engineOff = await Measure("エンジンで止める", scriptEnabled: false, withCsp: true);
+        var cspOnly = await Measure("CSP だけで止める", scriptEnabled: true, withCsp: true);
+
+        result["エンジンで止める"] = engineOff;
+        result["CSP だけで止める"] = cspOnly;
+
+        // 読書に足りるかどうかは、リスナ越しの便りが届くかで決まる。
+        // 位置の追従（スクロール）まで含めて見る。ここが要点である。
+        static bool Reads(JsonObject m) =>
+            (bool)m["読み込めた"]! && (bool)m["注入が走った"]!
+            && !(bool)m["書籍の script が走った"]!
+            && (bool)m["同期の便りが届いた"]!
+            && (bool)m["リスナの便りが届いた"]!
+            && (bool)m["スクロールの便りが届いた"]!;
+
+        var engineWorks = Reads(engineOff);
+        var cspWorks = Reads(cspOnly);
+        result["読書に足りる設定"] = (engineWorks, cspWorks) switch
+        {
+            (true, _) => "エンジンで止める",
+            (false, true) => "CSP だけで止める",
+            _ => null,
+        };
+        result["conclusion"] = (engineWorks, cspWorks) switch
+        {
+            (_, true) => "書籍の script は止まり、注入もリスナも便りも生きている。この設定で組める。",
+            (true, false) => "エンジンで止める側だけが足りる。CSP だけでは書籍の script が漏れる。",
+            _ => "どちらの設定でも読書に足りない。EPUB ナビゲータの作りを見直す必要がある。",
+        };
+
+        // 出荷する設定（CSP だけで止める）が成り立つことを、通す条件にする。
+        return cspWorks ? 0 : 1;
     }
 
     /// <summary>

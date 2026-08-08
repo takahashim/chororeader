@@ -1,0 +1,7 @@
+<Application x:Class="ChoroReader.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- StartupUri は使わない。何を開くかは起動引数で決まるので、
+         OnStartup で窓を組み立てる。 -->
+    <Application.Resources />
+</Application>

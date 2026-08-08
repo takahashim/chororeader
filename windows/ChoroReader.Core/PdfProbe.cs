@@ -38,6 +38,21 @@ public sealed record PageHit(int Page, string Excerpt, IReadOnlyList<PageRect> R
 public readonly record struct PageRect(double X0, double Y0, double X1, double Y1);
 
 /// <summary>
+/// 描いた絵。
+///
+/// <para>
+/// <b>寸法を絵と一緒に返す。</b>中身は素の画素の並び（RGB、1 画素 3 バイト）で、
+/// それ自体は縦横を名乗らない。呼ぶ側が倍率から計算し直すと、
+/// MuPDF の丸め方と食い違って絵がずれる。描いたものが知っている値をそのまま渡す。
+/// </para>
+/// </summary>
+public sealed record RenderedPage(int Width, int Height, byte[] Pixels)
+{
+    /// <summary>1 行あたりのバイト数。画素は RGB の 3 バイト。</summary>
+    public int Stride => Width * 3;
+}
+
+/// <summary>
 /// PDF の意味情報と描画。描画結果の扱いは UI 側が決める。
 ///
 /// <para>
@@ -85,7 +100,8 @@ public sealed class PdfInspector : IDisposable
     public IReadOnlyList<PageHit> SearchWithin(string needle, int limit, IReadOnlySet<int>? only) =>
         _backend.SearchWithin(needle, limit, only);
 
-    public byte[] RenderPage(int index, double zoom) => _backend.RenderPage(index, zoom);
+    /// <summary>ページを描く。倍率は 1.0 が原寸。</summary>
+    public RenderedPage RenderPage(int index, double zoom) => _backend.RenderPage(index, zoom);
 
     public (double Width, double Height) PageSize(int index) => _backend.PageSize(index);
 
@@ -109,7 +125,7 @@ internal interface IPdfBackend : IDisposable
     string TextOfPage(int index);
     IReadOnlyList<TocEntry> Outline();
     IReadOnlyList<PageHit> SearchWithin(string needle, int limit, IReadOnlySet<int>? only);
-    byte[] RenderPage(int index, double zoom);
+    RenderedPage RenderPage(int index, double zoom);
     (double Width, double Height) PageSize(int index);
 }
 

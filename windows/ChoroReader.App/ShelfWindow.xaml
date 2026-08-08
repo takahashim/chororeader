@@ -1,0 +1,38 @@
+<Window x:Class="ChoroReader.App.ShelfWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="書棚 — ChoroReader" Height="700" Width="900">
+    <!-- 書棚はすべてネイティブ。WebView は使わない。 -->
+    <DockPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="8">
+            <Button x:Name="AddButton" DockPanel.Dock="Right" Content="本を加える…"
+                    Padding="10,4" Margin="8,0,0,0" Click="OnAdd" />
+            <Button x:Name="SampleButton" DockPanel.Dock="Right" Content="見本を並べる"
+                    Padding="10,4" Margin="8,0,0,0" Click="OnAddSamples"
+                    ToolTip="同梱の見本（リフロー EPUB・固定レイアウト EPUB・PDF）" />
+            <TextBox x:Name="Query" Padding="6,4"
+                     KeyDown="OnQueryKey" ToolTip="蔵書を横断して引く" />
+        </DockPanel>
+
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusLabel" Text="" />
+            </StatusBarItem>
+        </StatusBar>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 蔵書。押すと開く。 -->
+            <ListBox x:Name="Books" Grid.Column="0" Margin="8,0,4,8"
+                     MouseDoubleClick="OnOpenSelected" />
+
+            <!-- 横断検索の当たり。1 件 1 行に収める。 -->
+            <ListBox x:Name="Hits" Grid.Column="1" Margin="4,0,8,8"
+                     MouseDoubleClick="OnOpenHit" />
+        </Grid>
+    </DockPanel>
+</Window>

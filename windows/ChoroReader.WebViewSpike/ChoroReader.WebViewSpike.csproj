@@ -21,4 +21,9 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- CSP は実際に配る値そのものを試す。写しを置くと、いつか本体とずれる。 -->
+    <ProjectReference Include="../ChoroReader.Core/ChoroReader.Core.csproj" />
+  </ItemGroup>
+
 </Project>

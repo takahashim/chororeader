@@ -122,6 +122,30 @@ jobs:
           dotnet build ChoroReader.Probe/ChoroReader.Probe.csproj
           dotnet test ChoroReader.Tests/ChoroReader.Tests.csproj
 
+      # 窓の中は目で見られないので、判定をアプリに持たせてある。
+      # 窓の数だけを見ていては、枠だけ出来て中身が空の状態を捕まえられない。
+      - name: 読書の窓の動作確認
+        working-directory: windows
+        timeout-minutes: 5
+        run: dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- ../conformance/fixtures/epub3-basic.epub --selftest
+
+      # 紙面は名乗る相手がいないので、出ている絵そのものを見る。
+      - name: 紙面の窓の動作確認
+        working-directory: windows
+        timeout-minutes: 5
+        run: dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- ../samples/sample.pdf --selftest
+
+      # 横断検索そのものは ChoroReader.Tests が押さえている。ここは画面までつながっているかを見る。
+      - name: 書棚の窓の動作確認
+        working-directory: windows
+        timeout-minutes: 5
+        run: >
+          dotnet run --project ChoroReader.App/ChoroReader.App.csproj --
+          --shelf --selftest
+          ../conformance/fixtures/epub3-basic.epub
+          ../conformance/fixtures/footnotes.epub
+          ../samples/sample.pdf
+
   webview2-spike:
     name: WebView2 の前提を確かめる
     runs-on: windows-latest
