@@ -112,12 +112,12 @@ macOS 版が PDFKit を AppKit のビューで使っているのと同じ形に�
 7. ~~`probe mark`~~（済。`./choroconf check csharp` が 90 件通る）
 8. ~~PDF を 1 冊ずつ直列に読む~~（済。MuPDF の context は同時に触ると壊れる）
 9. ~~検索の索引~~（済。二字組の転置索引。39 万字・86 章の書籍で 151 KB、作るのに 107 ms）
-10. UI（ChoroReader.App）。EPUB のリソースは独自スキームではなく、`https://choro.invalid/` への
+10. ~~PDF の当たりの矩形とページの絞り込み~~（済。紙面に囲みを重ねられる）
+11. UI（ChoroReader.App）。EPUB のリソースは独自スキームではなく、`https://choro.invalid/` への
     要求を `WebResourceRequested` で横取りして配る（独自スキームは登録できなかった）
 
 まだ無いもの。Rust 版にはあり、UI を作る段で要る。
 
-- PDF の当たりの矩形（`PageHit` に当たる部分）。いまはページ番号と抜粋だけ
 - 蔵書の横断検索。索引の上に乗るので、次に着手できる
 - 蔵書と読書位置の保存。保存先が UI の方針に依るため保留
 

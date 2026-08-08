@@ -25,6 +25,19 @@ public static class PdfProbe
 }
 
 /// <summary>
+/// 紙面の当たり。
+///
+/// <para>
+/// <see cref="Rects"/> は描いた絵の左上を原点とする点の座標で、
+/// 倍率を掛ければそのまま画素の位置になる。飛んだ先で当たりを囲むために使う。
+/// </para>
+/// </summary>
+public sealed record PageHit(int Page, string Excerpt, IReadOnlyList<PageRect> Rects);
+
+/// <summary>当たりを覆う長方形。ページの枠の左上を原点とする。</summary>
+public readonly record struct PageRect(double X0, double Y0, double X1, double Y1);
+
+/// <summary>
 /// PDF の意味情報と描画。描画結果の扱いは UI 側が決める。
 ///
 /// <para>
@@ -58,8 +71,19 @@ public sealed class PdfInspector : IDisposable
 
     public IReadOnlyList<TocEntry> Outline() => _backend.Outline();
 
-    public IReadOnlyList<(int Page, string Text)> Search(string needle, int limit) =>
-        _backend.Search(needle, limit);
+    public IReadOnlyList<PageHit> Search(string needle, int limit) =>
+        _backend.SearchWithin(needle, limit, null);
+
+    /// <summary>
+    /// <paramref name="only"/> に挙がったページだけを見る。null なら全部。
+    ///
+    /// <para>
+    /// 索引（<see cref="SearchIndex.Candidates"/>）で絞った候補を渡すための入り口。
+    /// 索引は候補を減らすだけで当たりは決めないので、絞っても絞らなくても同じ結果になる。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<PageHit> SearchWithin(string needle, int limit, IReadOnlySet<int>? only) =>
+        _backend.SearchWithin(needle, limit, only);
 
     public byte[] RenderPage(int index, double zoom) => _backend.RenderPage(index, zoom);
 
@@ -84,7 +108,7 @@ internal interface IPdfBackend : IDisposable
     bool HasTextLayer { get; }
     string TextOfPage(int index);
     IReadOnlyList<TocEntry> Outline();
-    IReadOnlyList<(int Page, string Text)> Search(string needle, int limit);
+    IReadOnlyList<PageHit> SearchWithin(string needle, int limit, IReadOnlySet<int>? only);
     byte[] RenderPage(int index, double zoom);
     (double Width, double Height) PageSize(int index);
 }

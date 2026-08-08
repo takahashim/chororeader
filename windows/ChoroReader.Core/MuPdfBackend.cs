@@ -33,6 +33,13 @@ internal sealed class MuPdfBackend : IPdfBackend
     private bool? _hasTextLayer;
     private IReadOnlyList<TocEntry>? _outline;
 
+    /// <summary>1 ページから拾う矩形の上限。当たりが多いページでも囲みきれる数にする。</summary>
+    private const int QuadsPerPage = 32;
+
+    /// <summary>抜粋に添える前後の文脈の長さ。走査（DocumentSearch）と同じ幅にしてある。</summary>
+    private const int Before = 30;
+    private const int After = 40;
+
     internal static void Register() => PdfBackend.Factory = path => new MuPdfBackend(path);
 
     private MuPdfBackend(string path)
@@ -91,31 +98,56 @@ internal sealed class MuPdfBackend : IPdfBackend
     }
 
     /// <summary>
-    /// 検索。ヒットの位置は UI 側でハイライトの矩形へ変換する。
+    /// 検索。1 ページにつき 1 つ返し、そのページの当たりをすべて矩形で示す。
     ///
     /// <para>
     /// 遅延列挙（<c>yield return</c>）にはしない。MuPDF に触るのが呼び出し側の反復のときになり、
     /// 鍵の外へ出てしまう。上限があるので、ここで数え切ってから返す。
     /// </para>
     /// </summary>
-    public IReadOnlyList<(int Page, string Text)> Search(string needle, int limit)
+    public IReadOnlyList<PageHit> SearchWithin(string needle, int limit, IReadOnlySet<int>? only)
     {
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             var pattern = new Regex(Regex.Escape(needle), RegexOptions.IgnoreCase);
-            var hits = new List<(int, string)>();
-            for (var i = 0; i < _pageCount && hits.Count < limit; i++)
+            var hits = new List<PageHit>();
+
+            for (var index = 0; index < _pageCount && hits.Count < limit; index++)
             {
-                using var page = _document.GetStructuredTextPage(i);
+                if (only is not null && !only.Contains(index))
+                {
+                    continue;
+                }
+
+                using var page = _document.GetStructuredTextPage(index);
+                // 座標は絵の左上を原点に直しておく。ページの枠は原点から始まるとは限らない。
+                var bounds = _document.Pages[index].Bounds;
+                var rects = new List<PageRect>();
+
                 foreach (var span in page.Search(pattern))
                 {
-                    hits.Add((i, page.GetText(span)));
-                    if (hits.Count >= limit)
+                    var quads = page.GetHighlightQuads(span, includeImages: false);
+                    foreach (var rect in MergeByLine(quads, bounds.X0, bounds.Y0))
+                    {
+                        rects.Add(rect);
+                        if (rects.Count >= QuadsPerPage)
+                        {
+                            break;
+                        }
+                    }
+                    if (rects.Count >= QuadsPerPage)
                     {
                         break;
                     }
                 }
+
+                if (rects.Count == 0)
+                {
+                    continue;
+                }
+                // 紙面には行がそのまま出ているので、前後の文脈は本文から切り出す。
+                hits.Add(new PageHit(index, ExcerptAround(ReadText(index), needle), rects));
             }
             return hits;
         }
@@ -181,6 +213,86 @@ internal sealed class MuPdfBackend : IPdfBackend
             }
         }
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// 1 つの当たりの矩形を、行ごとにまとめる。
+    ///
+    /// <para>
+    /// MuPDFCore は<b>文字ごと</b>に矩形を返す。「page」なら 4 個で、隙間なく隣り合っている。
+    /// そのまま渡すと囲みの数が増えるうえ、1 ページあたりの上限をすぐ使い切る。
+    /// </para>
+    /// <para>
+    /// 行をまたぐ当たりは分けたままにする。1 つに均すと、行と行のあいだの
+    /// 関係ない本文まで覆ってしまう。
+    /// </para>
+    /// </summary>
+    private static List<PageRect> MergeByLine(IEnumerable<Quad> quads, double left, double top)
+    {
+        var merged = new List<PageRect>();
+        foreach (var quad in quads)
+        {
+            var rect = RectOf(quad, left, top);
+            if (merged.Count > 0 && SameLine(merged[^1], rect))
+            {
+                var last = merged[^1];
+                merged[^1] = new PageRect(
+                    Math.Min(last.X0, rect.X0), Math.Min(last.Y0, rect.Y0),
+                    Math.Max(last.X1, rect.X1), Math.Max(last.Y1, rect.Y1));
+            }
+            else
+            {
+                merged.Add(rect);
+            }
+        }
+        return merged;
+    }
+
+    /// <summary>縦の重なりが背の低いほうの半分を超えるなら、同じ行とみなす。</summary>
+    private static bool SameLine(PageRect a, PageRect b)
+    {
+        var overlap = Math.Min(a.Y1, b.Y1) - Math.Max(a.Y0, b.Y0);
+        var shortest = Math.Min(a.Y1 - a.Y0, b.Y1 - b.Y0);
+        return shortest > 0 && overlap > shortest / 2;
+    }
+
+    /// <summary>
+    /// 四隅の点を、囲む長方形に均す。傾いた行でも、覆うだけなら長方形で足りる。
+    /// </summary>
+    private static PageRect RectOf(Quad quad, double left, double top)
+    {
+        double[] xs = [quad.UpperLeft.X, quad.UpperRight.X, quad.LowerLeft.X, quad.LowerRight.X];
+        double[] ys = [quad.UpperLeft.Y, quad.UpperRight.Y, quad.LowerLeft.Y, quad.LowerRight.Y];
+        return new PageRect(xs.Min() - left, ys.Min() - top, xs.Max() - left, ys.Max() - top);
+    }
+
+    /// <summary>
+    /// 当たりの前後を本文から切り出す。見つからなければ頭から見せる。
+    /// 文字は Unicode スカラーで数える（本文の位置の数え方と揃える）。
+    /// </summary>
+    private static string ExcerptAround(string text, string needle)
+    {
+        var chars = DocumentSearch.Runes(text);
+        var target = DocumentSearch.Runes(needle);
+
+        var position = 0;
+        for (var i = 0; i + target.Count <= chars.Count; i++)
+        {
+            var same = true;
+            for (var n = 0; n < target.Count && same; n++)
+            {
+                same = chars[i + n] == target[n];
+            }
+            if (same)
+            {
+                position = i;
+                break;
+            }
+        }
+
+        var start = Math.Max(0, position - Before);
+        var end = Math.Min(chars.Count, position + target.Count + After);
+        return string.Concat(chars.Skip(start).Take(end - start)).Replace('\n', ' ').Trim();
     }
 
     private IReadOnlyList<TocEntry> ReadOutline()
