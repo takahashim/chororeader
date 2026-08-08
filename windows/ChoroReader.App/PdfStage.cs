@@ -68,7 +68,9 @@ internal sealed class PdfStage : IStage
     {
         foreach (var entry in entries)
         {
-            yield return new Place(new string(' ', depth * 2) + entry.Title, Page: (entry.Page ?? 1) - 1);
+            // **アウトラインのページは 0 始まりである。**（PdfProbeTests が押さえている）
+            // 1 始まりと思って引くと、目次から飛ぶたびに 1 ページ手前へ着く。
+            yield return new Place(new string(' ', depth * 2) + entry.Title, Page: entry.Page ?? 0);
             foreach (var child in Flatten(entry.Children, depth + 1))
             {
                 yield return child;
