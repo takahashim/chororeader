@@ -14,6 +14,7 @@
   <ItemGroup>
     <!-- Shift_JIS などの符号化は .NET では既定で使えない。 -->
     <PackageReference Include="MuPDFCore" Version="2.0.1" />
+    <PackageReference Include="System.Numerics.Tensors" Version="10.0.10" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.0" />
   </ItemGroup>
 
