@@ -39,7 +39,12 @@ struct LibraryView: View {
     @StateObject private var passages = PassageTextLoader()
     /// 並べ直し。**押されたときにだけ走る**（spec-local-ai.md 第 5.3 節）。
     @StateObject private var rerank = RerankModel()
-    @ObservedObject private var builder = SemanticIndexBuilder.shared
+    /// **索引作りは観測しない。** 進み具合は 1 段落ごとに更新されるので、
+    /// 観測すると 1 冊で 600 回、書棚ぜんぶが描き直される。
+    /// 表も道具棚の切り替えも作り直されるため、押した先から戻ることがあった。
+    /// 書棚が要るのは「意味の層が入か」だけなので、そこだけを見る。
+    @AppStorage("semanticEnabled") private var semanticEnabled = false
+    private var builder: SemanticIndexBuilder { SemanticIndexBuilder.shared }
     /// 引き方。**混ぜない**（spec-local-ai.md 第 5.2 節）。
     /// 正確な検索には「当たり」があるが、意味の近さには無い。
     @State private var searchKind: SearchKind = .exact
@@ -242,7 +247,7 @@ struct LibraryView: View {
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            if builder.enabled {
+            if semanticEnabled {
                 Picker("", selection: $searchKind) {
                     ForEach(SearchKind.allCases) { kind in
                         Text(kind.label).tag(kind)

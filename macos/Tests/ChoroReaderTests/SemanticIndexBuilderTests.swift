@@ -137,3 +137,33 @@ final class SemanticIndexStaleTests: XCTestCase {
         XCTAssertFalse(SemanticIndexStore.isStale(for: url))
     }
 }
+
+/// 進み具合をどれだけ届けるか。
+///
+/// **書棚は索引作りを観測しない**ようにしたが、設定の画面は見ている。
+/// 毎段落届けると 1 冊で 600 回描き直され、押した先から戻ることがあった。
+/// 間引きすぎれば帯が飛び飛びになる。その両端を押さえる。
+final class SemanticIndexBuilderReportTests: XCTestCase {
+    /// **終わりは必ず届く。** 届かないと帯が 99% で止まる。
+    func test_終わりは必ず届く() {
+        XCTAssertTrue(SemanticIndexBuilder.shouldReport(done: 600, total: 600))
+        XCTAssertTrue(SemanticIndexBuilder.shouldReport(done: 1, total: 1))
+        XCTAssertTrue(SemanticIndexBuilder.shouldReport(done: 5, total: 0))
+    }
+
+    /// 1 冊ぶんで届く回数が、段落の数よりずっと少ないこと。
+    func test_毎段落は届けない() {
+        let total = 600
+        let times = (0 ... total).filter { SemanticIndexBuilder.shouldReport(done: $0, total: total) }.count
+        XCTAssertLessThan(times, total / 4, "間引けていない（\(times) 回）")
+        XCTAssertGreaterThan(times, 20, "間引きすぎて帯が飛ぶ（\(times) 回）")
+    }
+
+    /// 段落の少ない本でも帯が動くこと。**割り算で 0 にならないこと。**
+    func test_短い本でも動く() {
+        for total in [1, 3, 17, 99] {
+            let times = (0 ... total).filter { SemanticIndexBuilder.shouldReport(done: $0, total: total) }.count
+            XCTAssertEqual(times, total + 1, "\(total) 段落の本で間引いている")
+        }
+    }
+}
