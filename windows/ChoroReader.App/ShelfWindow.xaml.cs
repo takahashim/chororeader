@@ -1,13 +1,47 @@
+using System.ComponentModel;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using ChoroReader.Core;
 
 namespace ChoroReader.App;
 
-/// <summary>書棚に並ぶ 1 冊。押すと開く。</summary>
-internal sealed record ShelfBook(string Path, string Title)
+/// <summary>
+/// 書棚に並ぶ 1 冊。
+///
+/// <para>
+/// 表紙は<b>後から届く</b>。書籍を開いて取り出すので、蔵書が増えるほど時間がかかる。
+/// 揃うまで並べないと空の書棚を見せることになるので、先に題名で並べ、届いたぶんから差し替える。
+/// </para>
+/// </summary>
+internal sealed class ShelfBook(string path, string title, string kind, double progression)
+    : INotifyPropertyChanged
 {
+    public string Path { get; } = path;
+
+    public string Title { get; } = title;
+
+    /// <summary>リフロー EPUB・固定レイアウト EPUB・PDF のどれか。</summary>
+    public string Kind { get; } = kind;
+
+    public double Progression { get; } = progression;
+
+    public string Percent => $"{Progression * 100:F0}%";
+
+    private BitmapSource? _cover;
+
+    public BitmapSource? Cover
+    {
+        get => _cover;
+        set
+        {
+            _cover = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Cover)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
     public override string ToString() => Title;
 }
 
@@ -24,10 +58,16 @@ internal sealed record ShelfHit(string Path, string Title, LibraryHit Hit)
 /// 蔵書を並べ、横断して引く（spec.md 10.4）。
 /// 引くのは <see cref="LibrarySearch"/> に任せ、ここは並べるだけにする。
 /// </para>
+/// <para>
+/// 面は 3 つあり、同時には 1 つしか出さない。
+/// <b>引き方ごとに見る問いが違う。</b>語句側だけを見ていると、
+/// 語句を消したのに結果が出たままになる。
+/// </para>
 /// </summary>
 public partial class ShelfWindow : Window
 {
     private readonly LibrarySearch _search;
+    private readonly ReadingStore _reading;
     private readonly List<ShelfBook> _shelf = [];
     private CancellationTokenSource? _running;
 
@@ -36,11 +76,22 @@ public partial class ShelfWindow : Window
 
     internal int BookCount => _shelf.Count;
 
-    internal ShelfWindow(SearchIndexStore store)
+    /// <summary>表紙が出た冊数。取れない書籍はあるので、全冊とは限らない。</summary>
+    internal int CoverCount => _shelf.Count(b => b.Cover is not null);
+
+    /// <summary>結果の面を出しているか。</summary>
+    internal bool ShowingResults => Hits.Visibility == Visibility.Visible;
+
+    /// <summary>一覧（表）で並べているか。</summary>
+    internal bool ShowingTable => TableMode.IsChecked == true;
+
+    internal ShelfWindow(SearchIndexStore store, ReadingStore reading)
     {
         InitializeComponent();
         _search = new LibrarySearch(store);
+        _reading = reading;
         Closed += (_, _) => _running?.Cancel();
+        Drop += OnDrop;
     }
 
     internal void Add(params string[] paths)
@@ -51,12 +102,104 @@ public partial class ShelfWindow : Window
             {
                 continue;
             }
-            _shelf.Add(new ShelfBook(path, System.IO.Path.GetFileNameWithoutExtension(path)));
+            var state = _reading.StateOf(path);
+            _shelf.Add(new ShelfBook(
+                path,
+                state.Title.Length > 0 ? state.Title : System.IO.Path.GetFileNameWithoutExtension(path),
+                KindOf(path),
+                state.Position.Progression));
         }
-        Books.ItemsSource = null;
-        Books.ItemsSource = _shelf;
+        Covers.ItemsSource = null;
+        Covers.ItemsSource = _shelf;
+        Table.ItemsSource = null;
+        Table.ItemsSource = _shelf;
+        ShowShelf();
+    }
+
+    /// <summary>
+    /// 何の書籍かを、開かずに言える範囲で言う。
+    /// リフローか固定かは開かないと分からないので、EPUB はそこまでにする。
+    /// </summary>
+    private static string KindOf(string path) =>
+        DocumentFormats.Detect(path) switch
+        {
+            DocumentFormat.Pdf => "PDF",
+            DocumentFormat.Markdown => "Markdown",
+            _ => "EPUB",
+        };
+
+    /// <summary>
+    /// 表紙を取り出して並べる。
+    ///
+    /// <para>
+    /// <b>1 冊ずつ、届いたぶんから差し替える。</b>全部揃うまで待つと、
+    /// 蔵書が増えたときに空の書棚を長く見せることになる。
+    /// 取り出しは背後のスレッドで行う。書籍を開くので、画面で回すと固まる。
+    /// </para>
+    /// </summary>
+    internal async Task LoadCoversAsync()
+    {
+        foreach (var book in _shelf.ToList())
+        {
+            if (book.Cover is not null)
+            {
+                continue;
+            }
+            var cover = await Task.Run(() => CoverCache.Of(book.Path));
+            book.Cover = cover;
+        }
+    }
+
+    // MARK: 面の出し分け
+
+    /// <summary>
+    /// 蔵書の面へ戻す。表紙か一覧かは選ばれているほうを出す。
+    /// </summary>
+    private void ShowShelf()
+    {
+        var empty = _shelf.Count == 0;
+        Hits.Visibility = Visibility.Collapsed;
+        Empty.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+        Covers.Visibility = !empty && !ShowingTable ? Visibility.Visible : Visibility.Collapsed;
+        Table.Visibility = !empty && ShowingTable ? Visibility.Visible : Visibility.Collapsed;
         StatusLabel.Text = $"{_shelf.Count} 冊";
     }
+
+    private void ShowResults()
+    {
+        Covers.Visibility = Visibility.Collapsed;
+        Table.Visibility = Visibility.Collapsed;
+        Empty.Visibility = Visibility.Collapsed;
+        Hits.Visibility = Visibility.Visible;
+    }
+
+    internal void ShowCovers()
+    {
+        CoverMode.IsChecked = true;
+        if (!ShowingResults)
+        {
+            ShowShelf();
+        }
+    }
+
+    internal void ShowTable()
+    {
+        TableMode.IsChecked = true;
+        if (!ShowingResults)
+        {
+            ShowShelf();
+        }
+    }
+
+    private void OnModeChanged(object sender, RoutedEventArgs e)
+    {
+        if (IsLoaded && !ShowingResults)
+        {
+            ShowShelf();
+        }
+    }
+
+    // MARK: 引く
 
     /// <summary>
     /// 蔵書を横断して引く。
@@ -78,10 +221,12 @@ public partial class ShelfWindow : Window
         query = query.Trim();
         if (query.Length == 0)
         {
-            StatusLabel.Text = $"{_shelf.Count} 冊";
+            // 語句を消したら蔵書へ戻す。結果の面を出したままにしない。
+            ShowShelf();
             return;
         }
 
+        ShowResults();
         StatusLabel.Text = "引いています…";
         var paths = _shelf.Select(b => b.Path).ToList();
         var books = 0;
@@ -156,9 +301,18 @@ public partial class ShelfWindow : Window
         }
     }
 
-    private void OnOpenSelected(object sender, MouseButtonEventArgs e)
+    private void OnDrop(object sender, DragEventArgs e)
     {
-        if (Books.SelectedItem is ShelfBook book)
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] dropped)
+        {
+            Add(dropped);
+        }
+    }
+
+    private void OnOpenBook(object sender, MouseButtonEventArgs e)
+    {
+        var chosen = ShowingTable ? Table.SelectedItem : Covers.SelectedItem;
+        if (chosen is ShelfBook book)
         {
             Open(book.Path);
         }
