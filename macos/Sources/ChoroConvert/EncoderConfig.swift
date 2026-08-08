@@ -72,8 +72,19 @@ public struct EncoderConfig {
         eps = Float(number("norm_eps") ?? number("layer_norm_eps") ?? 1e-5)
         localAttention = Int(number("local_attention") ?? 128)
         globalEvery = Int(number("global_attn_every_n_layers") ?? 3)
-        localRopeTheta = Float(number("local_rope_theta") ?? 10000)
-        globalRopeTheta = Float(number("global_rope_theta") ?? number("rope_theta") ?? 160000)
+        // theta の置き場所が 2 通りある。**新しい config は `rope_parameters` の側に持ち、
+        // 平らな鍵は null になる。** そこだけを見ていると既定値で変換が通り、
+        // 静かに違うベクトルが出る（実際に踏んだ。cosine 0.14）。
+        let ropeParameters = root["rope_parameters"] as? [String: Any]
+        func theta(_ kind: String, _ flat: String, _ fallback: Double) -> Float {
+            if let one = ropeParameters?[kind] as? [String: Any],
+               let value = (one["rope_theta"] as? NSNumber)?.doubleValue {
+                return Float(value)
+            }
+            return Float(number(flat) ?? number("rope_theta") ?? fallback)
+        }
+        localRopeTheta = theta("sliding_attention", "local_rope_theta", 10000)
+        globalRopeTheta = theta("full_attention", "global_rope_theta", 160000)
         maxPositions = Int(number("max_position_embeddings") ?? 8192)
 
         let name = (root["hidden_activation"] as? String) ?? "gelu"
