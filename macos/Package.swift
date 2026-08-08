@@ -38,6 +38,8 @@ let package = Package(
             name: "ChoroConvertTests",
             dependencies: ["ChoroConvert"],
             path: "Tests/ChoroConvertTests",
+            // 検査の回し方（coremltools の治具を含む）。束ねる必要は無い。
+            exclude: ["README.md"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
