@@ -163,6 +163,10 @@ final class SemanticIndexBuilder: ObservableObject {
 
         Task.detached(priority: .utility) {
             let result = Self.build(url, stop: stop, report: { done, total in
+                // **毎段落は届けない。** 1 冊 600 段落ぶん流すと、見ている画面が
+                // その回数だけ描き直される。人に見えるのは進み具合の帯なので、
+                // 表示が動くところだけで足りる。
+                guard Self.shouldReport(done: done, total: total) else { return }
                 Task { @MainActor [weak self] in
                     // 遅れて届いた分で、次の本の進み具合を上書きしない。
                     guard let self, self.generation == mine else { return }
@@ -175,6 +179,16 @@ final class SemanticIndexBuilder: ObservableObject {
                 self.step()
             }
         }
+    }
+
+    /// 進み具合を届けるか。**1% 動いたときと、終わったときだけ。**
+    ///
+    /// 純粋な計算にしてあるのは、ここを検査で押さえるためである。
+    /// 間引きすぎると帯が飛び飛びになり、間引かなければ画面が固まる。
+    nonisolated static func shouldReport(done: Int, total: Int) -> Bool {
+        guard total > 0 else { return true }
+        if done >= total { return true }
+        return done % max(1, total / 100) == 0
     }
 
     private enum Outcome {

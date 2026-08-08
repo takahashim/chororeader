@@ -54,6 +54,12 @@ struct EPUBPublication {
     var authors: [String]
     var language: String?
     var identifier: String?
+    /// 書誌の素。**プローブの出力には載せない**（`Bibliography` の説明を見よ）。
+    var publisher: String?
+    var published: String?
+    var subtitle: String?
+    /// `dc:identifier` は複数ある。ISBN は最初とは限らない。
+    var identifiers: [String] = []
     var readingOrder: [Link]
     var tableOfContents: [TOCEntry]
     var coverHref: String?

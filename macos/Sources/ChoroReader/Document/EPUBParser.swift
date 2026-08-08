@@ -57,7 +57,24 @@ enum EPUBParser {
         let title = metaValues("title").first ?? ""
         let authors = metaValues("creator")
         let language = metaValues("language").first
-        let identifier = metaValues("identifier").first
+        let identifiers = metaValues("identifier")
+        let identifier = identifiers.first
+        let publisher = metaValues("publisher").first
+        let published = metaValues("date").first
+
+        // 副題。**`title-type` が `subtitle` の `dc:title` を、refines で指し直す。**
+        // 題名が複数あるのは珍しくなく、順番では見分けられない。
+        let subtitle: String? = {
+            let subtitleIds = Set(nodes(opf, "//*[local-name()='metadata']/*[local-name()='meta'][@property='title-type']")
+                .filter { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) == "subtitle" }
+                .compactMap { ($0 as? XMLElement)?.attribute(forName: "refines")?.stringValue }
+                .map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 })
+            guard !subtitleIds.isEmpty else { return nil }
+            return nodes(opf, "//*[local-name()='metadata']/*[local-name()='title']")
+                .compactMap { $0 as? XMLElement }
+                .first { subtitleIds.contains($0.attribute(forName: "id")?.stringValue ?? "") }?
+                .stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }()
 
         // レイアウト種別
         let renditionLayout = nodes(opf, "//*[local-name()='meta'][@property='rendition:layout']")
@@ -107,6 +124,10 @@ enum EPUBParser {
             authors: authors,
             language: language,
             identifier: identifier,
+            publisher: publisher,
+            published: published,
+            subtitle: subtitle,
+            identifiers: identifiers,
             readingOrder: readingOrder,
             tableOfContents: toc,
             coverHref: coverHref,

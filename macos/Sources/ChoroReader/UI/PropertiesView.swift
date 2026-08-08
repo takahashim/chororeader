@@ -132,11 +132,39 @@ struct PropertiesView: View {
                                  placeholder: entry.authors.joined(separator: "、"))
                     Text("空のままなら、書籍の名乗りとファイル名で決めます。")
                         .font(.system(size: 10)).foregroundStyle(.secondary)
+                    bibliography(of: entry)
                     if !candidates.isEmpty {
                         candidateList
                     }
                 }
             }
+        }
+    }
+
+    /// 書籍が名乗っている書誌。**人は直せない**（直せるのは書棚での名前だけ）。
+    ///
+    /// 揃わない本の方が多いので、**在るものだけ出す**。
+    /// 空欄を並べても「取れなかった」のか「元から無い」のか分からない。
+    @ViewBuilder
+    private func bibliography(of entry: LibraryEntry) -> some View {
+        let book = entry.bibliography
+        if !book.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("書籍の名乗り").font(.subheadline.weight(.semibold))
+                if let subtitle = book.subtitle { row("副題", subtitle) }
+                if let publisher = book.publisher { row("出版社", publisher) }
+                if let published = book.published { row("発行", published) }
+                if let isbn = book.isbn { row("ISBN", isbn) }
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label).foregroundStyle(.secondary)
+                .font(.callout).frame(width: 44, alignment: .trailing)
+            Text(value).font(.callout).textSelection(.enabled)
         }
     }
 

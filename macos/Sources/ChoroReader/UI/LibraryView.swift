@@ -39,7 +39,12 @@ struct LibraryView: View {
     @StateObject private var passages = PassageTextLoader()
     /// 並べ直し。**押されたときにだけ走る**（spec-local-ai.md 第 5.3 節）。
     @StateObject private var rerank = RerankModel()
-    @ObservedObject private var builder = SemanticIndexBuilder.shared
+    /// **索引作りは観測しない。** 進み具合は 1 段落ごとに更新されるので、
+    /// 観測すると 1 冊で 600 回、書棚ぜんぶが描き直される。
+    /// 表も道具棚の切り替えも作り直されるため、押した先から戻ることがあった。
+    /// 書棚が要るのは「意味の層が入か」だけなので、そこだけを見る。
+    @AppStorage("semanticEnabled") private var semanticEnabled = false
+    private var builder: SemanticIndexBuilder { SemanticIndexBuilder.shared }
     /// 引き方。**混ぜない**（spec-local-ai.md 第 5.2 節）。
     /// 正確な検索には「当たり」があるが、意味の近さには無い。
     @State private var searchKind: SearchKind = .exact
@@ -115,12 +120,30 @@ struct LibraryView: View {
         .task(id: store.entries.count) {
             builder.scheduleIdle(store.entries.compactMap { store.resolveURL(for: $0) })
         }
+        // **落としても開かない。書棚へ加えるだけ。**
+        //
+        // 開いていた頃は、まとめて落とすと落とした数だけ窓が開いた。
+        // フォルダからの取り込みは前から開かない作りなので、そちらへ揃える。
+        // 読みたくなったら書棚から開ける（既にある導線である）。
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            let group = DispatchGroup()
+            var urls: [URL] = []
+            let gate = NSLock()
             for provider in providers {
+                group.enter()
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    guard let url else { return }
-                    DispatchQueue.main.async { open(url) }
+                    if let url {
+                        gate.lock()
+                        urls.append(url)
+                        gate.unlock()
+                    }
+                    group.leave()
                 }
+            }
+            // **全部揃ってから 1 度だけ取り込む。** 1 つずつ始めると、
+            // 走っている最中の呼び出しが捨てられて、落とした一部だけが入る。
+            group.notify(queue: .main) {
+                importing.drop(urls, into: store)
             }
             return true
         }
@@ -224,7 +247,7 @@ struct LibraryView: View {
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            if builder.enabled {
+            if semanticEnabled {
                 Picker("", selection: $searchKind) {
                     ForEach(SearchKind.allCases) { kind in
                         Text(kind.label).tag(kind)
