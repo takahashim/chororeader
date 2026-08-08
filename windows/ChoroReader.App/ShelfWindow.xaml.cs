@@ -57,12 +57,12 @@ internal sealed class NearRow(SemanticHit hit)
 {
     internal SemanticHit Hit { get; } = hit;
 
-    public string Where => hit.Heading.Length > 0 ? $"{hit.Title} — {hit.Heading}" : hit.Title;
+    public string Where => Hit.Heading.Length > 0 ? $"{Hit.Title} — {Hit.Heading}" : Hit.Title;
 
     /// <summary>近さ。<b>件数を出さない代わりに、これで測れるようにする。</b></summary>
-    public string Score => hit.Score.ToString("F2");
+    public string Score => Hit.Score.ToString("F2");
 
-    public string Excerpt => hit.Text;
+    public string Excerpt => Hit.Text;
 }
 
 /// <summary>横断検索の当たり 1 件。押すとその場所へ飛ぶ。</summary>
