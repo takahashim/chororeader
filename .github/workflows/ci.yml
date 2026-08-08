@@ -64,9 +64,11 @@ jobs:
           cargo check -p chororeader
 
       # Core と Probe は net10.0 のままにしてあるので、Windows マシン無しで組める。
-      - name: C# のビルド
+      - name: C# のビルドとテスト
         working-directory: windows
-        run: dotnet build ChoroReader.Probe/ChoroReader.Probe.csproj
+        run: |
+          dotnet build ChoroReader.Probe/ChoroReader.Probe.csproj
+          dotnet test ChoroReader.Tests/ChoroReader.Tests.csproj
 
       # .NET も Rust も macOS で動くため、3 実装の突き合わせはこのジョブ 1 つで完結する。
       - name: 期待値との照合と、実装間の突き合わせ
@@ -97,6 +99,7 @@ jobs:
         run: |
           dotnet build ChoroReader.Core/ChoroReader.Core.csproj
           dotnet build ChoroReader.Probe/ChoroReader.Probe.csproj
+          dotnet test ChoroReader.Tests/ChoroReader.Tests.csproj
 
   webview2-spike:
     name: WebView2 の前提を確かめる

@@ -38,7 +38,16 @@ UI と、UI に依存しないコアを分ける。
 windows/
 ├── ChoroReader.Core/     クラスライブラリ。UI に依存しない（EPUB パース、Locator、CSS 変換、検索、診断）
 ├── ChoroReader.Probe/    コンソールアプリ。probe CLI の実体。Core を参照する
+├── ChoroReader.Tests/    Core の検査（xunit）。conformance で見えないものを置く
 └── ChoroReader.App/      Windows 専用の UI（WinUI 3 など）。Core を参照する
+```
+
+`ChoroReader.Tests` は、実装間の突き合わせでは見えないものを受け持つ。
+突き合わせは probe を 1 回ずつ呼んで出力を比べるので、
+並行して呼んだときに壊れるかどうかや、閉じたあとに触ったときの振る舞いは映らない。
+
+```sh
+dotnet test ChoroReader.Tests/ChoroReader.Tests.csproj
 ```
 
 **この分け方には実利がある。** .NET は macOS でも動くため、Core と Probe は macOS 上でビルドして実行できる。
