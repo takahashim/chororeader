@@ -18,17 +18,12 @@ public static class PreviewProvider
 
     public static Preview? Make(IResourceProvider resources, string href, string? fragment, string css)
     {
-        byte[] data;
-        try
-        {
-            data = resources.Read(href);
-        }
-        catch (Exception)
+        if (resources.ReadText(href) is not { } text)
         {
             return null;
         }
 
-        var source = CssCompat.RewriteXhtml(CssCompat.DecodeText(data)).Css;
+        var source = CssCompat.RewriteXhtml(text).Css;
         var extracted = Extract(source, fragment);
         if (extracted.Body.Length == 0)
         {
@@ -45,11 +40,7 @@ public static class PreviewProvider
         <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
         <head><meta charset="utf-8"/><style>
         {{css}}
-        html, body { margin: 0 !important; padding: 12px 14px !important; max-width: none !important; }
-        body { font-size: 0.94em !important; }
-        h1, h2, h3, h4, h5, h6 { margin-top: 0 !important; }
-        a { pointer-events: none; }
-        img, svg { max-width: 100% !important; height: auto !important; }
+        {{ReaderStyle.PreviewOverlayCss()}}
         </style></head>
         <body>{{extracted.Body}}</body>
         </html>
@@ -188,17 +179,11 @@ public static class FixedLayoutPlan
     /// </summary>
     public static PageContent Content(string href, IResourceProvider resources)
     {
-        byte[] data;
-        try
-        {
-            data = resources.Read(href);
-        }
-        catch (Exception)
+        if (resources.ReadText(href) is not { } source)
         {
             return new PageContent("document", href);
         }
 
-        var source = CssCompat.DecodeText(data);
         var reference = PrimaryImageReference(source);
         if (reference is null)
         {
@@ -238,7 +223,7 @@ public static class FixedLayoutPlan
     }
 
     /// <summary>見開きの組み方。表紙は単独で見せ、以降を 2 枚ずつまとめる。</summary>
-    public static IReadOnlyList<IReadOnlyList<int>> Spreads(int pageCount, bool rtl)
+    public static IReadOnlyList<IReadOnlyList<int>> Spreads(int pageCount)
     {
         if (pageCount <= 0)
         {

@@ -132,4 +132,19 @@ public sealed record ReaderStyle
         }
         """;
     }
+
+    /// <summary>
+    /// 抜粋（リンク先を移動せずに見せる小窓）に重ねる CSS。
+    ///
+    /// 本文の見た目は <see cref="Css"/> が作る。ここはその上に、
+    /// 小窓だからこその上書きだけを足す。CSS を作る場所を 1 つにまとめておく。
+    /// </summary>
+    public static string PreviewOverlayCss() =>
+        """
+        html, body { margin: 0 !important; padding: 12px 14px !important; max-width: none !important; }
+        body { font-size: 0.94em !important; }
+        h1, h2, h3, h4, h5, h6 { margin-top: 0 !important; }
+        a { pointer-events: none; }
+        img, svg { max-width: 100% !important; height: auto !important; }
+        """;
 }

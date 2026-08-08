@@ -3,6 +3,11 @@
 Core と Probe を実装済み。UI は未着手。
 スパイクの結果は [../spikes/findings-windows.md](../spikes/findings-windows.md)。
 
+**この実装は一度畳み、戻した。**
+Windows 版は Tauri（Rust）へ移したが、Windows での具合が芳しくないため C# へ戻すことを検討している。
+いまは契約の 3 つ目の相手として置いてある。戻すかどうかはまだ決めていない。
+畳んだ経緯と、戻すときに合わせた差分は findings-windows.md にある。
+
 ```sh
 cd windows
 dotnet build ChoroReader.Probe/ChoroReader.Probe.csproj
@@ -93,9 +98,10 @@ macOS 版が PDFKit を AppKit のビューで使っているのと同じ形に�
 2. ~~`probe resolve` と `probe css`~~（済）
 3. ~~`probe parse`~~（済）
 4. ~~`probe detect` と `probe report`~~（済）
-5. ~~`probe search`~~（済。`./choroconf check csharp` が 49 件通る）
+5. ~~`probe search`~~（済）
 6. ~~WebView2 のスパイク~~（済。前提は成り立つ。[../spikes/findings-windows.md](../spikes/findings-windows.md)）
-7. UI（ChoroReader.App）。EPUB のリソースは独自スキームではなく、`https://choro.invalid/` への
+7. ~~`probe mark`~~（済。`./choroconf check csharp` が 81 件通る）
+8. UI（ChoroReader.App）。EPUB のリソースは独自スキームではなく、`https://choro.invalid/` への
    要求を `WebResourceRequested` で横取りして配る（独自スキームは登録できなかった）
 
 各段階で `./choroconf diff swift csharp` を回すと、食い違いがその場で出る。
@@ -107,4 +113,8 @@ CONTRACT.md の「正規化の規約」に書いてあるが、特に次の 3 �
 
 - **Unicode の正規化形**：macOS のファイルシステムは分解形（NFD）を返すことがある。出力前に NFC へ揃える（C# なら `string.Normalize(NormalizationForm.FormC)`）
 - **パス区切り**：Windows で `Path.Combine` を使うと `\` になる。EPUB 内のパスは常に `/` で扱う
-- **小数の丸め**：`progression` は小数第 3 位へ丸める
+- **小数の丸め**：`progression` は小数第 3 位へ丸める。ちょうど半分のときは 0 から遠い側へ寄せる（`MidpointRounding.AwayFromZero`）
+- **照合の畳み方**：`CompareInfo`（ICU）に任せない。`Fold` を自分で持つ。
+  当たりには章の中での通し番号（`nth`）が付くので、どこを何番目と数えるかまで揃っている必要がある。
+  ICU では次に探し始める位置が他の実装とずれ、重なりを持つ語で番号が食い違う
+- **文字の数え方**：本文の位置は Unicode スカラーで数える。`string.Length`（UTF-16 の単位数）ではない

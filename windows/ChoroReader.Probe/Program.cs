@@ -11,7 +11,7 @@ namespace ChoroReader.Probe;
 /// </summary>
 public static class Program
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
 
     public static int Main(string[] rawArguments)
     {
@@ -26,7 +26,8 @@ public static class Program
 
         if (arguments.Length == 0)
         {
-            return Fail("usage: choroprobe probe <version|parse|report|resolve|css|search|detect> ...");
+            return Fail("usage: choroprobe probe "
+                        + "<version|parse|report|style|text|preview|fixed|resolve|css|search|mark|detect> ...");
         }
 
         var command = arguments[0];
@@ -50,6 +51,7 @@ public static class Program
                 "resolve" => Resolve(rest),
                 "css" => Css(),
                 "search" => Search(rest),
+                "mark" => MarkCommand(rest),
                 "detect" => Detect(rest),
                 "pdfspike" => PdfSpike.Run(rest),
                 _ => Fail($"unknown command: {command}"),
@@ -189,7 +191,9 @@ public static class Program
             return Fail("usage: probe text <epub> <href>");
         }
         using var archive = new EpubArchive(args[0]);
-        var extracted = HtmlText.Extract(CssCompat.DecodeText(archive.Read(args[1])));
+        var source = archive.ReadText(args[1])
+                     ?? throw DocumentException.BrokenArchive($"{args[1]} を読めない");
+        var extracted = HtmlText.Extract(source);
 
         return Emit(new JsonObject
         {
@@ -234,7 +238,7 @@ public static class Program
         var publication = EpubParser.Parse(archive);
         var page = args.Length >= 2 && int.TryParse(args[1], out var parsed) ? parsed : 0;
         var rtl = publication.Direction == ReadingDirection.Rtl;
-        var spreads = FixedLayoutPlan.Spreads(publication.ReadingOrder.Count, rtl);
+        var spreads = FixedLayoutPlan.Spreads(publication.ReadingOrder.Count);
 
         var pages = publication.ReadingOrder.Select((link, index) =>
         {
@@ -320,11 +324,57 @@ public static class Program
             {
                 ["href"] = Norm(r.Locator.Href ?? string.Empty),
                 // 丸め方の差で落ちないよう、小数第 3 位へ揃える。
-                ["progression"] = Math.Round(r.Locator.Progression, 3, MidpointRounding.ToEven),
+                // ちょうど半分のときは 0 から遠い側へ寄せる（四捨五入）。
+                ["progression"] = Math.Round(r.Locator.Progression, 3, MidpointRounding.AwayFromZero),
                 ["match"] = Norm(r.Match),
                 ["isCode"] = r.IsCode,
+                // 章の中で何番目の当たりか。飛んだ先で押した当たりを選び直すのに使うので、
+                // 実装どうしで食い違うと、開き直した窓が別の語を強調することになる。
+                ["nth"] = r.Nth,
             })),
         });
+    }
+
+    /// <summary>
+    /// 検索結果から飛んだ先で、どの語をどこで囲むか。
+    ///
+    /// 囲んだ HTML を丸ごと比べると、実装ごとの細部で偽の差分が出る。
+    /// 囲んだ語と、その直前にある本文で示す。置いた場所が同じかどうかはこれで分かる。
+    /// </summary>
+    private static int MarkCommand(string[] args)
+    {
+        const string Usage = "usage: probe mark <epub> <href> <query> [nth]";
+        if (args.Length < 3)
+        {
+            return Fail(Usage);
+        }
+        var nth = args.Length >= 4 && int.TryParse(args[3], out var parsed) ? parsed : 0;
+
+        using var archive = new EpubArchive(args[0]);
+        var source = archive.ReadText(args[1])
+                     ?? throw DocumentException.BrokenArchive($"{args[1]} を読めない");
+        // 配るときと同じ順で通す。印は書き換えたあとの本文へ入る。
+        var html = CssCompat.RewriteXhtml(source).Css;
+
+        var output = new JsonObject
+        {
+            ["schema"] = SchemaVersion,
+            ["command"] = "mark",
+            ["href"] = Norm(args[1]),
+            ["query"] = Norm(args[2]),
+            ["nth"] = nth,
+        };
+        if (Mark.Locate(html, args[2], nth) is { } placement)
+        {
+            output["found"] = true;
+            output["marked"] = Norm(placement.Marked);
+            output["before"] = Norm(placement.Before);
+        }
+        else
+        {
+            output["found"] = false;
+        }
+        return Emit(output);
     }
 
     private static int Detect(string[] args)

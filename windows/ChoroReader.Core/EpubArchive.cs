@@ -9,6 +9,27 @@ public interface IResourceProvider
     byte[] Read(string path);
 }
 
+public static class ResourceProviders
+{
+    /// <summary>
+    /// 文字として読む。取り出せなければ null。
+    ///
+    /// 書庫から取り出したバイト列は、必ず同じ規則で文字に直す必要がある
+    /// （BOM、UTF-8 でない CSS）。呼ぶ側で書くと、いつか書き忘れる。
+    /// </summary>
+    public static string? ReadText(this IResourceProvider resources, string path)
+    {
+        try
+        {
+            return CssCompat.DecodeText(resources.Read(path));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+}
+
 /// <summary>
 /// EPUB の中身を、展開せずに要求時だけ取り出す。
 /// .NET には ZipArchive があるので、macOS 版のような自前の ZIP リーダーは要らない。

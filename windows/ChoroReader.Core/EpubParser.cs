@@ -28,8 +28,9 @@ public static class EpubParser
 
         var opfDirectory = DirectoryOf(opfPath);
 
-        // manifest
+        // manifest。id で引くのと、書かれた順に辿るのと、両方が要る。
         var manifest = new Dictionary<string, Link>(StringComparer.Ordinal);
+        var manifestOrder = new List<string>();
         string? coverId = null;
         foreach (var item in Elements(opf.Root, "manifest").SelectMany(m => Elements(m, "item")))
         {
@@ -42,12 +43,20 @@ public static class EpubParser
             var href = Paths.Resolve(opfDirectory, Paths.StripFragment(rawHref).Path);
             var properties = (Attribute(item, "properties") ?? string.Empty)
                 .Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+            if (!manifest.ContainsKey(id))
+            {
+                manifestOrder.Add(id);
+            }
             manifest[id] = new Link(href, Attribute(item, "media-type") ?? string.Empty, id, properties);
             if (properties.Contains("cover-image"))
             {
                 coverId = id;
             }
         }
+
+        // 書かれた順に辿って、条件に合う最初のもの。
+        Link? FindInManifest(Func<Link, bool> matches) =>
+            manifestOrder.Select(id => manifest[id]).FirstOrDefault(matches);
 
         // spine
         var readingOrder = new List<Link>();
@@ -113,9 +122,9 @@ public static class EpubParser
         var coverHref = coverId is not null && manifest.TryGetValue(coverId, out var coverLink)
             ? coverLink.Href : null;
 
-        // 目次。EPUB3 の nav を優先し、無ければ EPUB2 の NCX を読む。
+        // 目次。EPUB3 の nav を優先し、無ければ EPUB2 の NCX、どちらも無ければ読み順で代える。
         var toc = new List<TocEntry>();
-        var navLink = manifest.Values.FirstOrDefault(l => l.Properties.Contains("nav"));
+        var navLink = FindInManifest(l => l.Properties.Contains("nav"));
         if (navLink is not null && archive.Contains(navLink.Href))
         {
             toc = ParseNavDocument(archive.Read(navLink.Href), DirectoryOf(navLink.Href));
@@ -125,7 +134,7 @@ public static class EpubParser
             var ncxId = Attribute(spine, "toc");
             var ncxLink = ncxId is not null && manifest.TryGetValue(ncxId, out var byId)
                 ? byId
-                : manifest.Values.FirstOrDefault(l => l.MediaType == "application/x-dtbncx+xml");
+                : FindInManifest(l => l.MediaType == "application/x-dtbncx+xml");
             if (ncxLink is not null && archive.Contains(ncxLink.Href))
             {
                 toc = ParseNcx(archive.Read(ncxLink.Href), DirectoryOf(ncxLink.Href));
