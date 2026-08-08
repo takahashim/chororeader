@@ -115,12 +115,30 @@ struct LibraryView: View {
         .task(id: store.entries.count) {
             builder.scheduleIdle(store.entries.compactMap { store.resolveURL(for: $0) })
         }
+        // **落としても開かない。書棚へ加えるだけ。**
+        //
+        // 開いていた頃は、まとめて落とすと落とした数だけ窓が開いた。
+        // フォルダからの取り込みは前から開かない作りなので、そちらへ揃える。
+        // 読みたくなったら書棚から開ける（既にある導線である）。
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            let group = DispatchGroup()
+            var urls: [URL] = []
+            let gate = NSLock()
             for provider in providers {
+                group.enter()
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    guard let url else { return }
-                    DispatchQueue.main.async { open(url) }
+                    if let url {
+                        gate.lock()
+                        urls.append(url)
+                        gate.unlock()
+                    }
+                    group.leave()
                 }
+            }
+            // **全部揃ってから 1 度だけ取り込む。** 1 つずつ始めると、
+            // 走っている最中の呼び出しが捨てられて、落とした一部だけが入る。
+            group.notify(queue: .main) {
+                importing.drop(urls, into: store)
             }
             return true
         }

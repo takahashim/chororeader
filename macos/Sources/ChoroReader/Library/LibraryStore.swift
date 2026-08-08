@@ -38,11 +38,18 @@ final class LibraryStore: ObservableObject {
     private let fileURL: URL
     private var saveWorkItem: DispatchWorkItem?
 
-    init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ChoroReader", isDirectory: true)
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        fileURL = base.appendingPathComponent("library.json")
+    /// - Parameter fileURL: 置き場所。**検査で差し替えるためだけに開けてある。**
+    ///   既定は Application Support の下で、アプリはそちらしか使わない。
+    ///   ここが差せないと、検査が人の書棚を書き換えることになる。
+    init(fileURL: URL? = nil) {
+        if let fileURL {
+            self.fileURL = fileURL
+        } else {
+            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("ChoroReader", isDirectory: true)
+            try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+            self.fileURL = base.appendingPathComponent("library.json")
+        }
         load()
     }
 
