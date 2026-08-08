@@ -24,6 +24,34 @@ enum Varint {
         out.append(contentsOf: bytes)
     }
 
+    /// 写さずに読む。**`Data` 全体を `[UInt8]` へ写してはいけない。**
+    ///
+    /// Reader は作るときにファイル全体を写す。頭の数十バイトを読むために
+    /// 300 KB の sidecar を丸ごと写し、それを頭の検査と本体で 2 回やっていた。
+    /// mmap で開いたファイルなら、写した時点で全ページが実 RAM に乗ってしまう。
+    ///
+    /// `withUnsafeBytes` の中でだけ生きる。外へ持ち出してはいけない。
+    struct RawReader {
+        let buffer: UnsafeRawBufferPointer
+        var cursor: Int
+
+        var remaining: Int { buffer.count - cursor }
+
+        mutating func number() -> UInt64? {
+            var value: UInt64 = 0
+            var shift: UInt64 = 0
+            while cursor < buffer.count {
+                let byte = buffer[cursor]
+                cursor += 1
+                value |= UInt64(byte & 0x7f) << shift
+                if byte & 0x80 == 0 { return value }
+                shift += 7
+                if shift >= 64 { return nil }
+            }
+            return nil
+        }
+    }
+
     /// 読み取りの位置を持って進む。**足りなければ nil を返す**。
     ///
     /// 途中で切れたものを黙って受け取ると、単位とベクトルの数が食い違ったまま引くことになる。

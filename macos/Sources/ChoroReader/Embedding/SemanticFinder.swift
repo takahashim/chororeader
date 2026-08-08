@@ -52,14 +52,22 @@ enum SemanticFinder {
                        resolve: (LibraryEntry) -> URL?) -> Found {
         var made = Found()
         guard !query.isEmpty else { return made }
+        // 番号と点だけを集める。**メタデータ（飛び先や見出し）は勝った書籍でしかほどかない。**
+        // ここで RelatedPassage を組むと、候補に残った書籍ぜんぶの文字列を組み立てることになる。
+        var scored: [(entry: LibraryEntry, index: SemanticIndex, unit: Int, score: Float)] = []
         for entry in entries where entry.id != current {
             guard let url = resolve(entry), let index = SemanticIndexStore.cached(for: url) else {
                 made.missing += 1
                 continue
             }
-            made.passages.append(contentsOf: rank(query, over: [(entry, index)], limits: limits))
+            guard index.dimension == query.count else { continue }
+            for hit in index.nearest(to: query, limit: limits.perBook)
+            where hit.score >= limits.leastScore {
+                scored.append((entry, index, hit.unit, hit.score))
+            }
         }
-        made.passages = Array(made.passages.sorted { $0.score > $1.score }.prefix(limits.total))
+        made.passages = scored.sorted { $0.score > $1.score }.prefix(limits.total)
+            .map { RelatedPassage(book: $0.entry, unit: $0.index.unit(at: $0.unit), score: $0.score) }
         return made
     }
 
@@ -76,7 +84,7 @@ enum SemanticFinder {
             for hit in target.index.nearest(to: query, limit: limits.perBook)
             where hit.score >= limits.leastScore {
                 found.append(RelatedPassage(book: target.entry,
-                                            unit: target.index.units[hit.unit],
+                                            unit: target.index.unit(at: hit.unit),
                                             score: hit.score))
             }
         }

@@ -40,10 +40,11 @@ final class SemanticIndexTests: XCTestCase {
             XCTAssertNil(a.locator.title)
             XCTAssertEqual(a.target.title, b.heading)
         }
-        XCTAssertEqual(back.vectors.count, index.vectors.count)
-        for (a, b) in zip(back.vectors, index.vectors) {
-            // float16 で書くので、値そのものは丸まる
-            XCTAssertEqual(a, b, accuracy: 1e-3)
+        // ベクトルは fp16 で書くので、値そのものは丸まる
+        for at in 0 ..< back.count {
+            let a = try XCTUnwrap(back.vector(at: at))
+            let b = try XCTUnwrap(index.vector(at: at))
+            for (x, y) in zip(a, b) { XCTAssertEqual(x, y, accuracy: 1e-3) }
         }
     }
 

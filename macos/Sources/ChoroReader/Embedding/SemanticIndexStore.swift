@@ -33,15 +33,19 @@ enum SemanticIndexStore {
         }
 
         // **鍵は 1 枚の頭で見る。** 中身をほどく前に落とせるので、
-        // モデルを入れ替えた直後に 20 MB を無駄に読まずに済む。
+        // モデルを入れ替えた直後に置き場所を無駄に読まずに済む。
+        //
+        // mmap は使わない。試したら冷えた読み込みが倍に伸びた（198 → 435 ms／500 冊）。
+        // どうせベクトルは自前の並びへ写し取るので、頁例外を 1 冊 40 回払うより
+        // 順に 1 回で読む方が安い。メタデータの写しも小さい（1 冊 90 KB ほど）。
         guard let data = try? Data(contentsOf: location(for: url)),
-              let head = Head(data), head.size == size, head.modified == modified,
+              let head = Head(data.prefix(512)), head.size == size, head.modified == modified,
               head.model == model,
               let index = SemanticIndex(decoding: data, from: head.cursor, model: model)
         else { return nil }
 
         memory.setObject(Box(index: index, size: size, modified: modified),
-                         forKey: key, cost: index.count * index.dimension * 4)
+                         forKey: key, cost: index.count * index.dimension * 2)
         return index
     }
 
@@ -90,7 +94,8 @@ enum SemanticIndexStore {
     }
 
     /// ほどいた索引を抱える量に頭を打つ。二字組索引と同じ作法。
-    /// ベクトルは float32 でほどくので、書いてある形の 2 倍で数える。
+    /// ベクトルは fp16 のまま持つので、置いてある形とほぼ同じ量で数える。
+    /// fp32 に広げて持っていた頃の倍の冊数を、同じ上限で抱えられる。
     private static let memory: NSCache<NSString, Box> = {
         let cache = NSCache<NSString, Box>()
         cache.totalCostLimit = 64 * 1024 * 1024
@@ -176,7 +181,7 @@ enum SemanticIndexStore {
         try? out.write(to: location(for: url), options: .atomic)
         memory.setObject(Box(index: index, size: size, modified: modified),
                          forKey: url.standardizedFileURL.path as NSString,
-                         cost: index.count * index.dimension * 4)
+                         cost: index.count * index.dimension * 2)
     }
 
     /// sidecar の頭。**失効の鍵をここに全部置く。**
@@ -184,11 +189,13 @@ enum SemanticIndexStore {
     /// 以前は大きさと更新日時をここで、モデルの名前を中身の側で持っていた。
     /// 鍵が 2 層に散っていると、片方だけ見て通す事故になる。
     private struct Head {
+        /// 版 6：引くものと当たってから要るものを分けた。文字列は表で 1 度だけ書き、
+        /// ベクトルは fp16 のまま持つ。モデルの入れ替え検査は頭だけで済む。
         /// 版 5：段落に節の番号を持たせた（順位を節で決めるため）。
         /// 版 4：抜き書きを控えるのをやめた（本文の 35% が原文のまま入っていた）。
         /// 版 3：モデルの名前を頭へ移した（それ以前は中身にあった）。
         /// 版を上げないと、古いものを新しい読み方で解いて崩れる。
-        static let version: UInt8 = 5
+        static let version: UInt8 = 6
         static let magic = Array("CHVB".utf8)
 
         var size: UInt64
