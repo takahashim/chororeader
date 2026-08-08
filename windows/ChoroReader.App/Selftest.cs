@@ -56,9 +56,14 @@ internal static class Selftest
                 await window.MoveAsync(-1);
                 Check("前の章へ戻れた", await window.WaitForReadyAsync(Deadline));
 
-                // 位置は本文が名乗るたびに届く。覚え書きに残っていること。
+                // 章は移った瞬間に控える。位置の便りを待たずに残っていること。
                 var remembered = window.Remembered;
-                Check("読んだ場所を覚えた", remembered.Href.Length > 0, $"Href={remembered.Href}");
+                Check("読んだ章を覚えた", remembered.Href.Length > 0, $"Href={remembered.Href}");
+
+                // 章の中のどこかは、間引かれた便りが届いてから。
+                // 待たずに次へ進むと毎回捨てられるので、ここで待つ。
+                Check("位置の便りが届いた", await window.WaitForPositionAsync(Deadline),
+                      $"PositionCount={window.PositionCount}");
 
                 Check("目次が並んだ", window.TocCount > 0, $"Toc={window.TocCount}");
 
@@ -67,10 +72,14 @@ internal static class Selftest
                 Check("窓の中で当たりが出た", window.HitCount > 0, $"Hits={window.HitCount}");
                 Check("当たらない語では空になる", await Empty(window, "そんな語はどこにも出てこない"));
 
+                // 飛び先は当たりから取る。覚え書きに頼ると、そちらが崩れたとき巻き添えになる。
                 await window.FindAsync("本文");
-                await window.GoAsync(remembered.Href, null, ("本文", 0));
-                var marked = await window.AskAsync($"!!document.querySelector('.{Mark.ClassName}')");
-                Check("飛んだ先で当たりを囲んだ", marked.Trim() == "true", marked.Trim());
+                if (window.FirstHit is { } hit)
+                {
+                    await window.GoAsync(hit.Href, null, ("本文", hit.Nth));
+                    var marked = await window.AskAsync($"!!document.querySelector('.{Mark.ClassName}')");
+                    Check("飛んだ先で当たりを囲んだ", marked.Trim() == "true", $"{hit.Href}#{hit.Nth} → {marked.Trim()}");
+                }
 
                 // 表示設定が本文に当たること。
                 await window.ApplyStyleAsync(new ReaderStyle { Theme = ReaderTheme.Dark });

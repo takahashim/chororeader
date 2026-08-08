@@ -121,6 +121,36 @@ public sealed class ReadingStore
     public void Remember(string bookPath, Position position) =>
         Update(bookPath, state => state with { Position = position });
 
+    /// <summary>
+    /// 章へ移ったことを、その場で控える。
+    ///
+    /// <para>
+    /// 章の中のどこにいるかは本文が名乗ってくるが、その便りは間引いてある。
+    /// <b>それを待って書いていると、開いてすぐ閉じたときや章を続けて送ったときに、
+    /// 覚え書きが前の章のまま残る。</b>だから章だけは移った瞬間に書く。
+    /// </para>
+    /// <para>
+    /// ただし<b>同じ章を開き直したときに位置を頭へ戻してはいけない</b>。
+    /// 続きから読めなくなる。章が変わったときだけ位置と書き出しを捨てる。
+    /// </para>
+    /// </summary>
+    public void RememberChapter(string bookPath, string href) =>
+        Update(bookPath, state =>
+        {
+            var before = state.Position;
+            var same = before.Href == href;
+            return state with
+            {
+                Position = new Position
+                {
+                    Href = href,
+                    Progression = same ? before.Progression : 0,
+                    Fragment = same ? before.Fragment : string.Empty,
+                    Text = same ? before.Text : string.Empty,
+                },
+            };
+        });
+
     public void RememberTitle(string bookPath, string title) =>
         Update(bookPath, state => state with { Title = title });
 

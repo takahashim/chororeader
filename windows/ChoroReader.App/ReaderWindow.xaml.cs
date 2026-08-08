@@ -26,6 +26,12 @@ public partial class ReaderWindow : Window
     private ReaderStyle _style;
     private TaskCompletionSource<bool>? _awaitingReady;
 
+    /// <summary>位置の便りを待つための札。間引かれて届くので、待てるようにしておく。</summary>
+    private TaskCompletionSource<bool>? _awaitingPosition;
+
+    /// <summary>位置の便りが届いた回数。動作確認が「追従しているか」を見る。</summary>
+    internal int PositionCount { get; private set; }
+
     /// <summary>覚えていた位置。最初の章が名乗ったら、そこへ戻す。</summary>
     private Position? _restoring;
 
@@ -259,9 +265,11 @@ public partial class ReaderWindow : Window
             case "position":
                 if (message.TryGetProperty("progression", out var at) && at.TryGetDouble(out var value))
                 {
+                    PositionCount++;
                     Progression = value;
                     PositionLabel.Text = $"{value * 100:F0}%";
                     Remember(value, message.TryGetProperty("text", out var text) ? text.GetString() : null);
+                    _awaitingPosition?.TrySetResult(true);
                 }
                 break;
 
@@ -345,10 +353,13 @@ public partial class ReaderWindow : Window
 
     internal int HitCount => Found.Items.Count;
 
-    private sealed record HitRow(string Href, int Nth, string Label)
+    internal sealed record HitRow(string Href, int Nth, string Label)
     {
         public override string ToString() => Label;
     }
+
+    /// <summary>最初の当たり。動作確認が飛び先として使う。</summary>
+    internal HitRow? FirstHit => Found.Items.Count > 0 ? Found.Items[0] as HitRow : null;
 
     /// <summary>
     /// 本文を引く。走査は背後のスレッドで行う。章を丸ごと読むので、画面で回すと固まる。
@@ -474,7 +485,12 @@ public partial class ReaderWindow : Window
         ChapterLabel.Text = _session.TitleAt(_session.Index);
         Title = $"{_session.Publication.Title} — {ChapterLabel.Text}";
 
+        // **開いた時点で章を控える。**
+        // 章の中のどこかは、便りが届いたときに書き足す（理由は RememberChapter に）。
+        _store.RememberChapter(_bookPath, href);
+
         _awaitingReady = new TaskCompletionSource<bool>();
+        _awaitingPosition = new TaskCompletionSource<bool>();
         Body.CoreWebView2.Navigate(ResourceDelivery.UrlOf(href));
     }
 
@@ -487,6 +503,25 @@ public partial class ReaderWindow : Window
     internal async Task<bool> WaitForReadyAsync(TimeSpan timeout)
     {
         var waiting = _awaitingReady;
+        if (waiting is null)
+        {
+            return false;
+        }
+        var finished = await Task.WhenAny(waiting.Task, Task.Delay(timeout));
+        return finished == waiting.Task && waiting.Task.Result;
+    }
+
+    /// <summary>
+    /// 位置の便りが届くまで待つ。
+    ///
+    /// <para>
+    /// 便りは 120 ミリ秒に間引いてある。<b>待たずに次へ進むと、毎回捨てられる。</b>
+    /// 追従が生きているかを確かめたいときは、ここで待つ。
+    /// </para>
+    /// </summary>
+    internal async Task<bool> WaitForPositionAsync(TimeSpan timeout)
+    {
+        var waiting = _awaitingPosition;
         if (waiting is null)
         {
             return false;

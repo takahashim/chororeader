@@ -46,6 +46,57 @@ public class ReadingStoreTests : IDisposable
         Assert.Equal("第 2 章", again.Position.Text);
     }
 
+    /// <summary>
+    /// 章を移ったら、その章を控える。ただし同じ章なら章の中の位置は残す。
+    ///
+    /// <para>
+    /// 窓は章を開いた瞬間にここへ書く。位置の便りは間引かれて 120 ミリ秒後に来るので、
+    /// それを待って書いていると、開いてすぐ閉じたときに前の章のまま残る。
+    /// 一方で、同じ章を開き直すたびに位置を 0 へ戻しては、続きから読めない。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 章を開いた時点で控える()
+    {
+        var store = Open();
+        store.RememberChapter("本.epub", "ch01.xhtml");
+
+        // 便りが 1 つも来ないうちに閉じても、章は残っていること。
+        Assert.Equal("ch01.xhtml", Open().StateOf("本.epub").Position.Href);
+    }
+
+    [Fact]
+    public void 同じ章を開き直しても続きから読める()
+    {
+        var store = Open();
+        store.RememberChapter("本.epub", "ch01.xhtml");
+        store.Remember("本.epub",
+                       new Position { Href = "ch01.xhtml", Progression = 0.6, Fragment = "p7", Text = "途中" });
+
+        store.RememberChapter("本.epub", "ch01.xhtml");
+
+        var after = store.StateOf("本.epub").Position;
+        Assert.Equal(0.6, after.Progression);
+        Assert.Equal("p7", after.Fragment);
+        Assert.Equal("途中", after.Text);
+    }
+
+    [Fact]
+    public void 別の章へ移ったら位置は頭から()
+    {
+        var store = Open();
+        store.Remember("本.epub",
+                       new Position { Href = "ch01.xhtml", Progression = 0.6, Fragment = "p7", Text = "途中" });
+
+        store.RememberChapter("本.epub", "ch02.xhtml");
+
+        var after = store.StateOf("本.epub").Position;
+        Assert.Equal("ch02.xhtml", after.Href);
+        Assert.Equal(0, after.Progression);
+        Assert.Equal(string.Empty, after.Fragment);
+        Assert.Equal(string.Empty, after.Text);
+    }
+
     [Fact]
     public void 覚えのない本では空を返す()
     {
