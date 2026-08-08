@@ -52,6 +52,10 @@ public sealed class PdfInspector : IDisposable
 
     public string TextOfPage(int index) => _backend.TextOfPage(index);
 
+    /// <summary>索引に載せる本文。1 ページを 1 単位とする。</summary>
+    public IReadOnlyList<string> PageTexts() =>
+        Enumerable.Range(0, PageCount).Select(TextOfPage).ToList();
+
     public IReadOnlyList<TocEntry> Outline() => _backend.Outline();
 
     public IReadOnlyList<(int Page, string Text)> Search(string needle, int limit) =>

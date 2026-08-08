@@ -9,6 +9,13 @@ internal static class TestPaths
     /// <summary>リポジトリに入っている見本の PDF。実書籍は共有しないため、これで確かめる。</summary>
     internal static string SamplePdf => Path.Combine(Root, "samples", "sample.pdf");
 
+    /// <summary>
+    /// 突き合わせ用の合成 EPUB。生成物なので追跡していない。
+    /// 無い環境では、その検査を飛ばす（conformance/choroconf generate で作る）。
+    /// </summary>
+    internal static string Fixture(string name) =>
+        Path.Combine(Root, "conformance", "fixtures", name);
+
     private static string Root { get; } = FindRoot();
 
     private static string FindRoot()
