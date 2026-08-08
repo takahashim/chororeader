@@ -11,7 +11,13 @@ internal static class TestPaths
 
     /// <summary>
     /// 突き合わせ用の合成 EPUB。生成物なので追跡していない。
-    /// 無い環境では、その検査を飛ばす（conformance/choroconf generate で作る）。
+    ///
+    /// <para>
+    /// <b>無ければ検査は落ちる。飛ばさない。</b>索引の不変条件はここでしか押さえていないので、
+    /// 黙って飛ばすと「作り忘れた環境では誰も確かめていない」状態が続く。
+    /// 先に conformance で <c>bundle exec ruby choroconf generate</c> を走らせること
+    /// （CI もそうしている）。
+    /// </para>
     /// </summary>
     internal static string Fixture(string name) =>
         Path.Combine(Root, "conformance", "fixtures", name);

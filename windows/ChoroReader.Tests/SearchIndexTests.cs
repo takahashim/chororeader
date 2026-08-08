@@ -35,17 +35,16 @@ public class SearchIndexTests
     {
         // 索引が一度も絞らなければ、この検査は何も確かめていないことになる。
         var narrowedAtLeastOnce = false;
-        var checkedAtLeastOne = false;
+
+        // 1 冊でも欠けたら落とす。飛ばすと、覆う範囲が減ったことに気づけない。
+        var missing = Books.Where(name => !File.Exists(TestPaths.Fixture(name))).ToList();
+        Assert.True(missing.Count == 0,
+                    $"フィクスチャがありません（{string.Join("、", missing)}）。" +
+                    "conformance で bundle exec ruby choroconf generate を先に走らせてください");
 
         foreach (var name in Books)
         {
             var path = TestPaths.Fixture(name);
-            if (!File.Exists(path))
-            {
-                continue; // フィクスチャは生成物。無い環境では飛ばす。
-            }
-            checkedAtLeastOne = true;
-
             using var archive = new EpubArchive(path);
             var publication = EpubParser.Parse(archive);
             var units = SearchUnits.OfEpub(archive, publication);
@@ -68,8 +67,6 @@ public class SearchIndexTests
             }
         }
 
-        Assert.True(checkedAtLeastOne,
-                    "フィクスチャがありません。conformance/choroconf generate を先に走らせてください");
         Assert.True(narrowedAtLeastOnce, "索引が一度も候補を絞っていない");
     }
 

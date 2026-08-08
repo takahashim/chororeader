@@ -88,13 +88,28 @@ jobs:
           bundle exec ./choroconf diff swift csharp
 
   csharp-build:
-    name: C# 実装のビルド（Windows）
+    name: C# 実装のビルドとテスト（Windows）
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+
+      # 索引の検査は合成フィクスチャを使う。生成物なので追跡しておらず、ここで作る。
+      # Ruby が要るのはそのためだけで、Windows で conformance を回すわけではない。
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+          working-directory: conformance
+
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0"
+
+      - name: 合成フィクスチャを作る
+        working-directory: conformance
+        # Windows では shebang が効かないので、ruby から起動する。
+        run: bundle exec ruby choroconf generate
+
       - working-directory: windows
         run: |
           dotnet build ChoroReader.Core/ChoroReader.Core.csproj
