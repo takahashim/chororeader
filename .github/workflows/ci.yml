@@ -56,12 +56,18 @@ jobs:
 
       # 突き合わせに要るのは probe だけ。画面まで組み立てると webkit 一式が付いてくる。
       # 画面は cargo check で通ることだけ見る。Windows 側では毎回まるごと組み立てている。
+      # **すべて --release で揃える。** cargo check だけ dev プロファイルにすると、
+      # ビルドスクリプトがもう一度走り、MuPDF を C から 2 度組むことになる
+      # （実測：release ビルドの後の dev の check に 1 分 3 秒、CPU 時間 3 分 9 秒）。
+      # 成果物も二重に残り、キャッシュが上限を圧迫する（dev 側だけで 878 MB）。
+      # 出荷するのは release の形なので、見るならそちらでよい
+      # （両者で違うのは main.rs の windows_subsystem 属性だけである）。
       - name: Rust のビルドとテスト
         working-directory: tauri
         run: |
           cargo build --release -p choroprobe
           cargo test --release -p chororeader-core
-          cargo check -p chororeader
+          cargo check --release -p chororeader
 
       # Core と Probe は net10.0 のままにしてあるので、Windows マシン無しで組める。
       - name: C# のビルドとテスト
