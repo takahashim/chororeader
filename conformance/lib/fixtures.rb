@@ -29,6 +29,7 @@ module Fixtures
       "malformed-xhtml" => method(:malformed_xhtml),
       "nonlinear-spine" => method(:nonlinear_spine),
       "repeated-spine" => method(:repeated_spine),
+      "counting" => method(:counting),
       "fixed-layout" => method(:fixed_layout),
       "rtl" => method(:rtl),
       "footnotes" => method(:footnotes),
@@ -378,6 +379,65 @@ module Fixtures
                "OEBPS/text/ch01.xhtml" =>
                  chapter("第 1 章", "<p>この章には目当ての語が二度出る。</p><p>二度目の語。</p>"),
                "OEBPS/text/ch02.xhtml" => chapter("第 2 章", "<p>ここにも語がある。</p>"))
+  end
+
+  # 本文の位置を「何で数えるか」と、当たりを「どこから数え直すか」を割り出す書籍。
+  #
+  # ここは実装がまだ揃っていない。既知の差として conformance/known-differences.json に載せてある。
+  # 揃うまでのあいだ、どう食い違っているかが CI の記録に毎回残るようにするための書籍である。
+  #
+  # - `combining.xhtml`：「か」＋結合濁点は、書記素で数えれば 1 文字、
+  #   Unicode スカラーで数えれば 2 文字になる。後ろに置いた `<pre>` の範囲に差が出る
+  # - `overlap.xhtml`：「ままま」に「まま」は、重なりを拾えば 2 件、飛ばせば 1 件になる
+  #
+  # 実体参照の二重（`&amp;lt;`）も同じ性質を持つが、載せていない。
+  # Swift 版は解く順を持っておらず、同じ入力から実行ごとに違う結果を返す。
+  # 期待値そのものが安定しないため、まず Swift を直してから足すこと。
+  def counting(path)
+    opf = <<~XML
+      <?xml version="1.0" encoding="UTF-8"?>
+      <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
+        <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <dc:title>数え方を割り出す書籍</dc:title>
+          <dc:language>ja</dc:language>
+          <dc:identifier id="pub-id">urn:uuid:counting</dc:identifier>
+        </metadata>
+        <manifest>
+          <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+          <item id="css" href="style/book.css" media-type="text/css"/>
+          <item id="c1" href="text/combining.xhtml" media-type="application/xhtml+xml"/>
+          <item id="c2" href="text/overlap.xhtml" media-type="application/xhtml+xml"/>
+        </manifest>
+        <spine>
+          <itemref idref="c1"/>
+          <itemref idref="c2"/>
+        </spine>
+      </package>
+    XML
+
+    nav = <<~XHTML
+      <?xml version="1.0" encoding="UTF-8"?>
+      <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+      <head><title>目次</title></head>
+      <body><nav epub:type="toc"><ol>
+        <li><a href="text/combining.xhtml">結合文字の章</a></li>
+        <li><a href="text/overlap.xhtml">重なる当たりの章</a></li>
+      </ol></nav></body></html>
+    XHTML
+
+    # 合成済みの「が」ではなく、「か」＋結合濁点（U+3099）を書く。
+    ka_with_dakuten = "\u304B\u3099"
+
+    write_epub(path,
+               "META-INF/container.xml" => container,
+               "OEBPS/content.opf" => opf,
+               "OEBPS/nav.xhtml" => nav,
+               "OEBPS/style/book.css" => "body { margin: 0; }\n",
+               "OEBPS/text/combining.xhtml" =>
+                 chapter("結合文字の章",
+                         "<p>#{ka_with_dakuten}っこう</p><pre>puts \"hello\"</pre><p>あとの段落。</p>"),
+               "OEBPS/text/overlap.xhtml" =>
+                 chapter("重なる当たりの章", "<p>ままま</p>"))
   end
 
   def nonlinear_spine(path)

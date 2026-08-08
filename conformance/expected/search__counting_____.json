@@ -1,0 +1,15 @@
+{
+  "command": "search",
+  "query": "っこう",
+  "results": [
+    {
+      "href": "OEBPS/text/combining.xhtml",
+      "isCode": false,
+      "match": "っこう",
+      "nth": 0,
+      "progression": 0.074
+    }
+  ],
+  "schema": 2,
+  "truncated": false
+}

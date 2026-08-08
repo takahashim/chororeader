@@ -2,6 +2,8 @@
 
 require "minitest/autorun"
 require "stringio"
+require "tempfile"
+require "json"
 require_relative "../lib/runner"
 
 # 比較器が壊れると、実装が食い違っていても全件「一致」と報告されてしまう。
@@ -61,6 +63,61 @@ class CompareTest < Minitest::Test
   def test_detects_float_difference
     refute_empty @runner.compare({ "progression" => 0.123 }, { "progression" => 0.124 })
     assert_empty @runner.compare({ "progression" => 0.123 }, { "progression" => 0.123 })
+  end
+end
+
+# 既知の差は、見逃す範囲を広げすぎると本当の食い違いまで隠す。
+# 「どの実装どうしなら見逃すか」がここの要点になる。
+class KnownDifferenceTest < Minitest::Test
+  KNOWN = {
+    "期待値の記録元" => "swift",
+    "事例" => {
+      "text/counting/combining.xhtml" => {
+        "理由" => "数え方が違う",
+        "分かれ方" => { "書記素" => ["swift"], "スカラー" => ["rust", "csharp"] },
+      },
+    },
+  }.freeze
+
+  def setup
+    @file = Tempfile.new(["known", ".json"])
+    @file.write(JSON.generate(KNOWN))
+    @file.flush
+    @runner = Runner.new(out: StringIO.new, known_path: @file.path)
+  end
+
+  def teardown
+    @file.close!
+  end
+
+  def test_excuses_implementations_in_different_groups
+    assert_equal "数え方が違う",
+                 @runner.known_reason("text/counting/combining.xhtml", %w[swift rust])
+  end
+
+  # 同じ組どうしの食い違いは、既知の差では説明がつかない。新しく壊れたものとして落とす。
+  def test_does_not_excuse_implementations_in_the_same_group
+    assert_nil @runner.known_reason("text/counting/combining.xhtml", %w[rust csharp])
+  end
+
+  # 分類していない実装を黙って見逃さないこと。
+  def test_does_not_excuse_unlisted_implementation
+    assert_nil @runner.known_reason("text/counting/combining.xhtml", %w[swift kotlin])
+  end
+
+  def test_does_not_excuse_unlisted_case
+    assert_nil @runner.known_reason("text/epub3-basic/ch01.xhtml", %w[swift rust])
+  end
+
+  def test_reads_the_recording_source
+    assert_equal "swift", @runner.recorded_by
+  end
+
+  # 一覧が無いときは、何も見逃さない。
+  def test_missing_file_excuses_nothing
+    runner = Runner.new(out: StringIO.new, known_path: "/存在しない/known.json")
+    assert_nil runner.known_reason("text/counting/combining.xhtml", %w[swift rust])
+    assert_equal "swift", runner.recorded_by
   end
 end
 

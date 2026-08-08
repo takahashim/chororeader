@@ -1,0 +1,12 @@
+{
+  "codeRanges": [
+    [
+      6,
+      18
+    ]
+  ],
+  "command": "text",
+  "href": "OEBPS/text/combining.xhtml",
+  "schema": 2,
+  "text": " がっこう puts \"hello\"\n あとの段落。 "
+}

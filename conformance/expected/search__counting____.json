@@ -1,0 +1,15 @@
+{
+  "command": "search",
+  "query": "まま",
+  "results": [
+    {
+      "href": "OEBPS/text/overlap.xhtml",
+      "isCode": false,
+      "match": "まま",
+      "nth": 0,
+      "progression": 0.2
+    }
+  ],
+  "schema": 2,
+  "truncated": false
+}

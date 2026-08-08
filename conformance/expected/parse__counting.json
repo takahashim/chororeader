@@ -1,0 +1,33 @@
+{
+  "authors": [],
+  "command": "parse",
+  "direction": "ltr",
+  "format": "reflowableEPUB",
+  "identifier": "urn:uuid:counting",
+  "language": "ja",
+  "layout": "reflowable",
+  "readingOrder": [
+    {
+      "href": "OEBPS/text/combining.xhtml",
+      "mediaType": "application/xhtml+xml"
+    },
+    {
+      "href": "OEBPS/text/overlap.xhtml",
+      "mediaType": "application/xhtml+xml"
+    }
+  ],
+  "schema": 2,
+  "tableOfContents": [
+    {
+      "children": [],
+      "href": "OEBPS/text/combining.xhtml",
+      "title": "結合文字の章"
+    },
+    {
+      "children": [],
+      "href": "OEBPS/text/overlap.xhtml",
+      "title": "重なる当たりの章"
+    }
+  ],
+  "title": "数え方を割り出す書籍"
+}

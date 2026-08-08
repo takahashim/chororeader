@@ -26,6 +26,16 @@ Ruby は mise で固定する。macOS の `/usr/bin/ruby` は古く、Apple が�
 ./choroconf diff swift rust 手元の本.epub   # 期待値を持たない実書籍で突き合わせる
 ```
 
+## 既知の差
+
+まだ揃っていないと分かっている事例は [known-differences.json](known-differences.json) に載せる。
+不一致としては数えないが、差の中身は毎回出る。
+別々の組に居る実装どうしのときにしか見逃さないので、同じ組の中で新しく壊れたものは落ちる。
+
+```
+rust: 90 件中 85 件が一致、5 件は既知の差
+```
+
 ツール自身のテスト:
 
 ```sh
