@@ -110,6 +110,6 @@ harness はそのまま残す。移した実装を同じ 37 件に通せば、�
 **3 つの罠は合成した語彙でも噛むようにした**（上の表の左列は、本物の語彙が無い状態でも落ちる）。
 本物が無いときは `Skipped: 1` と出る。
 
-**追記。** `tokenizer.json` は ONNX 変換物にも同梱されていて、そちらなら 6.4 MB 単体で取れる
-（[findings-csharp-embedder.md](findings-csharp-embedder.md)）。同じ 37 件が通ることを確かめた。
-260 MB の Core ML 一式を入れないと確かめられない、という前提はもう無い。
+**追記。** `choro-convert --format onnx` は `tokenizer.json` を変換物のそばへ写す
+（[findings-csharp-embedder.md](findings-csharp-embedder.md)）。
+そちらの 6.4 MB でも同じ 37 件が通ることを確かめた。

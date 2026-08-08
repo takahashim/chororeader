@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    モデルを ONNX へ変換する道具。**アプリには入れない。**
+    アプリは成果物を使うだけである（spec-local-ai.md 4.6）。
+
+    **Core にも Semantic にも依存しない。** 変換に要るのは safetensors と config.json
+    だけで、読書の側とは何も共有しない。分けておけば、変換器を配るのに
+    onnxruntime（native）を連れて回らずに済む。
+
+    実行体だが、中身を検査から触れるようにライブラリとしても参照できる形にしてある。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>choro-convert</AssemblyName>
+    <RootNamespace>ChoroReader.Convert</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      検査から中身を触れるようにする。**書き出す前の形を見たい。**
+      250 MB を吐いてから読ませるより、繋がりの検査は組み立ての段で済ませたい。
+    -->
+    <InternalsVisibleTo Include="ChoroReader.Tests" />
+  </ItemGroup>
+
+</Project>

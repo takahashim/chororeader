@@ -94,11 +94,11 @@ public sealed class OnnxEmbedder : IEmbedder, IDisposable
 
     private static string? Find(string directory)
     {
+        // choro-convert は onnx/model.onnx へ置く。直に指されたときのために平置きも見る。
         string[] places =
         [
-            Path.Combine(directory, "model.onnx"),
             Path.Combine(directory, "onnx", "model.onnx"),
-            Path.Combine(directory, "onnx", "model_fp16.onnx"),
+            Path.Combine(directory, "model.onnx"),
         ];
         return places.FirstOrDefault(File.Exists);
     }
@@ -134,7 +134,7 @@ public sealed class OnnxEmbedder : IEmbedder, IDisposable
                 NamedOnnxValue.CreateFromTensor("input_ids", tokens),
                 NamedOnnxValue.CreateFromTensor("attention_mask", mask),
             ], [_output]);
-            made = [.. result.First().AsEnumerable<float>()];
+            made = Widen(result.First());
         }
 
         if (made.Length != Dimension)
@@ -146,6 +146,23 @@ public sealed class OnnxEmbedder : IEmbedder, IDisposable
         // グラフは正規化しない。ここで割る。
         EmbeddingPipeline.Normalize(made);
         return new Embedded(made, truncated);
+    }
+
+    /// <summary>
+    /// 出てきたものを fp32 の並びにする。
+    ///
+    /// <para>
+    /// <b>出口の型はグラフによる。</b>いまの変換物は端から端まで fp16 で通すので出口も fp16 だが、
+    /// 出口だけ fp32 に戻す組み方もある。決め打ちにすると、変換の仕方を変えた日に落ちる。
+    /// </para>
+    /// </summary>
+    private static float[] Widen(DisposableNamedOnnxValue value)
+    {
+        if (value.ElementType == TensorElementType.Float16)
+        {
+            return [.. value.AsEnumerable<Float16>().Select(v => (float)v)];
+        }
+        return [.. value.AsEnumerable<float>()];
     }
 
     public void Dispose()

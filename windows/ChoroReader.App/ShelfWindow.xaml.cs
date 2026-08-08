@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using ChoroReader.Core;
+using ChoroReader.Semantic;
 
 namespace ChoroReader.App;
 
@@ -45,6 +46,25 @@ internal sealed class ShelfBook(string path, string title, string kind, double p
     public override string ToString() => Title;
 }
 
+/// <summary>
+/// 意味で引いた 1 件。押すとその場所へ飛ぶ。
+///
+/// <para>
+/// <b>当たりではない。</b>囲む語が無いので、飛び先は位置と目印だけで決まる。
+/// </para>
+/// </summary>
+internal sealed class NearRow(SemanticHit hit)
+{
+    internal SemanticHit Hit { get; } = hit;
+
+    public string Where => hit.Heading.Length > 0 ? $"{hit.Title} — {hit.Heading}" : hit.Title;
+
+    /// <summary>近さ。<b>件数を出さない代わりに、これで測れるようにする。</b></summary>
+    public string Score => hit.Score.ToString("F2");
+
+    public string Excerpt => hit.Text;
+}
+
 /// <summary>横断検索の当たり 1 件。押すとその場所へ飛ぶ。</summary>
 internal sealed record ShelfHit(string Path, string Title, LibraryHit Hit)
 {
@@ -68,11 +88,19 @@ public partial class ShelfWindow : Window
 {
     private readonly LibrarySearch _search;
     private readonly ReadingStore _reading;
+    private readonly SemanticIndexBuilder _builder;
+    private readonly SemanticIndexStore _semantic;
     private readonly List<ShelfBook> _shelf = [];
     private CancellationTokenSource? _running;
 
     /// <summary>いま並んでいる当たり。動作確認が見る。</summary>
     internal int HitCount => Hits.Items.Count;
+
+    /// <summary>意味で引いた結果の数。<b>画面には出さない</b>（当たりではないので）。</summary>
+    internal int NearCount => Near.Items.Count;
+
+    /// <summary>意味で引く側を選んでいるか。</summary>
+    internal bool SearchingSemantically => SemanticKind.IsChecked == true;
 
     internal int BookCount => _shelf.Count;
 
@@ -80,18 +108,128 @@ public partial class ShelfWindow : Window
     internal int CoverCount => _shelf.Count(b => b.Cover is not null);
 
     /// <summary>結果の面を出しているか。</summary>
-    internal bool ShowingResults => Hits.Visibility == Visibility.Visible;
+    internal bool ShowingResults =>
+        Hits.Visibility == Visibility.Visible || Near.Visibility == Visibility.Visible;
 
     /// <summary>一覧（表）で並べているか。</summary>
     internal bool ShowingTable => TableMode.IsChecked == true;
 
-    internal ShelfWindow(SearchIndexStore store, ReadingStore reading)
+    /// <summary>意味の層を入にできるか。モデルが無ければ押せない。</summary>
+    internal bool CanUseSemantic => SemanticToggle.IsEnabled;
+
+    /// <summary>意味の層が入っているか。</summary>
+    internal bool SemanticEnabled => _builder.Enabled;
+
+    /// <summary>索引づくりの様子を出しているか。</summary>
+    internal bool ShowingBuilding => Building.Visibility == Visibility.Visible;
+
+    /// <summary>いま出している状態の文。動作確認が読む。</summary>
+    internal string Status => StatusLabel.Text;
+
+    /// <summary>意味で引く。動作確認が押す。</summary>
+    internal async Task FindNearAsync(string query)
+    {
+        SemanticKind.IsChecked = true;
+        Query.Text = query;
+        await FindAsync(query);
+    }
+
+    /// <summary>意味の層を入/切する。動作確認が押す。</summary>
+    internal void UseSemantic(bool wanted)
+    {
+        SemanticToggle.IsChecked = wanted;
+        OnToggleSemantic(this, new RoutedEventArgs());
+    }
+
+    internal ShelfWindow(SearchIndexStore store, ReadingStore reading,
+                         SemanticIndexBuilder builder, SemanticIndexStore semantic)
     {
         InitializeComponent();
         _search = new LibrarySearch(store);
         _reading = reading;
-        Closed += (_, _) => _running?.Cancel();
+        _builder = builder;
+        _semantic = semantic;
+
+        // 手元にモデルが無ければ、入にはできない。
+        SemanticToggle.IsEnabled = App.HasModel;
+        SemanticToggle.IsChecked = builder.Enabled;
+        if (!App.HasModel)
+        {
+            SemanticToggle.ToolTip = $"モデルが見つかりません（{App.ModelDirectory}）";
+        }
+
+        // **係は画面を知らない。** 動いたことだけ伝わるので、描き直す筋はこちらで決める。
+        _builder.Changed += OnBuilderChanged;
+        Closed += (_, _) =>
+        {
+            _builder.Changed -= OnBuilderChanged;
+            _running?.Cancel();
+        };
         Drop += OnDrop;
+        ShowBuilding();
+    }
+
+    // MARK: 意味の層
+
+    private void OnBuilderChanged() => Dispatcher.BeginInvoke(new Action(ShowBuilding));
+
+    /// <summary>
+    /// 索引づくりの様子を出す。
+    ///
+    /// <para>
+    /// <b>「まだ作っていない」と「作ったが版が変わった」を分けて言う</b>（spec-local-ai.md 4.4）。
+    /// 前者は待てば済むが、後者は全量が作り直しになる。混ぜると、
+    /// モデルを入れ替えた日に「なぜ終わらないのか」が分からなくなる。
+    /// </para>
+    /// </summary>
+    private void ShowBuilding()
+    {
+        if (_builder.Working is { } working)
+        {
+            Building.Visibility = Visibility.Visible;
+            var rest = _builder.Pending > 0 ? $"（あと {_builder.Pending} 冊）" : "";
+            BuildingLabel.Text = $"意味の索引を作っています：{working.Title}{rest}";
+            BuildingBar.Value = working.Fraction;
+            return;
+        }
+
+        Building.Visibility = Visibility.Collapsed;
+        if (_builder.Failure is { } failure)
+        {
+            StatusLabel.Text = $"意味の索引を作れませんでした — {failure}";
+            return;
+        }
+        if (!_builder.Enabled || _shelf.Count == 0)
+        {
+            return;
+        }
+
+        var counts = _builder.Count(_shelf.Select(book => book.Path));
+        StatusLabel.Text = (counts.NotBuilt, counts.Stale) switch
+        {
+            (0, 0) => $"{_shelf.Count} 冊（意味の索引は揃っています）",
+            (_, 0) => $"{_shelf.Count} 冊（意味の索引がまだ {counts.NotBuilt} 冊）",
+            (0, _) => $"{_shelf.Count} 冊（モデルが変わったので {counts.Stale} 冊が作り直しになります）",
+            _ => $"{_shelf.Count} 冊（まだ {counts.NotBuilt} 冊、作り直し {counts.Stale} 冊）",
+        };
+    }
+
+    private void OnToggleSemantic(object sender, RoutedEventArgs e)
+    {
+        var wanted = SemanticToggle.IsChecked == true;
+        ((App)Application.Current).SaveSemantic(wanted);
+        if (wanted)
+        {
+            // 入にした時点では並べない。書棚が落ち着いてから始める。
+            _builder.ScheduleIdle([.. _shelf.Select(book => book.Path)]);
+        }
+        ShowBuilding();
+    }
+
+    private void OnStopBuilding(object sender, RoutedEventArgs e)
+    {
+        _builder.Stop();
+        ShowBuilding();
     }
 
     internal void Add(params string[] paths)
@@ -114,6 +252,10 @@ public partial class ShelfWindow : Window
         Table.ItemsSource = null;
         Table.ItemsSource = _shelf;
         ShowShelf();
+
+        // **書棚が落ち着いたら、残りを作り始める。** 開いた直後は表紙の読み込みが
+        // 走っているので、そこへ重ねない（係が 8 秒待つ）。
+        _builder.ScheduleIdle([.. _shelf.Select(book => book.Path)]);
     }
 
     /// <summary>
@@ -159,10 +301,12 @@ public partial class ShelfWindow : Window
     {
         var empty = _shelf.Count == 0;
         Hits.Visibility = Visibility.Collapsed;
+        Near.Visibility = Visibility.Collapsed;
         Empty.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
         Covers.Visibility = !empty && !ShowingTable ? Visibility.Visible : Visibility.Collapsed;
         Table.Visibility = !empty && ShowingTable ? Visibility.Visible : Visibility.Collapsed;
         StatusLabel.Text = $"{_shelf.Count} 冊";
+        ShowBuilding();
     }
 
     private void ShowResults()
@@ -170,7 +314,9 @@ public partial class ShelfWindow : Window
         Covers.Visibility = Visibility.Collapsed;
         Table.Visibility = Visibility.Collapsed;
         Empty.Visibility = Visibility.Collapsed;
-        Hits.Visibility = Visibility.Visible;
+        // 引き方で面を分ける。**混ぜない。**
+        Hits.Visibility = SearchingSemantically ? Visibility.Collapsed : Visibility.Visible;
+        Near.Visibility = SearchingSemantically ? Visibility.Visible : Visibility.Collapsed;
     }
 
     internal void ShowCovers()
@@ -218,11 +364,18 @@ public partial class ShelfWindow : Window
         _running = mine;
 
         Hits.Items.Clear();
+        Near.Items.Clear();
         query = query.Trim();
         if (query.Length == 0)
         {
             // 語句を消したら蔵書へ戻す。結果の面を出したままにしない。
             ShowShelf();
+            return;
+        }
+
+        if (SearchingSemantically)
+        {
+            await FindNearAsync(query, mine.Token);
             return;
         }
 
@@ -254,6 +407,86 @@ public partial class ShelfWindow : Window
         catch (OperationCanceledException)
         {
             // 新しい問い合わせに譲った。何も言わない。
+        }
+    }
+
+    /// <summary>
+    /// 意味で引く。
+    ///
+    /// <para>
+    /// <b>件数を出さない。</b>「17 件」と言えるのは正確な検索だけである
+    /// （spec-local-ai.md 5.2）。出すのは近さと、原書から切り出した本文断片。
+    /// </para>
+    /// <para>
+    /// 索引の無い書籍は黙って飛ばされるので、<b>1 冊も無いときはそう言う</b>。
+    /// 「見つからなかった」と出すと、まだ作っていないだけなのに
+    /// 「この蔵書には無い」と読める。
+    /// </para>
+    /// </summary>
+    private async Task FindNearAsync(string query, CancellationToken cancel)
+    {
+        if (!_builder.Enabled)
+        {
+            ShowResults();
+            StatusLabel.Text = "意味の層が切れています。上の「意味の層」を入にしてください";
+            return;
+        }
+
+        ShowResults();
+        StatusLabel.Text = "引いています…";
+        var books = _shelf.Select(book => (book.Path, book.Title)).ToList();
+
+        IReadOnlyList<SemanticHit> found;
+        try
+        {
+            // 問いを埋め込むのも索引を読むのも背後で行う。どちらも画面で回すと固まる。
+            found = await Task.Run(() =>
+            {
+                var vector = _builder.Ask(query);
+                return new SemanticSearch(_semantic, App.ModelName).Run(vector, books, cancel: cancel);
+            }, cancel);
+        }
+        catch (OperationCanceledException)
+        {
+            return;   // 新しい問い合わせに譲った。
+        }
+        catch (Exception error)
+        {
+            StatusLabel.Text = $"引けませんでした — {error.Message}";
+            return;
+        }
+        if (cancel.IsCancellationRequested)
+        {
+            return;
+        }
+
+        foreach (var one in found)
+        {
+            Near.Items.Add(new NearRow(one));
+        }
+
+        var counts = _builder.Count(books.Select(book => book.Path));
+        StatusLabel.Text = found.Count > 0
+            ? $"似た内容（近い順）"
+            : counts.NotBuilt >= _shelf.Count
+                ? "まだ意味の索引がありません。作り終えるまで引けません"
+                : $"近いところは見つかりませんでした（索引がまだ {counts.NotBuilt} 冊）";
+    }
+
+    private void OnKindChanged(object sender, RoutedEventArgs e)
+    {
+        if (IsLoaded)
+        {
+            // 引き方を変えたら引き直す。前の面が残ると、どちらの結果か分からない。
+            _ = FindAsync(Query.Text);
+        }
+    }
+
+    private void OnOpenNear(object sender, MouseButtonEventArgs e)
+    {
+        if (Near.SelectedItem is NearRow row)
+        {
+            Open(row.Hit.BookPath);
         }
     }
 

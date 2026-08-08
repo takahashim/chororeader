@@ -12,7 +12,14 @@ dotnet run --project ChoroReader.App/ChoroReader.App.csproj
 dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- 本.epub   # 1 冊開く
 dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- --shelf 本.epub 紙.pdf
 dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- 本.epub --selftest
+
+# 意味の層の速さを実機で測る（窓は開かない）
+dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- --measure 本.epub
 ```
+
+**速さだけは開発機では分からない。** 正しさは macOS で固めてあるが、
+1 段落あたりの推論時間と 1 冊あたりの索引づくりは機械で変わる。
+`--measure` は比べる相手（macOS 版の実測）も一緒に出す。
 
 見本（リフロー EPUB・固定レイアウト EPUB・PDF の 3 つ、合わせて 11 KB）は
 実行ファイルへ埋め込んである。開く前に LocalAppData の下へ写す。
@@ -54,8 +61,26 @@ windows/
 ├── ChoroReader.Core/     クラスライブラリ。UI に依存しない（EPUB パース、Locator、CSS 変換、検索、診断）
 ├── ChoroReader.Probe/    コンソールアプリ。probe CLI の実体。Core を参照する
 ├── ChoroReader.Tests/    Core の検査（xunit）。conformance で見えないものを置く
-└── ChoroReader.App/      Windows 専用の UI（WPF）。Core を参照する
+├── ChoroReader.Semantic/ 意味の層（ONNX Runtime）。Core を参照する。**要る側だけが参照する**
+├── ChoroReader.Convert/  モデルを ONNX へ変換する道具。**何にも依存しない**
+└── ChoroReader.App/      Windows 専用の UI（WPF）。Core と Semantic を参照する
 ```
+
+`ChoroReader.Semantic` を Core から切り離してあるのは、onnxruntime が native を抱えるためである。
+Core に入れると、突き合わせに使う probe まで重くなる。意味の層が無くても読書は成立する。
+
+`ChoroReader.Convert` は Core にも Semantic にも依存しない。
+変換に要るのは safetensors と config.json だけで、読書の側とは何も共有しない。
+
+```sh
+# モデルを ONNX へ変換する。**Windows でも macOS でも同じ道具で回る**
+dotnet run --project ChoroReader.Convert/ChoroReader.Convert.csproj -- \
+  --model-path model.safetensors --config-path config.json --out-dir <置き場所>
+```
+
+Swift 側（`macos/Sources/ChoroConvert`）にも同じ変換器があり、**吐くものはバイト単位で同一**である。
+Core ML の変換は Apple の枠組みが要るのでそちらにしか無いが、ONNX は .NET だけで足りるので、
+Windows しか持たない人が配り物を自分で作り直せる。
 
 `ChoroReader.Tests` は、実装間の突き合わせでは見えないものを受け持つ。
 突き合わせは probe を 1 回ずつ呼んで出力を比べるので、
@@ -307,7 +332,10 @@ macOS ではコンパイル検査まで。実行と動作確認は Windows で�
     5. ~~書棚と蔵書の横断検索~~（済。1 冊ずつ索引で絞り、当たった本から順に並べる）
     6. ~~位置・しおり・設定の保存~~（済。設定の置き場所へ JSON 1 枚。書籍には触れない）
     7. ~~表示設定の画面、目次、窓の中の検索欄~~（済。殻はすべてネイティブ）
-    8. ~~画面構成を macOS 版・Tauri 版に揃える~~（済。窓を形式で分けるのをやめ、
+    8. ~~意味の層（Level 1）~~（済。トークナイザ・段落への切り出し・索引ファイル・
+       埋め込み（ONNX Runtime）・索引づくりの係・書棚で意味で引くところまで。
+       spikes/findings-csharp-embedder.md）
+    9. ~~画面構成を macOS 版・Tauri 版に揃える~~（済。窓を形式で分けるのをやめ、
        舞台だけが差し替わる形にした。サイドバーは 4 面、道具帯に履歴としおりと表示設定、
        書棚は表紙／一覧の切替。「画面の組み立て」の節）
 

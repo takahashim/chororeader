@@ -34,9 +34,24 @@
 
             <Button x:Name="AddButton" DockPanel.Dock="Right" Content="本を加える…"
                     Padding="10,4" Margin="8,0,0,0" Click="OnAdd" />
+            <!-- 意味の層。**既定では入にしない。**電池と時間を目に見えて使う。 -->
+            <CheckBox x:Name="SemanticToggle" DockPanel.Dock="Right" Content="意味の層"
+                      VerticalAlignment="Center" Margin="8,0,0,0" Click="OnToggleSemantic"
+                      ToolTip="蔵書を意味で引けるようにする（初回は時間がかかる）" />
             <Button x:Name="SampleButton" DockPanel.Dock="Right" Content="見本を並べる"
                     Padding="10,4" Margin="8,0,0,0" Click="OnAddSamples"
                     ToolTip="同梱の見本（リフロー EPUB・固定レイアウト EPUB・PDF）" />
+            <!--
+                **引き方は混ぜない。**正確な検索は「当たり」を数えられるが、
+                意味で引いた結果は当たりではない（spec-local-ai.md 5.2）。
+            -->
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0,0,0">
+                <RadioButton x:Name="ExactKind" GroupName="kind" Content="語句" Padding="8,3"
+                             IsChecked="True" Checked="OnKindChanged" ToolTip="語句で正確に引く" />
+                <RadioButton x:Name="SemanticKind" GroupName="kind" Content="似た内容" Padding="8,3"
+                             Margin="2,0,0,0" Checked="OnKindChanged"
+                             ToolTip="意味の近さで引く（意味の層が要る）" />
+            </StackPanel>
             <TextBox x:Name="Query" Padding="6,4"
                      KeyDown="OnQueryKey" ToolTip="蔵書を横断して引く（Enter で実行）" />
         </DockPanel>
@@ -44,6 +59,19 @@
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>
                 <TextBlock x:Name="StatusLabel" Text="" />
+            </StatusBarItem>
+            <!--
+                索引づくりの進み具合。**何分もかかるので、無言で待たせない。**
+                走っていないときは何も出さない。
+            -->
+            <StatusBarItem HorizontalAlignment="Right">
+                <StackPanel x:Name="Building" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock x:Name="BuildingLabel" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ProgressBar x:Name="BuildingBar" Width="120" Height="10" Maximum="1"
+                                 VerticalAlignment="Center" />
+                    <Button x:Name="StopBuilding" Content="やめる" Padding="8,2" Margin="8,0,4,0"
+                            Click="OnStopBuilding" />
+                </StackPanel>
             </StatusBarItem>
         </StatusBar>
 
@@ -73,6 +101,28 @@
             </DataGrid>
 
             <ListBox x:Name="Hits" Visibility="Collapsed" MouseDoubleClick="OnOpenHit" />
+
+            <!--
+                意味で引いた結果。**当たりではないので囲めないし、件数も出さない。**
+                近さを添えて、人が「どれくらい近いのか」を測れるようにする。
+            -->
+            <ListBox x:Name="Near" Visibility="Collapsed" MouseDoubleClick="OnOpenNear"
+                     HorizontalContentAlignment="Stretch">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,3">
+                            <DockPanel>
+                                <TextBlock Text="{Binding Score}" DockPanel.Dock="Right"
+                                           Foreground="Gray" Margin="8,0,0,0" />
+                                <TextBlock Text="{Binding Where}" Foreground="Gray"
+                                           TextTrimming="CharacterEllipsis" />
+                            </DockPanel>
+                            <TextBlock Text="{Binding Excerpt}" TextWrapping="Wrap" MaxHeight="52"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
 
             <!-- 1 冊も無いときは、できることを出す。空の書棚だけ見せても分からない。 -->
             <StackPanel x:Name="Empty" Visibility="Collapsed" VerticalAlignment="Center"

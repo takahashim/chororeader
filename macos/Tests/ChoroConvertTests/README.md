@@ -37,6 +37,29 @@ PY
 
 `libcoremlpython` が無いという警告は出るが、protobuf を読むだけなので構わない。
 
+## ONNX の治具
+
+ONNX 側も同じ 2 段構えである。1 段目はここの XCTest（別に持った読み手でほどく）。
+2 段目は **ONNX Runtime に読ませる**。本家の読み手なので、番号を写し間違えていれば読めない。
+
+**Swift からは ONNX Runtime を回せない**ので、C# 側を治具に使う。
+
+```sh
+# 見本を書き出す（環境変数を置いたときだけ書く）
+CHORO_ONNX_SAMPLE=/tmp/choro-onnx-sample.onnx swift test --filter test_見本を書き出す
+
+# 本家の読み手で開いて回す
+cd ../spikes/onnx-jig && dotnet run -- /tmp/choro-onnx-sample.onnx --run
+```
+
+治具は `spikes/onnx-jig` に置いた。**probe には入れない。**
+あれは突き合わせに使うので、native を抱えさせたくない。
+
+出入口の形と、計算した値が出る。**毎回は回さない。組み立てを変えたときに 1 度通す。**
+
+数の審判は下と同じで、実物を変換して凍結済みの期待値に通す
+（`windows/ChoroReader.Tests/OnnxEmbedderTests.cs` の置き場所を自作の変換物へ向ける）。
+
 ## いちばん強い審判（実物）
 
 上の 2 つは**形**しか見ない。数が合っているかは見ない。

@@ -273,6 +273,30 @@ internal static class Selftest
             Check("空の問い合わせでも落ちない", window.HitCount == 0);
             Check("空にしたら蔵書へ戻る", !window.ShowingResults, null);
 
+            // 意味の層。**モデルが無い環境でも、押せないだけで落ちないこと。**
+            Check("意味の層は既定で切れている", !window.SemanticEnabled, null);
+            if (window.CanUseSemantic)
+            {
+                window.UseSemantic(true);
+                Check("意味の層を入にできた", window.SemanticEnabled, null);
+                // 入にした時点では走り出さない（書棚が落ち着くまで待つ）。
+                Check("入にしただけでは走り出さない", !window.ShowingBuilding, window.Status);
+                // 意味で引く側へ切り替えられること。索引はまだ無いので当たりは求めない。
+                window.UseSemantic(true);
+                await window.FindNearAsync("待っている間に他の仕事を進める書き方");
+                Check("似た内容の面に変わった", window.SearchingSemantically && window.ShowingResults,
+                      window.Status);
+                // **件数を出さない。**「当たり」があるのは正確な検索だけである。
+                Check("件数を出していない", !window.Status.Contains(" 件"), window.Status);
+
+                window.UseSemantic(false);
+                Check("意味の層を切れた", !window.SemanticEnabled, null);
+            }
+            else
+            {
+                Check("モデルが無ければ押せない", !window.SemanticEnabled, App.ModelDirectory);
+            }
+
             // 表紙と一覧を行き来できること。
             window.ShowTable();
             Check("一覧へ切り替えられた", window.ShowingTable, null);
@@ -284,6 +308,8 @@ internal static class Selftest
                 ["蔵書"] = window.BookCount,
                 ["表紙"] = window.CoverCount,
                 ["最後の当たり"] = window.HitCount,
+                ["意味の層"] = window.CanUseSemantic ? "使える" : $"モデルが無い（{App.ModelDirectory}）",
+                ["状態"] = window.Status,
             };
         }
         catch (Exception e)

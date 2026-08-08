@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ChoroReader.Core\ChoroReader.Core.csproj" />
     <ProjectReference Include="..\ChoroReader.Semantic\ChoroReader.Semantic.csproj" />
+    <ProjectReference Include="..\ChoroReader.Convert\ChoroReader.Convert.csproj" />
   </ItemGroup>
 
 </Project>
