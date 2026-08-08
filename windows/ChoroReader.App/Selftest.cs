@@ -53,6 +53,10 @@ internal static class Selftest
 
                 await window.MoveAsync(-1);
                 Check("前の章へ戻れた", await window.WaitForReadyAsync(Deadline));
+
+                // 位置は本文が名乗るたびに届く。覚え書きに残っていること。
+                var remembered = window.Remembered;
+                Check("読んだ場所を覚えた", remembered.Href.Length > 0, $"Href={remembered.Href}");
             }
 
             result["診断"] = await DiagnoseAsync(window);

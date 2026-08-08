@@ -24,6 +24,12 @@ public partial class App : Application
     /// </summary>
     private readonly SearchIndexStore _store = SearchIndexStore.Default();
 
+    /// <summary>
+    /// 読書位置・しおり・表示設定の覚え書き。全窓で 1 つを共有する。
+    /// 別々に持つと、後から閉じた窓が古い中身で上書きする。
+    /// </summary>
+    private readonly ReadingStore _reading = ReadingStore.Default();
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -89,7 +95,7 @@ public partial class App : Application
         }
 
         var environment = _environment ?? throw new InvalidOperationException("環境がまだ用意できていない");
-        var window = new ReaderWindow(BookSession.Open(bookPath), environment);
+        var window = new ReaderWindow(BookSession.Open(bookPath), environment, _reading, bookPath);
         window.Show();
         await window.StartAsync();
         return window;

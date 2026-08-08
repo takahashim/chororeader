@@ -19,8 +19,13 @@ public partial class ReaderWindow : Window
 {
     private readonly BookSession _session;
     private readonly CoreWebView2Environment _environment;
-    private ReaderStyle _style = new();
+    private readonly ReadingStore _store;
+    private readonly string _bookPath;
+    private ReaderStyle _style;
     private TaskCompletionSource<bool>? _awaitingReady;
+
+    /// <summary>覚えていた位置。最初の章が名乗ったら、そこへ戻す。</summary>
+    private Position? _restoring;
 
     /// <summary>本文が名乗った回数。動作確認が「枠だけ出来ていないか」を見る。</summary>
     internal int ReadyCount { get; private set; }
@@ -46,11 +51,31 @@ public partial class ReaderWindow : Window
 
     internal List<string> CancelledNavigations { get; } = [];
 
-    internal ReaderWindow(BookSession session, CoreWebView2Environment environment)
+    internal ReaderWindow(BookSession session, CoreWebView2Environment environment,
+                          ReadingStore store, string bookPath)
     {
         InitializeComponent();
         _session = session;
         _environment = environment;
+        _store = store;
+        _bookPath = bookPath;
+        _style = store.Settings;
+
+        // 覚えていた場所から始める。無ければ最初の章。
+        var remembered = store.StateOf(bookPath).Position;
+        if (remembered.Href.Length > 0)
+        {
+            var at = session.Publication.ReadingOrder
+                .Select((link, index) => (link, index))
+                .FirstOrDefault(pair => pair.link.Href == remembered.Href);
+            if (at.link is not null)
+            {
+                session.MoveTo(at.index);
+                _restoring = remembered;
+            }
+        }
+        store.RememberTitle(bookPath, session.Publication.Title);
+
         Closed += (_, _) => _session.Dispose();
     }
 
@@ -217,6 +242,12 @@ public partial class ReaderWindow : Window
             case "ready":
                 ReadyCount++;
                 await Send(new { kind = "style", css = _style.Css() });
+                // 覚えていた場所へは、本文が出てから戻す。出る前に送っても行き先が無い。
+                if (_restoring is { } back)
+                {
+                    _restoring = null;
+                    await Send(new { kind = "go", fragment = back.Fragment, progression = back.Progression });
+                }
                 _awaitingReady?.TrySetResult(true);
                 break;
 
@@ -225,6 +256,7 @@ public partial class ReaderWindow : Window
                 {
                     Progression = value;
                     PositionLabel.Text = $"{value * 100:F0}%";
+                    Remember(value, message.TryGetProperty("text", out var text) ? text.GetString() : null);
                 }
                 break;
 
@@ -242,6 +274,25 @@ public partial class ReaderWindow : Window
 
     private Task Send(object message) =>
         Body.CoreWebView2.ExecuteScriptAsync(ReaderScripts.Apply(message));
+
+    /// <summary>
+    /// どこまで読んだかを控える。
+    ///
+    /// <para>
+    /// 便りは間引いて届くので、来たぶんだけ書く。
+    /// 書き出しも一緒に残す。文字サイズを変えると割合はずれるためである。
+    /// </para>
+    /// </summary>
+    private void Remember(double progression, string? text) =>
+        _store.Remember(_bookPath, new Position
+        {
+            Href = _session.HrefAt(_session.Index),
+            Progression = progression,
+            Text = text ?? string.Empty,
+        });
+
+    /// <summary>覚えている位置。動作確認が「戻せたか」を見る。</summary>
+    internal Position Remembered => _store.StateOf(_bookPath).Position;
 
     // MARK: 移動
 
