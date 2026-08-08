@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    意味の層。**Core からは切り離す。**
+    onnxruntime は native を抱えるので、これを Core に入れると
+    probe（突き合わせに使う CLI）まで重くなる。意味の層は無くても読書は成立する
+    （spec-local-ai.md の段階制）ので、要る側だけが参照する。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ChoroReader.Core\ChoroReader.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.28.0" />
+  </ItemGroup>
+
+</Project>
