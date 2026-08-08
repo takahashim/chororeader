@@ -48,6 +48,11 @@ public partial class App : Application
             if (shelf || books.Length == 0)
             {
                 var window = OpenShelf(books);
+                // 何も渡されなければ見本を並べる。空の書棚を見せても、できることが分からない。
+                if (books.Length == 0)
+                {
+                    window.AddSamples();
+                }
                 if (selftest)
                 {
                     Shutdown(await Selftest.RunShelfAsync(window));

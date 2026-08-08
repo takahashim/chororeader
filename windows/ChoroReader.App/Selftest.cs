@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -194,6 +195,12 @@ internal static class Selftest
 
         try
         {
+            // 埋め込みは黙って外れる。実行ファイルから取り出せるところまで見る。
+            var samples = Samples.CopyOut();
+            Check("見本を取り出せた", samples.Count == Samples.Names.Length,
+                  $"{samples.Count} / {Samples.Names.Length}");
+            Check("取り出した見本が読める", samples.All(File.Exists) && samples.All(p => new FileInfo(p).Length > 0));
+
             Check("蔵書が並んだ", window.BookCount > 0, $"BookCount={window.BookCount}");
 
             await window.FindAsync("本文");

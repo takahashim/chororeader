@@ -7,6 +7,9 @@
         <DockPanel DockPanel.Dock="Top" Margin="8">
             <Button x:Name="AddButton" DockPanel.Dock="Right" Content="本を加える…"
                     Padding="10,4" Margin="8,0,0,0" Click="OnAdd" />
+            <Button x:Name="SampleButton" DockPanel.Dock="Right" Content="見本を並べる"
+                    Padding="10,4" Margin="8,0,0,0" Click="OnAddSamples"
+                    ToolTip="同梱の見本（リフロー EPUB・固定レイアウト EPUB・PDF）" />
             <TextBox x:Name="Query" Padding="6,4"
                      KeyDown="OnQueryKey" ToolTip="蔵書を横断して引く" />
         </DockPanel>

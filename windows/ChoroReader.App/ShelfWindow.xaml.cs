@@ -138,6 +138,11 @@ public partial class ShelfWindow : Window
         }
     }
 
+    /// <summary>同梱の見本を並べる。書籍を 1 冊も持たないマシンでも読み方を確かめられる。</summary>
+    internal void AddSamples() => Add([.. Samples.CopyOut()]);
+
+    private void OnAddSamples(object sender, RoutedEventArgs e) => AddSamples();
+
     private void OnAdd(object sender, RoutedEventArgs e)
     {
         var picker = new Microsoft.Win32.OpenFileDialog

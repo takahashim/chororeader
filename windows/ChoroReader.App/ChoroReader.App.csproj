@@ -26,4 +26,13 @@
     <ProjectReference Include="../ChoroReader.Core/ChoroReader.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 同梱の見本。書籍を 1 冊も持たないマシンでも、アプリだけで読み方を確かめられるようにする。
+         3 つで 11 KB なので、実行ファイルへ埋め込んでしまう。
+         macOS 版も同じ 3 つを束に入れている（Samples.swift）。 -->
+    <EmbeddedResource Include="../../samples/sample-reflowable.epub" LogicalName="sample-reflowable.epub" />
+    <EmbeddedResource Include="../../samples/sample-fixed.epub" LogicalName="sample-fixed.epub" />
+    <EmbeddedResource Include="../../samples/sample.pdf" LogicalName="sample.pdf" />
+  </ItemGroup>
+
 </Project>

@@ -6,10 +6,17 @@ Core と Probe と検査に加えて、UI（WPF）も一通り動く。
 
 ```sh
 cd windows
+# 引数なしで書棚が開く。同梱の見本が並ぶので、書籍を持たないマシンでも試せる
+dotnet run --project ChoroReader.App/ChoroReader.App.csproj
+
 dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- 本.epub   # 1 冊開く
 dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- --shelf 本.epub 紙.pdf
 dotnet run --project ChoroReader.App/ChoroReader.App.csproj -- 本.epub --selftest
 ```
+
+見本（リフロー EPUB・固定レイアウト EPUB・PDF の 3 つ、合わせて 11 KB）は
+実行ファイルへ埋め込んである。開く前に LocalAppData の下へ写す。
+macOS 版も同じ 3 つを束に入れている（Samples.swift）。
 
 **この実装は一度畳み、戻した。**
 Windows 版は Tauri（Rust）へ移したが、Windows での具合が芳しくないため C# へ戻すことを検討している。
