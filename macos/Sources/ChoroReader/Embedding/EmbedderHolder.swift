@@ -15,7 +15,17 @@ final class EmbedderHolder: @unchecked Sendable {
     static let shared = EmbedderHolder()
 
     /// これだけ使われなければ降ろす。
-    private static let idle: TimeInterval = 60
+    ///
+    /// **握り続ける値段は安い。** 落ち着けば足跡 120 MB・実 RAM 25 MB ほどで、
+    /// 推論中に見える数百 MB は 5 秒ほどで返る一時的な作業領域である（実測）。
+    /// 一方、手放して作り直すと語彙 127 ms ＋ バケット 456 ms ＝ **583 ms** かかる。
+    ///
+    /// 置いたままでもページは追い出されるが、それでも引き直しは 25〜30 ms で済む。
+    /// **3.7 ms と 25 ms の差は人に分からないが、25 ms と 583 ms の差は分かる。**
+    /// だから温かさを保とうとはせず、握っておくことだけを考える。
+    ///
+    /// 本を全部閉じたときは待たずに降ろす（`DocumentRegistry.release`）。
+    private static let idle: TimeInterval = 300
 
     private let gate = NSLock()
     private var embedder: CoreMLEmbedder?
