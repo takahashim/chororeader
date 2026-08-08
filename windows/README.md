@@ -1,6 +1,6 @@
 # Windows 実装（C#）
 
-Core と Probe を実装済み。UI は未着手。
+Core と Probe と検査を実装済み。UI は WPF で作ると決めた（「UI の設計」の節）。
 スパイクの結果は [../spikes/findings-windows.md](../spikes/findings-windows.md)。
 
 **この実装は一度畳み、戻した。**
@@ -39,7 +39,7 @@ windows/
 ├── ChoroReader.Core/     クラスライブラリ。UI に依存しない（EPUB パース、Locator、CSS 変換、検索、診断）
 ├── ChoroReader.Probe/    コンソールアプリ。probe CLI の実体。Core を参照する
 ├── ChoroReader.Tests/    Core の検査（xunit）。conformance で見えないものを置く
-└── ChoroReader.App/      Windows 専用の UI（WinUI 3 など）。Core を参照する
+└── ChoroReader.App/      Windows 専用の UI（WPF）。Core を参照する
 ```
 
 `ChoroReader.Tests` は、実装間の突き合わせでは見えないものを受け持つ。
@@ -60,7 +60,7 @@ cp probes.example.json probes.json
 ./choroconf diff swift csharp 手元の本.epub   # 実書籍で突き合わせ
 ```
 
-Core が Windows 専用 API（WinUI、Win32）に触れると、この検証が Windows でしか回らなくなる。
+Core が Windows 専用 API（WPF、Win32）に触れると、この検証が Windows でしか回らなくなる。
 Core と Probe の TargetFramework は `net10.0` のままにし、`net10.0-windows` にしない。
 
 ## .NET のバージョン
@@ -69,8 +69,16 @@ Core と Probe の TargetFramework は `net10.0` のままにし、`net10.0-wind
 .NET 8 も LTS だが、サポートが 2026 年 11 月に終わる。新しく始める土台としては残りが短い。
 .NET 9 は STS で、すでにサポートが終わっている。
 
-UI（ChoroReader.App）は Windows App SDK に合わせた TFM（`net10.0-windows10.0.x`）になる。
-その組み合わせは、UI へ着手する時点の Windows App SDK の対応状況を見て決める。
+UI（ChoroReader.App）は WPF で、TFM は `net10.0-windows` にする。
+`EnableWindowsTargeting` を付けて、macOS でもコンパイルだけは通す。
+実行は Windows でしかできないが、型と API の誤りを開発機で潰せる（WebViewSpike と同じ手）。
+
+WinUI 3（Windows App SDK）は見送った。
+Windows 上なら CLI だけで開発できるようになっている（`dotnet new winui` の公式手順がある）が、
+**ビルドそのものが Windows を前提とし、macOS では型検査も通らない。**
+「macOS で書いて CI で確かめる」というこのリポジトリの回し方から UI だけが外れることになる。
+実行時に Windows App SDK ランタイムが要り、配布も MSIX の作法を抱える。
+見た目の差は、.NET 9 から WPF に入った Fluent テーマでかなり詰まっている。
 
 ## PDF の扱い
 
@@ -101,6 +109,93 @@ macOS 版が PDFKit を AppKit のビューで使っているのと同じ形に�
 この選択は変えうる。描画性能や選択の実装が問題になれば、PDF.js への差し替えを検討する。
 その影響は UI に閉じるよう、Core は MuPDF の型を外へ漏らさない設計にしておく。
 
+## UI の設計
+
+**macOS 版の形を写す。Tauri 版の形は採らない。**
+殻（書棚・道具帯・目次・検索）はネイティブの XAML で作り、WebView には入れない。
+WebView2 は本文専用で、読書の窓 1 つにつき 1 つ持つ。
+PDF は WebView2 に載せず、MuPDF が描いた絵をネイティブのビューに出す（前節）。
+
+```
+読書の窓（WPF）
+├── 殻：道具帯・目次・検索・設定   ← ネイティブ（XAML）
+├── EPUB の本文                    ← 専用の WebView2（1 窓 1 文書）
+└── PDF                            ← ネイティブ描画（WriteableBitmap）
+書棚の窓（WPF）                     ← すべてネイティブ
+```
+
+Tauri 版が iframe と sandbox と CSP nonce を重ねる作りになったのは、
+画面と本文が同じ WebView に同居しているからである。
+webview 単位で script を切ると画面ごと死ぬので、枠単位で止めるしかなかった。
+C# は WebView2 を直接持てるので、macOS 版と同じ
+「本文専用の webview を丸ごと止める」形が取れる。
+Tauri 版が Windows で踏んだ不具合（findings-tauri.md）は、ほとんどがこの同居に由来していた。
+
+| Tauri 版が Windows で踏んだもの | この形では |
+| --- | --- |
+| sandbox の文書でリスナが 1 つも発火しない | 消える（iframe が無い） |
+| CSP に `choro:` と書くと何にも当たらない | 消える（配信元が普通の https） |
+| `event.origin` が処方どおりにならない | 消える（相手がネイティブ） |
+| 焦点が殻と本文を往復して命令が遅れる | 消える（殻に DOM が無い） |
+| WebView の呼び返し中に窓を作ると真っ白 | **残る。下の規則で守る** |
+| 初期化の同期待ちで永久に待つ | **残る。下の規則で守る** |
+
+### 書籍の script の止め方
+
+spec.md 15.1 の不変条件（書籍の script は走らず、こちらの注入だけが走る）を、層で満たす。
+前提はすべてスパイク 3（findings-windows.md）で確認済みである。
+
+1. **エンジンで止める。** `IsScriptEnabled = false`。
+   この状態でも `AddScriptToExecuteOnDocumentCreated` の注入は走り、
+   `chrome.webview.postMessage` も `ExecuteScriptAsync` も使える。
+   WKWebView の `allowsContentJavaScript = false` + `WKUserScript` と同型である。
+   エンジンの段で止めるので、`<script>` 要素・`on…=` 属性・`javascript:` URL という
+   書き方の違いに依らない
+2. **配信を許可制にする。** `https://choro.invalid/` へ navigate し、
+   `WebResourceRequested` で全要求を横取りする。アーカイブ内のものだけを返し、それ以外は拒む。
+   `.invalid` は名前解決に成功しないので、横取りに漏れがあっても外へ出ない。
+   読書時にネットワークを使わない不変条件はここで担保する
+3. **CSP を応答に付ける。** 応答を自分で組み立てるのでヘッダを足せる。
+   配信元が普通の https なので、スキームの書き方で当たらない事故が起きない。
+   エンジンで止めた上に重ねる二重の網である
+4. **ナビゲーションを縛る。** `NavigationStarting` で choro.invalid 以外を取り消し、
+   外部 URL は OS のブラウザで開く。`NewWindowRequested` も握って、窓の開き方はこちらで決める
+5. **橋は 1 本。** 通信は `WebMessageReceived` だけにし、ネイティブ側が中身を検証する。
+   殻がネイティブなので、WebView の中にアプリの DOM がそもそも無い。破られても触る相手がない
+
+そのほか、DevTools は配布時に切り、autofill とパスワード保存を切り、
+user data folder は LocalAppData の下に置く。
+
+本文に触る仕事（位置の通知、コードのコピー釦、章末の行き先、図版の拡大、
+暗いテーマの文字色の当て先、印への接近）は注入スクリプトが受け持ち、橋で窓と話す。
+macOS 版の ReaderScripts と同じ範囲である。
+鍵盤は本文に焦点があるとき注入スクリプトが受けて橋で伝える（spec.md 10.2 の
+「本文ビューがフォーカスを持っているときだけ処理する」がそのまま実現できる）。
+spec.md 15.2 の「出先の言葉」は Tauri 版のもので、ここでは使わない。
+
+### WebView2 の規則
+
+スパイクと Tauri 版の実機の両方で踏んだ、WebView2 そのものの性質。UI の作りに依らず残る。
+
+- **イベントハンドラの中で、次の窓や WebView を同期に作らない。**
+  WebView2 は自分の呼び返しの最中に次の WebView を作らせない。枠だけ出来て中身が空になる。
+  Dispatcher へ渡してから作る
+- **初期化を同期に待たない。** `EnsureCoreWebView2Async` は必ず await する。
+  `GetAwaiter().GetResult()` はメッセージポンプを自分で止めて、永久に待つ
+- **`CoreWebView2Environment` は全窓で 1 つを共有する。**
+  同じ user data folder に複数の環境を作ると衝突する
+
+### 開発の回し方
+
+UI も CLI だけで開発する。Visual Studio は要らない。
+XAML はただのテキストで、ビルドは `dotnet build`、起動は `dotnet run`。
+macOS ではコンパイル検査まで。実行と動作確認は Windows で行う。
+
+窓の中は目で見ないと分からないので、**動作確認をアプリに組み込む**（`--selftest`）。
+書棚を開く → 本を開く → 注入スクリプトが名乗る → 位置の通知が届く、までを自動で辿り、
+結果を標準出力と終了コードに出す。CI の Windows ジョブで毎回回す。
+窓の数だけ見ていては真っ白を捕まえられない（findings-tauri.md）。
+
 ## 実装の順序
 
 1. ~~Probe の骨組み~~（済）
@@ -113,13 +208,13 @@ macOS 版が PDFKit を AppKit のビューで使っているのと同じ形に�
 8. ~~PDF を 1 冊ずつ直列に読む~~（済。MuPDF の context は同時に触ると壊れる）
 9. ~~検索の索引~~（済。二字組の転置索引。39 万字・86 章の書籍で 151 KB、作るのに 107 ms）
 10. ~~PDF の当たりの矩形とページの絞り込み~~（済。紙面に囲みを重ねられる）
-11. UI（ChoroReader.App）。EPUB のリソースは独自スキームではなく、`https://choro.invalid/` への
-    要求を `WebResourceRequested` で横取りして配る（独自スキームは登録できなかった）
-
-まだ無いもの。Rust 版にはあり、UI を作る段で要る。
-
-- 蔵書の横断検索。索引の上に乗るので、次に着手できる
-- 蔵書と読書位置の保存。保存先が UI の方針に依るため保留
+11. UI（ChoroReader.App）。設計は「UI の設計」の節。中の順序:
+    1. 配信層。`WebResourceRequested` で横取りし、CssCompat・Mark.Insert・ReaderStyle をここで通す
+    2. 読書の窓（EPUB）と注入スクリプト
+    3. `--selftest` と CI の動作確認
+    4. PDF の窓（RenderPage → WriteableBitmap、PageHit.Rects の囲み）
+    5. 書棚と蔵書の横断検索（SearchIndexStore は済）
+    6. 位置・しおり・設定の保存
 
 各段階で `./choroconf diff swift csharp` を回すと、食い違いがその場で出る。
 実際、この突き合わせは macOS 版の目次の不具合を 1 件見つけた（findings-windows.md）。

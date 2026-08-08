@@ -403,7 +403,8 @@ Windows でネイティブを選ばなかったのは、開発と検証を macOS
 
 `windows/`（C#）は、Tauri へ移る前の Windows 版である。
 移ったあとに一度畳んだが、Windows での Tauri の具合を受けて戻した。
-いまは契約の相手として置いてあり、画面は持たない。
+契約は 3 実装で通しており、画面は WPF で作ると決めて設計を windows/README.md に置いた。
+Tauri 版から切り替えるかどうかは、その画面が読書に足りてから決める。
 経緯は spikes/findings-windows.md にある。
 
 ### 13.2 macOS 版の構成
@@ -496,6 +497,14 @@ NavigationHistoryEntry
 `allowsContentJavaScript = false` にしても `WKUserScript` は走るという WebKit の性質に乗り、
 注入したスクリプトだけが動く。窓との通信は `WKUserContentController` の
 メッセージハンドラ（native bridge）1 本に限る。
+
+**C# 版**（これから作る。設計は windows/README.md）も本文専用の WebView2 を持つので、
+webview 単位で切れる。`IsScriptEnabled = false` にしても
+`AddScriptToExecuteOnDocumentCreated` の注入は走るという WebView2 の性質に乗る。
+macOS 版と同じ形で、窓との通信は `WebMessageReceived` の 1 本に限る。
+配信は `https://choro.invalid/` への要求の横取りで行い（独自スキームは登録できなかった。
+spikes/findings-windows.md）、アーカイブ外の要求は拒む。
+`.invalid` は名前解決に成功しないので、横取りに漏れがあっても外へ出ない。
 
 **Tauri 版**は画面と本文が同じ WebView にいる（本文は iframe）。
 webview 単位で切ると画面自体が死ぬので、枠ごとに決める。
