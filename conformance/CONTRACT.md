@@ -1,10 +1,14 @@
 # 実装間の契約
 
 実装が同じ振る舞いをすることを、機械的に確かめるための取り決め。
-いまは macOS 版（Swift）と Windows 版（Rust）の 2 つがある。
+いまは macOS 版（Swift）、Windows 版（Rust）、Windows 版（C#）の 3 つがある。
 
-Swift と Rust は独立して書かれており、XML の解析も ZIP の読み出しも正規表現も別物である。
-両方が同じ誤り方をすることは考えにくい、というのがこの突き合わせの拠り所になっている。
+3 つは独立して書かれており、XML の解析も ZIP の読み出しも正規表現も別物である。
+どれかが誤ったときに残り 2 つが同じ誤り方をすることは考えにくい、
+というのがこの突き合わせの拠り所になっている。
+
+C# 版は Tauri へ移ったときに一度畳んだが、Windows での Tauri の具合を受けて戻した。
+経緯は spikes/findings-windows.md にある。
 
 ## 揃えるもの
 
@@ -70,6 +74,7 @@ Swift と Rust は独立して書かれており、XML の解析も ZIP の読�
 ```
 macos/build/ChoroReader.app/Contents/MacOS/ChoroReader probe parse foo.epub
 tauri/target/release/choroprobe probe parse foo.epub
+dotnet windows/ChoroReader.Probe/bin/Debug/net10.0/choroprobe.dll probe parse foo.epub
 ```
 
 ## 正規化の規約
