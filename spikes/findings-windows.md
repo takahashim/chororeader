@@ -282,3 +282,29 @@ Swift だけが順序を持っていない。
 そのため長さの同じ問い合わせ 2 つが同じファイルに落ち、
 片方の期待値がもう片方を上書きしても、両方とも通ったように見えていた。
 `counting` を足したときに実際に踏んだ。名前を作る規則は変えず、重なりを見つけて止めるようにした。
+
+
+## 配信する CSP は、注入スクリプトを巻き込まない（2026-08-08）
+
+スパイク 3 で確かめたのは CSP を添えない場合だった。
+配信層を書くにあたって本文へ CSP を付けることにしたので、2 周目を足して確かめた。
+
+添えるのは `ResourceDelivery.ContentSecurityPolicy` そのもの（写しではなく本体を参照する）。
+`script-src 'none'` が入っている。
+
+```
+injectedScriptRanUnderCsp  true
+bookScriptRanUnderCsp      false
+webMessageArrivedUnderCsp  true
+cspAssumptionHolds         true
+```
+
+**`AddScriptToExecuteOnDocumentCreated` で入れたスクリプトは CSP の外にある。**
+WKUserScript がページの CSP に縛られないのと同じ扱いで、ここでも macOS 版と揃った。
+
+したがって二重の網が両方とも効く。書籍の script はエンジンの段
+（`IsScriptEnabled = false`）で止まり、CSP でも止まる。
+どちらかが将来変わっても、もう一方が残る。
+
+巻き込まれた場合は `script-src` を緩めるつもりだったが、その必要は無かった。
+`webview2-spike` ジョブが毎回この 2 周目まで回すので、版が上がって変わったら落ちる。
