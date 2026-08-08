@@ -1,8 +1,6 @@
 import Foundation
 
-/// 埋め込み器を持ち回る係。
-///
-/// **一度作ったら持ち続ける。** 降ろすのは意味の層を切ったときだけである。
+/// 推論の道具を持ち回る係。**一度作ったら持ち続ける。**
 ///
 /// 作り直すと 1 回あたり **583 ms**（語彙 127 ms ＋ バケット 1 本 456 ms、実測）。
 /// 一方、握り続ける値段は安い。
@@ -26,30 +24,33 @@ import Foundation
 ///
 /// なお以前「温めておけば 3.8 ms」と測ったが、あれは同じ埋め込み器で 2 回目を
 /// 測っていた。アプリは毎回作り直していたので、温めは効いていなかった。
-@available(macOS 15, *)
-final class EmbedderHolder: @unchecked Sendable {
-    static let shared = EmbedderHolder()
-
+final class ModelHolder<Made: AnyObject>: @unchecked Sendable {
     private let gate = NSLock()
-    private var embedder: CoreMLEmbedder?
+    private let make: () throws -> Made?
+    private var held: Made?
     private var busy = 0
 
-    private init() {}
+    /// - Parameter make: 作り方。モデルが手元に無ければ nil を返す。
+    init(make: @escaping () throws -> Made?) {
+        self.make = make
+    }
 
-    /// 持ち回っている埋め込み器で仕事をする。無ければ作る。
+    /// 持ち回っているもので仕事をする。無ければ作る。
     ///
     /// **UI を持つスレッドから呼んではいけない。** 初回は開くのに数百 ms かかる。
-    func use<T>(_ body: (CoreMLEmbedder) throws -> T) throws -> T? {
-        guard let model = EmbeddingModelStore.installed() else { return nil }
-
+    func use<T>(_ body: (Made) throws -> T) throws -> T? {
         gate.lock()
-        let ready: CoreMLEmbedder
+        let ready: Made
         do {
-            if let already = embedder {
+            if let already = held {
                 ready = already
             } else {
-                ready = try CoreMLEmbedder(model: model)
-                embedder = ready
+                guard let fresh = try make() else {
+                    gate.unlock()
+                    return nil
+                }
+                held = fresh
+                ready = fresh
             }
             busy += 1
             gate.unlock()
@@ -70,13 +71,34 @@ final class EmbedderHolder: @unchecked Sendable {
     var isHolding: Bool {
         gate.lock()
         defer { gate.unlock() }
-        return embedder != nil
+        return held != nil
     }
 
     /// 降ろす。意味の層を切ったときに呼ぶ。
     func release() {
         gate.lock()
-        if busy == 0 { embedder = nil }
+        if busy == 0 { held = nil }
         gate.unlock()
+    }
+}
+
+/// 埋め込み器を持ち回る係。降ろすのは意味の層を切ったときだけである。
+@available(macOS 15, *)
+enum EmbedderHolder {
+    static let shared = ModelHolder<CoreMLEmbedder> {
+        guard let model = EmbeddingModelStore.installed() else { return nil }
+        return try CoreMLEmbedder(model: model)
+    }
+}
+
+/// 並べ直しの道具を持ち回る係。
+///
+/// **埋め込み器とは別に持つ。** 別のモデルで、別のバケットを開くためである。
+/// 並べ直しは押されたときにしか走らないので、押されるまでは何も抱えない。
+@available(macOS 15, *)
+enum RerankerHolder {
+    static let shared = ModelHolder<CrossEncoder> {
+        guard let model = RerankerModelStore.installed() else { return nil }
+        return try CrossEncoder(model: model)
     }
 }

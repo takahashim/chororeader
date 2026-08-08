@@ -112,6 +112,33 @@ struct UnigramTokenizer {
         return out
     }
 
+    /// 問いと本文の**組**を 1 本の並びにする。reranker（cross-encoder）が食う形。
+    ///
+    /// 詰め方は推測せず、`tokenizer.json` の post_processor から写した。
+    /// `pair` は `<s> A </s> <s> B </s>` である（特殊トークン 4 つ）。
+    ///
+    /// **上限を越えたら長い側から 1 つずつ削る**（tokenizers の longest_first。
+    /// truncation を指定しないときの既定で、参照実装もこれで詰めている）。
+    /// 本文だけを削る形にすると、問いが長い組で参照実装と食い違う。
+    func encodePair(_ first: String, _ second: String, limit: Int) -> [Int] {
+        var a = encode(first, addSpecialTokens: false)
+        var b = encode(second, addSpecialTokens: false)
+        var over = a.count + b.count + 4 - limit
+        while over > 0, !(a.isEmpty && b.isEmpty) {
+            if a.count > b.count { a.removeLast() } else { b.removeLast() }
+            over -= 1
+        }
+        var out: [Int] = []
+        out.reserveCapacity(a.count + b.count + 4)
+        if bos >= 0 { out.append(bos) }
+        out.append(contentsOf: a)
+        if eos >= 0 { out.append(eos) }
+        if bos >= 0 { out.append(bos) }
+        out.append(contentsOf: b)
+        if eos >= 0 { out.append(eos) }
+        return out
+    }
+
     // MARK: - 段 1：特殊トークンで切り分ける
 
     private enum Piece {

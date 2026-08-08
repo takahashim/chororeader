@@ -37,6 +37,8 @@ struct LibraryView: View {
     @StateObject private var semantic = SemanticSearchModel()
     /// 一覧に出す本文。索引には控えていないので、原書から読む。
     @StateObject private var passages = PassageTextLoader()
+    /// 並べ直し。**押されたときにだけ走る**（spec-local-ai.md 第 5.3 節）。
+    @StateObject private var rerank = RerankModel()
     @ObservedObject private var builder = SemanticIndexBuilder.shared
     /// 引き方。**混ぜない**（spec-local-ai.md 第 5.2 節）。
     /// 正確な検索には「当たり」があるが、意味の近さには無い。
@@ -234,6 +236,7 @@ struct LibraryView: View {
                 .onChange(of: searchKind) { _, _ in
                     search.clear()
                     semantic.clear()
+                    rerank.clear()
                     if !queryText.isEmpty { runSearch() }
                 }
             } else {
@@ -250,13 +253,15 @@ struct LibraryView: View {
                     queryText = ""
                     search.clear()
                     semantic.clear()
+                    rerank.clear()
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .help("検索をやめる")
             }
-            if search.running || semantic.running {
+            if searchKind == .semantic, !semantic.found.isEmpty { rerankButton }
+            if search.running || semantic.running || rerank.running {
                 ProgressView().controlSize(.small)
             }
             if !progressLabel.isEmpty {
@@ -269,6 +274,51 @@ struct LibraryView: View {
         .padding(.vertical, 8)
     }
 
+    /// 並べ直しの操作。**自動では走らせない。**
+    ///
+    /// ベクトルの近さは話題しか見ないが、cross-encoder は本文を読むので、
+    /// 話題は合うが中身が違う候補を落とせる（spikes/findings-reranker.md）。
+    /// ただし**悪くなる問いも実在する**（解答や演習の紙面を正解と取り違える）。
+    /// だから押して確かめられる形にし、素の並びへ戻せるようにしてある。
+    @ViewBuilder
+    private var rerankButton: some View {
+        if RerankModel.isAvailable {
+            if rerank.passages == nil {
+                Button("並べ直す") {
+                    rerank.run(semantic.query, over: semantic.found, texts: passages.texts)
+                }
+                .controlSize(.small)
+                .disabled(rerank.running)
+                .help("問いと本文を並べて読み直し、答えている順に並べ替えます")
+            } else {
+                Button("素の並びへ") { rerank.reset() }
+                    .controlSize(.small)
+                    .help("意味の近さだけで並べた順に戻します")
+            }
+        }
+    }
+
+    /// いま画面に出す並び。並べ直していなければ素の並び。
+    private var shown: [RelatedPassage] {
+        rerank.passages ?? semantic.found
+    }
+
+    /// 並べ直しでどれだけ動いたか。**効いたかどうかを人が見て決められるようにする。**
+    ///
+    /// 点だけを出しても、並べ直しが何をしたのかは分からない。
+    /// 動かなかったものには何も出さない（見どころは動いたものだけである）。
+    @ViewBuilder
+    private func movement(for passage: RelatedPassage) -> some View {
+        if let was = rerank.wasAt[passage.id],
+           let now = shown.firstIndex(where: { $0.id == passage.id }), was != now {
+            let up = now < was
+            Text("\(up ? "↑" : "↓")\(abs(was - now))")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(up ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
+                .help("素の並びでは \(was + 1) 番目")
+        }
+    }
+
     /// いま引いている問い。画面を切り替える判断に使う。
     private var currentQuery: String {
         searchKind == .semantic ? semantic.query : search.query
@@ -277,6 +327,8 @@ struct LibraryView: View {
     private var progressLabel: String {
         if searchKind == .semantic {
             if semantic.running { return "探しています" }
+            if rerank.running { return "並べ直しています" }
+            if let reason = rerank.reason { return reason }
             guard !semantic.query.isEmpty else { return "" }
             // **件数は出さない**（spec-local-ai.md 第 5.2 節）。
             // 「17 件」と言えるのは、当たりを数えられる正確な検索だけである。
@@ -296,6 +348,7 @@ struct LibraryView: View {
         case .exact:
             search.run(queryText, over: store.recent) { store.resolveURL(for: $0) }
         case .semantic:
+            rerank.clear()
             semantic.run(queryText, over: store.recent) { store.resolveURL(for: $0) }
         }
     }
@@ -330,12 +383,15 @@ struct LibraryView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(semantic.found) { passage in
+                List(shown) { passage in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(alignment: .firstTextBaseline) {
                             Text(passage.book.displayTitle).font(.callout).lineLimit(1)
                             Spacer(minLength: 6)
-                            Text(String(format: "%.2f", passage.score))
+                            movement(for: passage)
+                            // 並べ直した後は cross-encoder の点。**意味が変わる。**
+                            // 素の点は問いと本文の向きの近さ、こちらは答えている度合いである。
+                            Text(String(format: "%.2f", rerank.relevance[passage.id] ?? passage.score))
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.tertiary)
                         }

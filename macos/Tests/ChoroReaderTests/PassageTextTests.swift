@@ -50,8 +50,11 @@ final class PassageTextTests: XCTestCase {
         let read = PassageText.read(pieces.map(\.unit), from: url)
         XCTAssertEqual(read.count, pieces.count, "読めていない単位がある")
         for (at, piece) in pieces.enumerated() {
-            let head = try XCTUnwrap(read[at]).replacingOccurrences(of: "…", with: "")
-            XCTAssertTrue(piece.text.hasPrefix(head), "その段落の頭から切り出せていない")
+            let head = try XCTUnwrap(read[at])
+            // **始まりだけを見る。** 採る長さは段落の終わりで止まらないので
+            // （PassageText.cut）、短い段落では次の段落まで入る。
+            let want = piece.text.prefix(min(40, piece.text.count))
+            XCTAssertTrue(head.hasPrefix(want), "その段落の頭から切り出せていない")
         }
         // 後ろの段落は、後ろの文から始まる
         let last = try XCTUnwrap(read[pieces.count - 1])
