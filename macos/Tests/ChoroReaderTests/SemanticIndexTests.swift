@@ -16,7 +16,7 @@ final class SemanticIndexTests: XCTestCase {
                                  page: at % 2 == 0 ? nil : at,
                                  progression: Double(at) / Double(max(1, count)),
                                  fragment: at % 3 == 0 ? "sec\(at)" : nil),
-                heading: "第 \(at) 節　架空の見出し"))
+                heading: "第 \(at) 節　架空の見出し", section: at))
             // 単位ごとに向きの違う単位ベクトルを作る
             var one = [Float](repeating: 0, count: dimension)
             one[at % dimension] = 1
@@ -92,5 +92,79 @@ final class SemanticIndexTests: XCTestCase {
     /// 次元の違う問いは受け付けない。**受け付けると、ずれた内積が黙って返る。**
     func test_次元が違えば引かない() {
         XCTAssertTrue(made(count: 4, dimension: 8).nearest(to: [1, 0, 0, 0], limit: 3).isEmpty)
+    }
+}
+
+/// 順位の付け方。
+///
+/// **節で順位を決め、段落へ着地する。**
+/// 段落だけで順位を付けると話題の芯を失う。400 字の段落は「学習」に触れていれば
+/// 「過学習を防ぐ方法」に高く出るが、本当に読みたい「正則化」の節には届かない。
+/// 実測で意味検索が 8/15 まで落ちた（節で順位を付ければ 11/15）。
+///
+/// **崩れても症状は出ない。** 結果は返るし、それらしくも見える。
+extension SemanticIndexTests {
+    /// 節ごとに 1 件だけ返すこと。1 つの節が一覧を埋め尽くさない。
+    func test_節ごとに1件返す() {
+        // 節 0 に 3 段落、節 1 に 1 段落。すべて同じ向き。
+        let index = madeSections([0, 0, 0, 1], dimension: 4, axis: 0)
+        let found = index.nearest(to: [1, 0, 0, 0], limit: 10)
+        XCTAssertEqual(found.count, 2, "節ではなく段落の数だけ返っている")
+    }
+
+    /// **節の中でいちばん近い段落を返すこと。** ここが節の頭を返すようだと、
+    /// 段落単位にした意味が無くなる。
+    func test_節の中でいちばん近い段落へ着地する() {
+        var units: [SemanticUnit] = []
+        var vectors: [Float] = []
+        // 同じ節の 3 段落。2 番目だけが問いと同じ向き。
+        for (at, axis) in [1, 0, 2].enumerated() {
+            units.append(SemanticUnit(locator: Locator(page: at, progression: 0),
+                                      heading: "節", section: 0))
+            var one = [Float](repeating: 0, count: 4)
+            one[axis] = 1
+            vectors.append(contentsOf: one)
+        }
+        let index = SemanticIndex(model: "m", dimension: 4, units: units,
+                                  vectors: vectors, truncated: 0)
+        let found = index.nearest(to: [1, 0, 0, 0], limit: 3)
+        XCTAssertEqual(found.first?.unit, 1, "節の中でいちばん近い段落を選んでいない")
+    }
+
+    /// 節の点は、その節の段落の平均であること。
+    /// **最大にすると、段落の多い節ほど得をする**（節単位のスパイクで測った悪さ）。
+    func test_節の点は平均で決まる() {
+        var units: [SemanticUnit] = []
+        var vectors: [Float] = []
+        // 節 0：当たり 1 つ＋外れ 3 つ。節 1：やや近いものが 1 つだけ。
+        let plan: [(section: Int, value: [Float])] = [
+            (0, [1, 0]), (0, [0, 1]), (0, [0, 1]), (0, [0, 1]),
+            (1, [0.8, 0.6]),
+        ]
+        for (at, one) in plan.enumerated() {
+            units.append(SemanticUnit(locator: Locator(page: at, progression: 0),
+                                      heading: "節 \(one.section)", section: one.section))
+            vectors.append(contentsOf: one.value)
+        }
+        let index = SemanticIndex(model: "m", dimension: 2, units: units,
+                                  vectors: vectors, truncated: 0)
+        let found = index.nearest(to: [1, 0], limit: 2)
+        // 最大で決めるなら節 0（1.0）が勝つ。平均なら節 1（0.8 対 0.25）が勝つ。
+        XCTAssertEqual(index.units[found[0].unit].section, 1,
+                       "節の点を最大で決めている（段落の多い節が有利になる）")
+    }
+
+    private func madeSections(_ sections: [Int], dimension: Int, axis: Int) -> SemanticIndex {
+        var units: [SemanticUnit] = []
+        var vectors: [Float] = []
+        for (at, section) in sections.enumerated() {
+            units.append(SemanticUnit(locator: Locator(page: at, progression: 0),
+                                      heading: "節 \(section)", section: section))
+            var one = [Float](repeating: 0, count: dimension)
+            one[axis] = 1
+            vectors.append(contentsOf: one)
+        }
+        return SemanticIndex(model: "m", dimension: dimension, units: units,
+                             vectors: vectors, truncated: 0)
     }
 }

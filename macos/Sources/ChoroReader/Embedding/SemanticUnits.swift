@@ -7,6 +7,11 @@ struct SemanticUnit: Hashable {
     var locator: Locator
     /// この段落を含む節の見出し
     var heading: String
+    /// この段落が属する節の番号（書籍の中で通し）。
+    ///
+    /// **順位は節で決め、着地は段落でする**（spec-local-ai.md 第 5.1 節）。
+    /// 段落だけで順位を付けると話題の芯を失い、巻末や一般論に流れる（実測 8/15 対 11/15）。
+    var section: Int
 
     /// 移動に渡す飛び先。表題は見出しから埋める。
     var target: Locator {
@@ -53,6 +58,7 @@ enum SemanticUnits {
                                    publication: EPUBPublication,
                                    leastCharacters: Int) -> [Piece] {
         var made: [Piece] = []
+        var at = 0   // 節の通し番号
         for link in publication.readingOrder {
             guard let data = try? resources.read(link.href) else { continue }
             // 章の中での位置は、取り出した本文の長さで測る。綴じ方に左右されないため。
@@ -61,6 +67,7 @@ enum SemanticUnits {
             let total = max(1, sections.last.map { $0.offset + $0.text.count } ?? 0)
 
             for section in sections {
+                defer { at += 1 }
                 for passage in passages(in: section.text, leastCharacters: leastCharacters) {
                     let locator = Locator(href: link.href,
                                           progression: min(1, Double(section.offset + passage.offset) / Double(total)),
@@ -68,7 +75,8 @@ enum SemanticUnits {
                                           fragment: passage.offset == 0 ? section.fragment : nil,
                                           text: anchor(passage.text))
                     made.append(Piece(unit: SemanticUnit(locator: locator,
-                                                         heading: section.heading),
+                                                         heading: section.heading,
+                                                         section: at),
                                       text: passage.text))
                 }
             }
@@ -150,7 +158,14 @@ enum SemanticUnits {
     private static func pdfPieces(_ pdf: PDFKit.PDFDocument, leastCharacters: Int) -> [Piece] {
         let titles = sectionTitles(pdf)
         var made: [Piece] = []
+        // 節はアウトラインの区切り。見出しが変わるまでは同じ節とする。
+        var at = 0
+        var previous: String?
         for page in 0 ..< pdf.pageCount {
+            if previous != titles[page] {
+                if previous != nil { at += 1 }
+                previous = titles[page]
+            }
             let text = tidy(pdf.page(at: page)?.string ?? "")
             guard !text.isEmpty else { continue }
             for passage in passages(in: text, leastCharacters: leastCharacters) {
@@ -158,7 +173,8 @@ enum SemanticUnits {
                                       progression: Double(page) / Double(max(1, pdf.pageCount)),
                                       text: anchor(passage.text))
                 made.append(Piece(unit: SemanticUnit(locator: locator,
-                                                     heading: titles[page]),
+                                                     heading: titles[page],
+                                                     section: at),
                                   text: passage.text))
             }
         }

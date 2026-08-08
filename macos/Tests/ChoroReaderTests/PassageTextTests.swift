@@ -81,7 +81,7 @@ final class PassageTextTests: XCTestCase {
 
     func test_読めない書籍では何も返さない() throws {
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent("choro-none.epub")
-        let unit = SemanticUnit(locator: Locator(href: "text.xhtml", progression: 0), heading: "")
+        let unit = SemanticUnit(locator: Locator(href: "text.xhtml", progression: 0), heading: "", section: 0)
         XCTAssertTrue(PassageText.read([unit], from: missing).isEmpty)
     }
 }

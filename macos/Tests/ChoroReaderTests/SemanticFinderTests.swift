@@ -20,7 +20,7 @@ final class SemanticFinderTests: XCTestCase {
         var vectors: [Float] = []
         for (at, axis) in axes.enumerated() {
             units.append(SemanticUnit(locator: Locator(page: at, progression: 0),
-                                      heading: "第 \(at) 節"))
+                                      heading: "第 \(at) 節", section: at))
             var one = [Float](repeating: 0, count: dimension)
             one[axis] = 1
             vectors.append(contentsOf: one)
@@ -111,7 +111,7 @@ extension SemanticFinderTests {
         func passage(_ anchor: String) -> RelatedPassage {
             RelatedPassage(book: book,
                            unit: SemanticUnit(locator: Locator(page: 7, progression: 0.5, text: anchor),
-                                              heading: "第 3 章"),
+                                              heading: "第 3 章", section: 0),
                            score: 0.8)
         }
         let ids = Set([passage("最初の段落の頭である").id, passage("次の段落の頭である").id])

@@ -38,16 +38,43 @@ struct SemanticIndex {
     ///
     /// 総当たりで足りる。節単位なら 1,000 冊でも 10 万件程度で、
     /// 実測 0.35 ms である（第 4.3 節）。ANN は持たない。
+    /// **順位は節で決め、着地は段落でする。**
+    ///
+    /// 段落だけで順位を付けると話題の芯を失う。400 字の段落は「学習」に触れていれば
+    /// 「過学習を防ぐ方法」に高く出るが、本当に読みたい「正則化」の節には届かない。
+    /// 実測で意味検索が 8/15 まで落ちた（節で順位を付ければ 11/15）。
+    ///
+    /// 節のベクトルは**段落のベクトルの平均**で足りる。別に持たなくてよい。
     func nearest(to vector: [Float], limit: Int) -> [(unit: Int, score: Float)] {
         guard vector.count == dimension, count > 0 else { return [] }
+
         var scores = [Float](repeating: 0, count: count)
         // (count × dimension) と (dimension × 1) の積。行ごとの内積を一息で取る。
         vDSP_mmul(vectors, 1, vector, 1, &scores, 1,
                   vDSP_Length(count), 1, vDSP_Length(dimension))
-        return scores.enumerated()
-            .sorted { $0.element > $1.element }
+
+        // 節ごとに、点の平均（＝節のベクトルとの内積）と、いちばん近い段落を出す。
+        var best: [Int: (unit: Int, sum: Float, members: Int, top: Float)] = [:]
+        for (at, unit) in units.enumerated() {
+            let score = scores[at]
+            if var already = best[unit.section] {
+                already.sum += score
+                already.members += 1
+                if score > already.top {
+                    already.top = score
+                    already.unit = at
+                }
+                best[unit.section] = already
+            } else {
+                best[unit.section] = (unit: at, sum: score, members: 1, top: score)
+            }
+        }
+
+        return best.values
+            .map { (unit: $0.unit, score: $0.sum / Float($0.members)) }
+            .sorted { $0.score > $1.score }
             .prefix(limit)
-            .map { (unit: $0.offset, score: $0.element) }
+            .map { $0 }
     }
 
     /// ある単位のベクトル。関連箇所は「いま読んでいる単位」を問いにする。
@@ -77,6 +104,7 @@ extension SemanticIndex {
             // 本文の目印。これが無いと、着くのは章（ページ）の頭までになる。
             Varint.append(unit.locator.text ?? "", to: &out)
             Varint.append(unit.heading, to: &out)
+            Varint.append(UInt64(unit.section), to: &out)
         }
         var halves = [UInt16](repeating: 0, count: vectors.count)
         var source = vectors
@@ -104,14 +132,15 @@ extension SemanticIndex {
         for _ in 0 ..< Int(total) {
             guard let href = reader.text(), let page = reader.number(),
                   let progression = reader.number(), let fragment = reader.text(),
-                  let anchor = reader.text(), let heading = reader.text()
+                  let anchor = reader.text(), let heading = reader.text(),
+                  let section = reader.number()
             else { return nil }
             let locator = Locator(href: href.isEmpty ? nil : href,
                                   page: page == 0 ? nil : Int(page) - 1,
                                   progression: Double(progression) / 100_000,
                                   fragment: fragment.isEmpty ? nil : fragment,
                                   text: anchor.isEmpty ? nil : anchor)
-            units.append(SemanticUnit(locator: locator, heading: heading))
+            units.append(SemanticUnit(locator: locator, heading: heading, section: Int(section)))
         }
 
         let wanted = Int(total) * Int(dimension)
