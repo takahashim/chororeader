@@ -17,7 +17,7 @@ import Foundation
 /// 消えると 260 MB を取り直すことになる。組み直したもの（`.mlmodelc`）は
 /// 7 秒で作れるので、そちらは Caches のままでよい（`CoreMLEmbedder`）。
 enum EmbeddingModelStore {
-    /// 既定のモデルの名前。sidecar の失効の鍵にも使う（第 4.3 節）。
+    /// 既定のモデルの名前。索引ファイルの失効の鍵にも使う（第 4.3 節）。
     static let defaultName = "ruri-v3-130m-coreml"
 
     static var directory: URL {
