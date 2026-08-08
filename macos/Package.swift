@@ -15,6 +15,31 @@ let package = Package(
                         .copy("Resources/sample.pdf")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // モデルを Core ML の束へ変換する道具。**アプリには入れない。**
+        // アプリは成果物を使うだけである（spec-local-ai.md 第 4.6 節）。
+        // 実行体と分けてあるのは、中身を検査から触るためである。
+        .target(
+            name: "ChoroConvert",
+            path: "Sources/ChoroConvert",
+            // weight.bin の形式は coremltools 由来（BSD-3-Clause）。告知を運ぶ。
+            exclude: ["LICENSE-COREMLTOOLS-BSD"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .executableTarget(
+            // 名前も置き場所もライブラリ（ChoroConvert）と変えてある。
+            // macOS のファイル名は大文字小文字を区別しないので、
+            // 同じ綴りだと 1 つの場所・1 つの中間物になってしまう。
+            name: "choro-convert",
+            dependencies: ["ChoroConvert"],
+            path: "Sources/ConvertCLI",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "ChoroConvertTests",
+            dependencies: ["ChoroConvert"],
+            path: "Tests/ChoroConvertTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "ChoroReaderTests",
             dependencies: ["ChoroReader"],

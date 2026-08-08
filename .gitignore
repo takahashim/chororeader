@@ -26,3 +26,8 @@ tauri/app/gen/
 .DS_Store
 
 notes/
+
+# swiftc を直に呼んだときの中間物（スパイクの測定で出る）
+*.d
+*.dia
+*.swiftdeps
