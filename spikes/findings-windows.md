@@ -355,11 +355,18 @@ window.chrome.webview.postMessage(...);   // リスナを経由しない
 | 注入が走った | ○ | ○ |
 | **書籍の script が走った** | × | **×** |
 | 同期の便りが届いた | ○ | ○ |
-| **リスナが発火した** | **×** | **○** |
+| **リスナが発火した**（DOMContentLoaded） | **×** | **○** |
+| **スクロールのリスナが発火した** | **×** | **○** |
 | **リスナの便りが届いた** | **×** | **○** |
 | `ExecuteScript` が効く | ○ | ○ |
+| 実際に動いた位置（`scrollY`） | 200 | 200 |
 
 （WebView2 150.0.4078.105、windows-latest）
+
+スクロールは別に測った。**読書が実際に頼るのはこれ**で、位置の追従がここに乗っている。
+`ExecuteScriptAsync("window.scrollTo(0, 200)")` で起こした。この API は script を
+切っていても効くので、合成入力を用意せずに出来事だけを起こせる。
+`scrollY` は両方とも 200 で、**位置は確かに動いている**。動いたのに発火しない。
 
 **`script-src 'none'` だけで書籍の script は止まる。** エンジンの段は要らない。
 同期の便りはどちらでも届く。ここだけを見ていたのが見落としの正体である。
@@ -401,3 +408,51 @@ Tauri 版が sandbox をやめて CSP へ移したのと同じ筋である。
 本文の頭には注入した `<style id="choro-style">` が入っている（表示設定が当たっている）。
 `favicon.ico` だけが 404 だが、これは書籍に無いものを求められているだけで、
 供給の範囲の外を拒めていることの裏返しでもある。
+
+### 注入から scroll を購読しても同じだった（2026-08-08）
+
+「`IsScriptEnabled = false` のまま、注入したスクリプトで `scroll` を購読すればよいのでは」
+という案を測った。書いたのはこれである。
+
+```js
+window.addEventListener('scroll', function () {
+  window.__choroScrolled = true;
+  choroPost({ kind: 'scroll', y: window.scrollY });
+});
+```
+
+**発火しなかった。** 登録するコードは走る（`__choroInjected` は立つ）。
+`window.scrollTo(0, 200)` で位置も動く（`scrollY` は 200）。それでも呼ばれない。
+
+`IsScriptEnabled = false` は「その文書に紐づく script を走らせない」という意味で、
+**どの realm が登録したかに依らない**。注入が特別扱いされるのは
+「注入したコードがその場で走ること」までで、そこから先の呼び返しは戻らない。
+
+### エンジンの段で止める道は無い
+
+WebView2 の API を一通り当たった（`Microsoft.Web.WebView2.Core.xml`）。
+
+- `IsolatedWorld` / `ExecutionContext` / `WorldId` / `ContentSetting` — いずれも無い
+- 注入は `AddScriptToExecuteOnDocumentCreatedAsync` と `ExecuteScriptAsync` のみ（main world）
+- `CoreWebView2Settings` の script 関連は `IsScriptEnabled` だけ。WebView 単位の全か無か
+
+Chromium で相当するのは拡張機能の isolated world だが、WebView2 は公開していない。
+WKWebView の `WKUserScript` が content JS を切ってもリスナごと生きるのは、
+WebKit がそう特別扱いしているからで、**乗り換えられる性質ではない**。
+
+**出来事の側も塞がっている。** `CoreWebView2` の催しにスクロールは無い。
+
+```
+BasicAuthenticationRequested ClientCertificateRequested ContainsFullScreenElementChanged
+ContentLoading ContextMenuRequested DocumentTitleChanged DOMContentLoaded DownloadStarting
+FaviconChanged FrameCreated ... NavigationCompleted NavigationStarting NewWindowRequested
+... WebMessageReceived WebResourceRequested WebResourceResponseReceived WindowCloseRequested
+```
+
+scroll を含む API は `ScrollBarStyle` と `ShouldDisplayScrollBars`（どちらも見た目）だけ。
+つまりエンジンの段で止めると、位置の追従は `ExecuteScriptAsync` のポーリングしか残らない。
+読書位置は spec.md 4.3 の中核で、常時追従するものである。代償が大きすぎる。
+
+**二層化は見送る。** C# 版は CSP の 1 層で組む。
+macOS 版が二層なのは WebKit がそう作られていたからで、
+C# 版が 1 層なのは、選べる中で読書が成立する唯一の形だからである。
