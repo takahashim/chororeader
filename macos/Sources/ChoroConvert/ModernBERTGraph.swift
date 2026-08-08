@@ -190,13 +190,25 @@ struct ModernBERTGraph {
                                out: .init(name: "m_is_padding", type: .init(.bool, square)),
                                inputs: [("x", inverted), ("dtype", toBool)])
 
-        // 詰め物のところは -inf、それ以外は inverted が既に持っている 0。
-        // **参照実装は有限の番人ではなく fp16 の -inf を使う。**
-        let negativeInfinity = mil.constant("m_neg_inf", .init(.fp16, []),
-                                            .halves([-Float.infinity]))
+        // 詰め物のところは塞ぎ、それ以外は inverted が既に持っている 0。
+        //
+        // **塞ぐ値は有限にする（fp16 の最小の有限値）。`-inf` にしてはいけない。**
+        //
+        // 完全に塞がれた行は実際に出る（詰め物の位置が、局所注意の窓から
+        // 本物の外れたところにあるとき）。`-inf` だと `exp(-inf) = 0` が並び、
+        // softmax が `0/0 = NaN` を返す。その NaN は次の層で本物の位置へ移る
+        // （重み 0 を掛けても `0 × NaN = NaN` のため）。
+        //
+        // 実測：CPU で seq 256 以上・詰め物ありのとき、**本物の位置まで 100% NaN**
+        // になっていた。ANE では出ないが、それは `-inf` の扱いが違うだけで、
+        // 頼れる性質ではない。
+        //
+        // PyTorch（transformers）は fp32 の最小の有限値を使っており、NaN を出さない。
+        // 有限値なら、全部塞がれた行は一様分布になるだけで済む。
+        let blocked = mil.constant("m_blocked", .init(.fp16, []), .halves([-65504]))
         let global = mil.op("select",
                             out: .init(name: "global_mask", type: .init(.fp16, square)),
-                            inputs: [("cond", isPadding), ("a", negativeInfinity), ("b", inverted)])
+                            inputs: [("cond", isPadding), ("a", blocked), ("b", inverted)])
 
         // 窓そのものは入力に依らないので定数。
         let outside = mil.constant("m_outside", .init(.bool, square),
@@ -204,7 +216,7 @@ struct ModernBERTGraph {
                                                                window: config.localAttention)))
         let local = mil.op("select",
                            out: .init(name: "local_mask", type: .init(.fp16, square)),
-                           inputs: [("cond", outside), ("a", negativeInfinity), ("b", global)])
+                           inputs: [("cond", outside), ("a", blocked), ("b", global)])
         return (global, local)
     }
 

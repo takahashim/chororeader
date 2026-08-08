@@ -100,6 +100,35 @@ final class ModernBERTGraphTests: XCTestCase {
         }
     }
 
+    /// **塞ぐ値は有限にすること。** `-inf` にしてはいけない。
+    ///
+    /// 完全に塞がれた行は実際に出る（詰め物の位置が、局所注意の窓から本物の
+    /// 外れたところにあるとき）。`-inf` だと softmax が `0/0 = NaN` を返し、
+    /// その NaN は次の層で本物の位置へ移る（`0 × NaN = NaN` のため）。
+    ///
+    /// 実測で、CPU・seq 256 以上・詰め物ありのとき**本物の位置まで 100% NaN**
+    /// になっていた。ANE では出ないが、それは `-inf` の扱いが違うだけである。
+    /// PyTorch は最小の有限値を使い、NaN を出さない。
+    func test_塞ぐ値は有限() throws {
+        let config = try config()
+        let graph = ModernBERTGraph(config: config, seq: 8)
+        var mil = MILProgram()
+        let ids = MILProgram.Value(name: "input_ids", type: .init(.int32, [1, 8]))
+        let attention = MILProgram.Value(name: "attention_mask", type: .init(.int32, [1, 8]))
+        let out = graph.build(into: &mil, ids: ids, attentionMask: attention,
+                              blocks: (0 ..< config.layers).map { _ in sampleOffsets() },
+                              tokens: 0, embeddingNorm: 64, finalNorm: 128)
+        let bytes = [UInt8](mil.program(functionName: "main", inputs: [ids, attention],
+                                        outputs: [out]).data)
+        // fp16 の -inf は 0x7c00、負なら 0xfc00。塞ぐ値としてそれが現れないこと。
+        var hasInfinity = false
+        for at in 0 ..< bytes.count - 1 where bytes[at] == 0x00 && bytes[at + 1] == 0xfc {
+            hasInfinity = true
+        }
+        XCTAssertFalse(hasInfinity, "塞ぐ値に fp16 の -inf を使っている")
+        XCTAssertTrue(String(decoding: bytes, as: UTF8.self).contains("m_blocked"))
+    }
+
     /// **窓は入力に依らない**ので定数にできる。詰め物の方はグラフの中で組む。
     ///
     /// 定数で全部を焼き込んでいた頃は、詰め物のある入力で参照実装と食い違った
