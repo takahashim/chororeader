@@ -31,22 +31,43 @@ enum IndexTerms {
         switch source {
         case let .epub(resources, publication):
             guard let range = BackIndex.range(in: publication) else { return [] }
-            let html = range.compactMap { at -> String? in
+            var made: [String] = []
+            for at in range {
                 guard at < publication.readingOrder.count,
                       let data = try? resources.read(publication.readingOrder[at].href)
-                else { return nil }
-                return CSSCompat.decodeText(data)
-            }.joined(separator: "\n")
-            return unique(fromHTML(html))
+                else { continue }
+                let html = CSSCompat.decodeText(data)
+                if isColophon(HTMLText.extract(html).text) { break }
+                made.append(contentsOf: fromHTML(html))
+            }
+            return unique(made)
 
         case let .pdf(pdf):
             let titles = SemanticUnits.pageTitles(pdf)
             guard let range = BackIndex.range(in: pdf, pageTitles: titles) else { return [] }
-            let lines = range.flatMap { page in
-                (pdf.page(at: page)?.string ?? "").split(whereSeparator: \.isNewline).map(String.init)
+            var made: [String] = []
+            for page in range {
+                let text = pdf.page(at: page)?.string ?? ""
+                if isColophon(text) { break }
+                made.append(contentsOf: text.split(whereSeparator: \.isNewline)
+                    .compactMap { term(from: String($0)) })
             }
-            return unique(lines.compactMap(term(from:)))
+            return unique(made)
         }
+    }
+
+    /// 奥付の紙面か。**索引の範囲は奥付まで届くことがある。**
+    ///
+    /// 範囲の終わりは「索引の次の目次項目」で決めているが、次の項目が無い本では
+    /// 末尾までになる（実測で 17 冊中 2 冊）。意味の索引から外す用途では
+    /// 害が無かったが、語を採る用途では**電話番号や部署名が語として混ざる**。
+    /// 実際に「03-3113-6150販売促進部」が採れていた。
+    ///
+    /// 奥付は「発行」と年月日が並ぶ形で見分ける（`NameCandidates` と同じ考え方）。
+    static func isColophon(_ text: String) -> Bool {
+        guard text.contains("発行") || text.contains("発 行") else { return false }
+        return text.range(of: "[0-9０-９]{4}\\s*年\\s*[0-9０-９]{1,2}\\s*月",
+                          options: .regularExpression) != nil
     }
 
     /// 同じ語は 1 度だけ。**並びは出てきた順のまま**（あいうえお順は索引の側の都合）。

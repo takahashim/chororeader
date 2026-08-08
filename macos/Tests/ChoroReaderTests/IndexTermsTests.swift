@@ -48,6 +48,25 @@ final class IndexTermsTests: XCTestCase {
         XCTAssertEqual(IndexTerms.term(from: "ghc-mod 120"), "ghc-mod")
     }
 
+    // MARK: - 奥付で止める
+
+    /// **索引の範囲は奥付まで届くことがある。**
+    ///
+    /// 範囲の終わりは「索引の次の目次項目」で決めているが、次が無い本では
+    /// 末尾までになる。語を採る用途では電話番号や部署名が混ざるので、
+    /// 奥付に入ったところで止める。実際に「03-3113-6150販売促進部」が採れていた。
+    func test_奥付を見分ける() {
+        XCTAssertTrue(IndexTerms.isColophon("架空書房\n2015 年 11 月 10 日 初版第 1 刷発行"))
+        XCTAssertTrue(IndexTerms.isColophon("発 行　2014年3月1日"))
+    }
+
+    /// **索引の紙面を奥付と間違えない。** 索引にも数字は並ぶ。
+    func test_索引を奥付と間違えない() {
+        XCTAssertFalse(IndexTerms.isColophon("配列 12, 45\n例外 88"))
+        XCTAssertFalse(IndexTerms.isColophon("発行部数 12"))
+        XCTAssertFalse(IndexTerms.isColophon("2015 年 11 月 10 日"))
+    }
+
     // MARK: - 索引の紙面（XHTML）から
 
     /// **語は外側の項目にあり、内側は頁番号のリンクである。**
