@@ -62,6 +62,20 @@ public partial class ReaderWindow : Window
         _stage.ResumeFrom(store.StateOf(bookPath).Position);
         store.RememberTitle(bookPath, stage.BookTitle);
 
+        // **つまみの配線は組み立てが済んでから行う。**
+        //
+        // XAML に書くと、読み込みの最中に発火する。`Minimum="70"` を置いた時点で
+        // `Value` が 0 から 70 へ引き上げられ、`ValueChanged` が走るためである。
+        // そのとき同じポップオーバーの後ろにある札（LineValue・WidthValue）は
+        // まだ作られていないので、null を触って落ちる。
+        //
+        // **`async void` の中で落ちるので、その場では落ちない。** 例外は催しの列へ
+        // 積まれ、後で誰かが列を回したときに出る。窓が先に閉じれば出ないこともある。
+        // CI で 1 度は通り、次に落ちたのはそのためである。
+        SizeSlider.ValueChanged += OnStyleSlid;
+        LineSlider.ValueChanged += OnStyleSlid;
+        WidthSlider.ValueChanged += OnStyleSlid;
+
         // 縦は読むための軸、横は移動するための軸（spec.md 10.2）。
         // 矢印はメニューのキー等価にしない。窓が焦点を持っているときだけ処理する。
         PreviewKeyDown += OnKeyDown;
@@ -427,6 +441,11 @@ public partial class ReaderWindow : Window
 
     private async void OnStyleSlid(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
+        // 覚えていた設定を部品へ映している最中も発火する。そこでは当てない。
+        if (_settling)
+        {
+            return;
+        }
         ShowStyleValues();
         await ApplyPickedStyleAsync();
     }
