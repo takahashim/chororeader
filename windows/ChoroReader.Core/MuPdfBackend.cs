@@ -44,9 +44,48 @@ internal sealed class MuPdfBackend : IPdfBackend
 
     private MuPdfBackend(string path)
     {
+        // **PDF でないものを MuPDF へ渡さない。**
+        //
+        // 中身が PDF でないと、MuPDF は修復を試みたうえで native の側で転ぶ。
+        // そのとき文書の器はすでに出来ていて、こちらは掴む前なので後始末ができない。
+        // 残った器は後で終了処理に入り、持ち主の context が先に消えているために
+        // 「owner が先に破棄された」と言って**プロセスごと落とす**。
+        // 開けないことを例外で伝える経路（PdfProbe.CanOpen）でさえ、
+        // その場では捕まえられても、後の GC で落ちる。
+        // 渡す前に見分けるのが唯一の手である。
+        if (!LooksLikePdf(path))
+        {
+            throw DocumentException.CannotOpenPdf();
+        }
+
         _context = new MuPDFContext();
         _document = new MuPDFDocument(_context, path);
         _pageCount = _document.Pages.Count;
+    }
+
+    /// <summary>
+    /// PDF の目印があるか。
+    ///
+    /// <para>
+    /// 頭に <c>%PDF-</c> がある。前にごみが付いた書籍もあるので、少し先まで探す
+    /// （仕様も「先頭 1024 バイトのどこか」を許している）。
+    /// ここで見分けたいのは<b>まったく別のもの</b>だけで、
+    /// 壊れた PDF の修復は MuPDF に任せる。
+    /// </para>
+    /// </summary>
+    private static bool LooksLikePdf(string path)
+    {
+        try
+        {
+            using var file = File.OpenRead(path);
+            var head = new byte[1024];
+            var read = file.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            return head.AsSpan(0, read).IndexOf("%PDF-"u8) >= 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     public int PageCount => _pageCount;
