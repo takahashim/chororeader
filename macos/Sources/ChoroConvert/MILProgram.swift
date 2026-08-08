@@ -117,6 +117,20 @@ struct MILProgram {
         return out
     }
 
+    /// 出力が複数の演算（`split`）。
+    ///
+    /// **出力の並びが割った順である。** ここを取り違えると、
+    /// 問いと鍵と値が入れ替わったまま変換が通る。
+    @discardableResult
+    mutating func split(_ kind: String, outs: [Value],
+                        inputs: [(String, Value)]) -> [Value] {
+        for out in outs { names.insert(out.name) }
+        operations.append(Self.operation(type: kind, inputs: inputs.map { ($0.0, [$0.1.name]) },
+                                         outputs: outs,
+                                         attributes: [("name", Self.stringValue(outs[0].name))]))
+        return outs
+    }
+
     /// 組み上げた `Program`。
     ///
     /// - Parameters:
