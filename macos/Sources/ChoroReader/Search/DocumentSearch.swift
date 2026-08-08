@@ -25,6 +25,11 @@ struct SearchMark: Codable, Hashable {
 }
 
 /// 章の HTML から本文とコードを取り出す。
+///
+/// **位置は Unicode スカラーで数える**（conformance/CONTRACT.md「正規化の規約」）。
+/// Swift の `String` は既定で書記素クラスタを数えるので、`count` や `Array(_:)` を
+/// そのまま使うと、結合文字のある本文で他の実装と食い違う
+/// （「か」＋濁点を 1 と数えてしまう。3 実装を並べて見つかった）。
 enum HTMLText {
     struct Extracted {
         var text: String
@@ -63,9 +68,9 @@ enum HTMLText {
             guard let whole = Range(match.range, in: source),
                   let inner = Range(match.range(at: 1), in: source) else { continue }
             text += stripTags(String(source[cursor ..< whole.lowerBound]))
-            let start = text.count
+            let start = text.unicodeScalars.count
             text += stripTags(String(source[inner]))
-            codeRanges.append(start ..< text.count)
+            codeRanges.append(start ..< text.unicodeScalars.count)
             text += "\n"
             cursor = whole.upperBound
         }
@@ -160,22 +165,28 @@ enum DocumentSearch {
             let extracted = HTMLText.extract(CSSCompat.decodeText(data))
             let text = extracted.text
             guard !text.isEmpty else { continue }
-            let chars = Array(text)
+            // **スカラーで数える。** 書記素で数えると、結合文字のある本文で
+            // 位置も progression も他の実装と食い違う。
+            let chars = Array(text.unicodeScalars)
 
             // 章ごとに当たりの通し番号を振る。走査は読み順なので、章の頭で数え直せばよい。
             var nth = 0
             var searchStart = text.startIndex
             while let range = text.range(of: query, options: options, range: searchStart ..< text.endIndex) {
-                let offset = text.distance(from: text.startIndex, to: range.lowerBound)
-                let matchLength = text.distance(from: range.lowerBound, to: range.upperBound)
-                let before = String(chars[max(0, offset - 30) ..< offset])
-                let after = String(chars[min(chars.count, offset + matchLength) ..< min(chars.count, offset + matchLength + 40)])
+                let offset = text.unicodeScalars.distance(from: text.unicodeScalars.startIndex,
+                                                          to: range.lowerBound.samePosition(in: text.unicodeScalars)!)
+                let matchLength = text.unicodeScalars.distance(from: range.lowerBound.samePosition(in: text.unicodeScalars)!,
+                                                               to: range.upperBound.samePosition(in: text.unicodeScalars)!)
+                let before = String(String.UnicodeScalarView(chars[max(0, offset - 30) ..< offset]))
+                let after = String(String.UnicodeScalarView(
+                    chars[min(chars.count, offset + matchLength) ..< min(chars.count, offset + matchLength + 40)]))
 
                 results.append(SearchResult(
                     locator: Locator(href: link.href,
                                      progression: chars.isEmpty ? 0 : Double(offset) / Double(chars.count),
                                      title: titles[i],
-                                     text: String(chars[offset ..< min(chars.count, offset + max(matchLength, 12))])),
+                                     text: String(String.UnicodeScalarView(
+                                         chars[offset ..< min(chars.count, offset + max(matchLength, 12))]))),
                     chapterTitle: titles[i],
                     before: before.trimmingCharacters(in: .whitespaces),
                     match: String(text[range]),
@@ -186,7 +197,10 @@ enum DocumentSearch {
                 nth += 1
 
                 if results.count >= limit { truncated = true; break outer }
-                searchStart = range.upperBound
+                // **1 文字ぶんだけ進める。** 照合した長さのぶん進めると
+                // 「ままま」に「まま」が 1 件しか出ず、重なった当たりを飛ばす。
+                // 3 実装を並べて見つかった（Rust と C# は拾っていた）。
+                searchStart = text.index(after: range.lowerBound)
             }
         }
 

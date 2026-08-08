@@ -1,5 +1,5 @@
 {
-  "before": "/></head>\n<body><p>が",
+  "before": "></head>\n<body><p>が",
   "command": "mark",
   "found": true,
   "href": "OEBPS/text/combining.xhtml",

@@ -32,6 +32,30 @@ final class SearchMarkInserterTests: XCTestCase {
         }
     }
 
+    /// **重なる当たりも拾う**（CONTRACT.md「重なる当たり」）。
+    ///
+    /// 当たった長さのぶん進めると「ままま」から「まま」が 1 件しか出ない。
+    /// C# を 3 つめの実装として並べたときに、Swift だけ飛ばしていると分かった。
+    func test重なる当たりも数える() throws {
+        let html = "<p>ままま</p>"
+        let text = HTMLText.extract(html).text
+        XCTAssertNotNil(SearchMarkInserter.nthMatch(in: text, query: "まま", nth: 1),
+                        "重なった 2 件目を飛ばしている")
+        XCTAssertNil(SearchMarkInserter.nthMatch(in: text, query: "まま", nth: 2), "多すぎる")
+    }
+
+    /// **位置は Unicode スカラーで数える**（CONTRACT.md「文字の数え方」）。
+    ///
+    /// 「か + 濁点」は書記素クラスタでは 1 つ、スカラーでは 2 つ。走査も印入れも
+    /// スカラーで揃えないと、検索が返した位置が別の場所を指す。
+    func test位置はスカラーで数える() throws {
+        let html = "<p>か\u{3099}きく さがす</p>"   // か + 結合濁点
+        let text = HTMLText.extract(html).text
+        let (from, to) = try XCTUnwrap(SearchMarkInserter.nthMatch(in: text, query: "さがす", nth: 0))
+        XCTAssertEqual(from, 6, "書記素で数えている（スカラーなら 6、書記素なら 5）")
+        XCTAssertEqual(to - from, 3)
+    }
+
     /// 探し方は DocumentSearch.options と同じ。全角と半角、大文字と小文字を区別しない。
     func test全角と半角を区別しない() throws {
         let out = try marked("<p>ＡＢＣ</p>", "abc")

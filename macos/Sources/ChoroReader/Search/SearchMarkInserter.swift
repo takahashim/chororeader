@@ -26,32 +26,32 @@ enum SearchMarkInserter {
 
     /// 印を置く場所。囲めなければ nil。
     static func locate(in html: String, query: String, nth: Int) -> Placement? {
-        let source = Array(html)
+        let source = Array(html.unicodeScalars)
         guard let (start, end) = span(source, query: query, nth: nth) else { return nil }
-        return Placement(marked: String(source[start ..< end]),
-                         before: String(source[max(0, start - 20) ..< start]))
+        return Placement(marked: text(source[start ..< end]),
+                         before: text(source[max(0, start - 20) ..< start]))
     }
 
     /// 本文の nth 番目の当たりを囲んだ HTML。囲めなければ nil。
     static func insert(into html: String, query: String, nth: Int) -> String? {
-        let source = Array(html)
+        let source = Array(html.unicodeScalars)
         guard let (start, end) = span(source, query: query, nth: nth) else { return nil }
 
-        var out = String(source[0 ..< start])
+        var out = text(source[0 ..< start])
         out += "<mark class=\"\(className)\">"
-        out += String(source[start ..< end])
+        out += text(source[start ..< end])
         out += "</mark>"
-        out += String(source[end...])
+        out += text(source[end...])
         return out
     }
 
     /// 囲む範囲（元の HTML の文字位置）。
-    private static func span(_ source: [Character], query: String, nth: Int) -> (Int, Int)? {
+    private static func span(_ source: [Unicode.Scalar], query: String, nth: Int) -> (Int, Int)? {
         guard !query.isEmpty else { return nil }
-        let text = HTMLText.extract(String(source)).text
-        guard let (from, to) = nthMatch(in: text, query: query, nth: nth) else { return nil }
+        let body = HTMLText.extract(text(source[...])).text
+        guard let (from, to) = nthMatch(in: body, query: query, nth: nth) else { return nil }
 
-        let origins = align(source, Array(text))
+        let origins = align(source, Array(body.unicodeScalars))
         guard from < origins.count, to - 1 < origins.count else { return nil }
 
         let start = origins[from]
@@ -68,17 +68,27 @@ enum SearchMarkInserter {
     static func nthMatch(in text: String, query: String, nth: Int) -> (Int, Int)? {
         var searchStart = text.startIndex
         var count = 0
+        let scalars = text.unicodeScalars
         while let range = text.range(of: query, options: DocumentSearch.options,
                                      range: searchStart ..< text.endIndex) {
             if count == nth {
-                let from = text.distance(from: text.startIndex, to: range.lowerBound)
-                let length = text.distance(from: range.lowerBound, to: range.upperBound)
+                // **スカラーで数える**（走査と同じ単位でないと、番号が指す先がずれる）。
+                let from = scalars.distance(from: scalars.startIndex,
+                                            to: range.lowerBound.samePosition(in: scalars)!)
+                let length = scalars.distance(from: range.lowerBound.samePosition(in: scalars)!,
+                                              to: range.upperBound.samePosition(in: scalars)!)
                 return (from, from + length)
             }
             count += 1
-            searchStart = range.upperBound
+            // 走査（DocumentSearch）と同じ進め方でなければ、番号が指す先がずれる。
+            searchStart = text.index(after: range.lowerBound)
         }
         return nil
+    }
+
+    /// スカラーの並びを文字列へ戻す。
+    private static func text(_ scalars: ArraySlice<Unicode.Scalar>) -> String {
+        String(String.UnicodeScalarView(scalars))
     }
 
     // MARK: - 元の HTML との突き合わせ
@@ -87,7 +97,7 @@ enum SearchMarkInserter {
     ///
     /// 抽出は削って詰めるだけなので、元を頭から舐めながら同じ文字を拾えば揃う。
     /// 揃わない文字（タグの位置に足した空白など）は、いま見ている位置を指しておく。
-    private static func align(_ source: [Character], _ text: [Character]) -> [Int] {
+    private static func align(_ source: [Unicode.Scalar], _ text: [Unicode.Scalar]) -> [Int] {
         var origins: [Int] = []
         origins.reserveCapacity(text.count)
         var at = 0
@@ -139,7 +149,7 @@ enum SearchMarkInserter {
             }
 
             // 改行や連なった空白は 1 つに詰められる。本文側が空白を待っていれば、そこで揃える。
-            if text[at] == " ", c.isWhitespace {
+            if text[at] == " ", Character(c).isWhitespace {
                 origins.append(cursor)
                 at += 1
                 cursor += 1
@@ -153,7 +163,7 @@ enum SearchMarkInserter {
     }
 
     /// script / style / コメントの終わり。そこから始まっていなければ nil。
-    private static func skipIgnored(_ source: [Character], from cursor: Int) -> Int? {
+    private static func skipIgnored(_ source: [Unicode.Scalar], from cursor: Int) -> Int? {
         if starts(source, at: cursor, with: "<!--") {
             return find(source, from: cursor, closing: "-->") ?? source.count
         }
@@ -163,17 +173,18 @@ enum SearchMarkInserter {
         return nil
     }
 
-    private static func starts(_ source: [Character], at cursor: Int, with needle: String) -> Bool {
-        let chars = Array(needle)
+    private static func starts(_ source: [Unicode.Scalar], at cursor: Int, with needle: String) -> Bool {
+        let chars = Array(needle.unicodeScalars)
         guard cursor + chars.count <= source.count else { return false }
+        // タグの名前は ASCII なので、大小の違いだけを見れば足りる。
         for (offset, c) in chars.enumerated()
-        where source[cursor + offset].lowercased() != c.lowercased() {
+        where Character(source[cursor + offset]).lowercased() != Character(c).lowercased() {
             return false
         }
         return true
     }
 
-    private static func find(_ source: [Character], from cursor: Int, closing: String) -> Int? {
+    private static func find(_ source: [Unicode.Scalar], from cursor: Int, closing: String) -> Int? {
         let chars = Array(closing)
         var index = cursor
         while index + chars.count <= source.count {
@@ -184,14 +195,14 @@ enum SearchMarkInserter {
     }
 
     /// 本文の 1 文字が、元の HTML で占める長さ。実体参照は書かれたぶんを数える。
-    private static func sourceWidth(_ source: [Character], at cursor: Int) -> Int {
+    private static func sourceWidth(_ source: [Unicode.Scalar], at cursor: Int) -> Int {
         guard cursor < source.count else { return 0 }
         if source[cursor] == "&", let length = entityLength(source, at: cursor) { return length }
         return 1
     }
 
     /// `&...;` の長さ。実体参照でなければ nil。
-    private static func entityLength(_ source: [Character], at cursor: Int) -> Int? {
+    private static func entityLength(_ source: [Unicode.Scalar], at cursor: Int) -> Int? {
         var index = cursor + 1
         let limit = min(source.count, cursor + 12)
         while index < limit {
@@ -203,7 +214,7 @@ enum SearchMarkInserter {
     }
 
     /// その文字が属する地の文の終わり。次のタグの手前で止める。
-    private static func runEnd(_ source: [Character], from cursor: Int) -> Int {
+    private static func runEnd(_ source: [Unicode.Scalar], from cursor: Int) -> Int {
         var index = cursor
         while index < source.count, source[index] != "<" { index += 1 }
         return index
