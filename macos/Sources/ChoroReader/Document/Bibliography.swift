@@ -58,10 +58,18 @@ struct Bibliography: Codable, Hashable {
             ?? (attributes[PDFKit.PDFDocumentAttribute.creationDateAttribute] as? Date).map {
                 stamp.string(from: $0)
             }
-        return Bibliography(publisher: text("Publisher"),
-                            published: date(issued),
-                            isbn: isbn(from: [text("ISBN"), text("SrcISBN")].compactMap { $0 }),
-                            subtitle: nil)
+        var made = Bibliography(publisher: text("Publisher"),
+                                published: date(issued),
+                                isbn: isbn(from: [text("ISBN"), text("SrcISBN")].compactMap { $0 }),
+                                subtitle: nil)
+        // **名乗りを先に、紙面を後に。** 名乗っていない欄だけを奥付で埋める
+        // （`Colophon`）。手元の 9 冊では ISBN が 4 冊から 6 冊に増えた。
+        if made.publisher == nil || made.isbn == nil {
+            let read = Colophon.bibliography(of: pdf)
+            made.publisher = made.publisher ?? read.publisher
+            made.isbn = made.isbn ?? read.isbn
+        }
+        return made
     }
 
     // MARK: - 整える
