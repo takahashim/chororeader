@@ -15,18 +15,28 @@
         <!-- 表紙で並べるときの 1 冊。表紙・題名・読み進み。 -->
         <DataTemplate x:Key="CoverCard">
             <StackPanel Width="150" Margin="8">
-                <Border Height="200" Background="#20808080" BorderBrush="#40808080" BorderThickness="1">
-                    <Grid>
-                        <!-- 表紙が取れない書籍もある。そのときは題名だけが出る。 -->
+                <!--
+                    **表紙は角を丸めた枠の中に収める。**
+                    Image をそのまま重ねると角が四角いままはみ出すので、
+                    地として塗る（Border は子を角丸で切り取らない）。
+                -->
+                <Grid Height="200">
+                    <!-- 表紙が取れない書籍もある。そのときは題名だけが出る。 -->
+                    <Border CornerRadius="6" Background="#20808080"
+                            BorderBrush="#33808080" BorderThickness="1">
                         <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="10"
                                    VerticalAlignment="Center" HorizontalAlignment="Center"
-                                   TextAlignment="Center" Foreground="Gray" />
-                        <Image Source="{Binding Cover}" Stretch="Uniform" />
-                    </Grid>
-                </Border>
+                                   TextAlignment="Center" Opacity="0.7" />
+                    </Border>
+                    <Border CornerRadius="6">
+                        <Border.Background>
+                            <ImageBrush ImageSource="{Binding Cover}" Stretch="Uniform" />
+                        </Border.Background>
+                    </Border>
+                </Grid>
                 <TextBlock Text="{Binding Title}" TextWrapping="Wrap" MaxHeight="36"
                            Margin="0,6,0,2" TextTrimming="CharacterEllipsis" />
-                <ProgressBar Height="4" Maximum="1" Value="{Binding Progression, Mode=OneWay}" />
+                <ProgressBar Height="3" Maximum="1" Value="{Binding Progression, Mode=OneWay}" />
             </StackPanel>
         </DataTemplate>
     </Window.Resources>
