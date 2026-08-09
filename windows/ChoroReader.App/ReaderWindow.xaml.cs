@@ -141,8 +141,16 @@ public partial class ReaderWindow : Window
 
     // MARK: サイドバー
 
-    private void OnToggleSide(object sender, RoutedEventArgs e) =>
-        SideColumn.Width = SideToggle.IsChecked == true ? new GridLength(300) : new GridLength(0);
+    private void OnToggleSide(object sender, RoutedEventArgs e)
+    {
+        var open = SideToggle.IsChecked == true;
+        // 閉じているときは仕切りも消す。掴めるものが残っていると、
+        // 何も無いところに縦線が出て、押しても何も起きない。
+        SideColumn.Width = open ? new GridLength(300) : new GridLength(0);
+        SideColumn.MinWidth = open ? 180 : 0;
+        SplitColumn.Width = open ? GridLength.Auto : new GridLength(0);
+        SideSplitter.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void ShowSide(Pane pane)
     {
@@ -359,7 +367,8 @@ public partial class ReaderWindow : Window
             Label: mark.Label.Length > 0 ? mark.Label : mark.Text,
             Href: mark.Href,
             Page: mark.Page,
-            Progression: mark.Progression))];
+            Progression: mark.Progression,
+            Detail: mark.Label.Length > 0 && mark.Text.Length > 0 ? mark.Text : null))];
 
     private Bookmark Here() => new()
     {

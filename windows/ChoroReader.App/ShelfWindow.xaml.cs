@@ -68,7 +68,11 @@ internal sealed class NearRow(SemanticHit hit)
 /// <summary>横断検索の当たり 1 件。押すとその場所へ飛ぶ。</summary>
 internal sealed record ShelfHit(string Path, string Title, LibraryHit Hit)
 {
-    public override string ToString() => $"{Title} — {Hit.Where}: {Hit.Excerpt}";
+    public string Where => Hit.Where.Length > 0 ? $"{Title} — {Hit.Where}" : Title;
+
+    public string Excerpt => Hit.Excerpt;
+
+    public override string ToString() => $"{Where}: {Excerpt}";
 }
 
 /// <summary>

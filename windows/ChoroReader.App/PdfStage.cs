@@ -70,7 +70,7 @@ internal sealed class PdfStage : IStage
         {
             // **アウトラインのページは 0 始まりである。**（PdfProbeTests が押さえている）
             // 1 始まりと思って引くと、目次から飛ぶたびに 1 ページ手前へ着く。
-            yield return new Place(new string(' ', depth * 2) + entry.Title, Page: entry.Page ?? 0);
+            yield return new Place(entry.Title, Page: entry.Page ?? 0, Depth: depth);
             foreach (var child in Flatten(entry.Children, depth + 1))
             {
                 yield return child;
@@ -218,9 +218,10 @@ internal sealed class PdfStage : IStage
         await ShowAsync(_session.Hits.Count > 0 ? _session.Hits[0].Page : _session.Page);
 
         return ([.. _session.Hits.Select(hit => new Place(
-            Label: $"p.{hit.Page + 1}: {hit.Excerpt}".Replace('\n', ' '),
+            Label: $"{hit.Page + 1} ページ",
             Page: hit.Page,
-            Query: query))], false);
+            Query: query,
+            Detail: hit.Excerpt.Replace('\n', ' ')))], false);
     }
 
     /// <summary>紙面には効かない。文字を組み直せないので、当てるものが無い。</summary>

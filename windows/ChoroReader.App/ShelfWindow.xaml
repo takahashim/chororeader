@@ -110,7 +110,20 @@
                 </DataGrid.Columns>
             </DataGrid>
 
-            <ListBox x:Name="Hits" Visibility="Collapsed" MouseDoubleClick="OnOpenHit" />
+            <!-- 語句の当たり。読書の窓の一覧と同じ重さの付け方にする。 -->
+            <ListBox x:Name="Hits" Visibility="Collapsed" MouseDoubleClick="OnOpenHit"
+                     HorizontalContentAlignment="Stretch">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,3">
+                            <TextBlock Text="{Binding Where}" Opacity="0.7"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Excerpt}" TextWrapping="Wrap" MaxHeight="36"
+                                       TextTrimming="CharacterEllipsis" Margin="0,1,0,0" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
 
             <!--
                 意味で引いた結果。**当たりではないので囲めないし、件数も出さない。**
@@ -123,12 +136,12 @@
                         <StackPanel Margin="0,3">
                             <DockPanel>
                                 <TextBlock Text="{Binding Score}" DockPanel.Dock="Right"
-                                           Foreground="Gray" Margin="8,0,0,0" />
-                                <TextBlock Text="{Binding Where}" Foreground="Gray"
+                                           Opacity="0.7" Margin="8,0,0,0" />
+                                <TextBlock Text="{Binding Where}" Opacity="0.7"
                                            TextTrimming="CharacterEllipsis" />
                             </DockPanel>
-                            <TextBlock Text="{Binding Excerpt}" TextWrapping="Wrap" MaxHeight="52"
-                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Excerpt}" TextWrapping="Wrap" MaxHeight="36"
+                                       TextTrimming="CharacterEllipsis" Margin="0,1,0,0" />
                         </StackPanel>
                     </DataTemplate>
                 </ListBox.ItemTemplate>

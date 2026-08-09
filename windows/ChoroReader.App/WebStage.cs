@@ -83,7 +83,7 @@ internal sealed class WebStage : IStage
                 {
                     if (entry.Href is { } href)
                     {
-                        rows.Add(new Place(new string(' ', depth * 2) + entry.Title, href, entry.Fragment));
+                        rows.Add(new Place(entry.Title, href, entry.Fragment, Depth: depth));
                     }
                     Walk(entry.Children, depth + 1);
                 }
@@ -335,10 +335,11 @@ internal sealed class WebStage : IStage
             DocumentSearch.SearchEpub(_session.Resources, _session.Publication, query));
 
         var hits = outcome.Results.Select(hit => new Place(
-            Label: $"{hit.ChapterTitle}: {hit.Before}{hit.Match}{hit.After}".Replace('\n', ' '),
+            Label: hit.ChapterTitle,
             Href: hit.Locator.Href ?? string.Empty,
             Query: query,
-            Nth: hit.Nth)).ToList();
+            Nth: hit.Nth,
+            Detail: $"{hit.Before}{hit.Match}{hit.After}".Replace('\n', ' '))).ToList();
         return (hits, outcome.Truncated);
     }
 
