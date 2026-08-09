@@ -13,9 +13,17 @@
             <Setter Property="Margin" Value="2,0" />
             <Setter Property="MinWidth" Value="28" />
         </Style>
-        <Style x:Key="PaneTab" TargetType="RadioButton">
-            <Setter Property="Padding" Value="8,3" />
-            <Setter Property="Margin" Value="1,0" />
+        <!--
+            選び分けをタブに見せる。
+            **RadioButton をそのまま置くと丸が並ぶ。** 見た目を差し替えないと、
+            「どれか 1 つ」という意味は伝わっても、タブには見えない。
+            ToggleButton を土台にすると、押し込んだ釦の見た目になる。
+        -->
+        <Style x:Key="PaneTab" TargetType="RadioButton"
+               BasedOn="{StaticResource {x:Type ToggleButton}}">
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Margin" Value="0,0,2,0" />
+            <Setter Property="MinWidth" Value="56" />
         </Style>
     </Window.Resources>
 
@@ -92,7 +100,12 @@
             <!-- 表示設定。道具帯の Aa から出す。 -->
             <Popup x:Name="StylePanel" Grid.Column="1" PlacementTarget="{Binding ElementName=StyleButton}"
                    Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+                <!--
+                    **地の色と文字の色は対で置く。** 覆いは窓の外に出るので、
+                    地だけを指定すると、明暗が切り替わったときに白地に白文字になりうる。
+                -->
                 <Border Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"
+                        TextElement.Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
                         BorderBrush="Gray" BorderThickness="1" Padding="14" Width="300">
                     <StackPanel>
                         <TextBlock Text="テーマ" Margin="0,0,0,4" />

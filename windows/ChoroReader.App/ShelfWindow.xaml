@@ -4,6 +4,14 @@
         Title="書棚 — ChoroReader" Height="720" Width="960" AllowDrop="True">
     <!-- 書棚はすべてネイティブ。WebView は使わない。 -->
     <Window.Resources>
+        <!-- 選び分けをタブに見せる（読書の窓と同じ理由。RadioButton のままだと丸が並ぶ）。 -->
+        <Style x:Key="Segment" TargetType="RadioButton"
+               BasedOn="{StaticResource {x:Type ToggleButton}}">
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Margin" Value="0,0,2,0" />
+            <Setter Property="MinWidth" Value="56" />
+        </Style>
+
         <!-- 表紙で並べるときの 1 冊。表紙・題名・読み進み。 -->
         <DataTemplate x:Key="CoverCard">
             <StackPanel Width="150" Margin="8">
@@ -26,10 +34,11 @@
     <DockPanel>
         <DockPanel DockPanel.Dock="Top" Margin="8">
             <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="0,0,8,0">
-                <RadioButton x:Name="CoverMode" GroupName="mode" Content="表紙" Padding="8,3"
-                             IsChecked="True" Checked="OnModeChanged" ToolTip="表紙で並べる" />
-                <RadioButton x:Name="TableMode" GroupName="mode" Content="一覧" Padding="8,3"
-                             Margin="2,0,0,0" Checked="OnModeChanged" ToolTip="表で並べる" />
+                <RadioButton x:Name="CoverMode" Style="{StaticResource Segment}" GroupName="mode"
+                             Content="表紙" IsChecked="True" Checked="OnModeChanged"
+                             ToolTip="表紙で並べる" />
+                <RadioButton x:Name="TableMode" Style="{StaticResource Segment}" GroupName="mode"
+                             Content="一覧" Checked="OnModeChanged" ToolTip="表で並べる" />
             </StackPanel>
 
             <Button x:Name="AddButton" DockPanel.Dock="Right" Content="本を加える…"
@@ -46,10 +55,11 @@
                 意味で引いた結果は当たりではない（spec-local-ai.md 5.2）。
             -->
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0,0,0">
-                <RadioButton x:Name="ExactKind" GroupName="kind" Content="語句" Padding="8,3"
-                             IsChecked="True" Checked="OnKindChanged" ToolTip="語句で正確に引く" />
-                <RadioButton x:Name="SemanticKind" GroupName="kind" Content="似た内容" Padding="8,3"
-                             Margin="2,0,0,0" Checked="OnKindChanged"
+                <RadioButton x:Name="ExactKind" Style="{StaticResource Segment}" GroupName="kind"
+                             Content="語句" IsChecked="True" Checked="OnKindChanged"
+                             ToolTip="語句で正確に引く" />
+                <RadioButton x:Name="SemanticKind" Style="{StaticResource Segment}" GroupName="kind"
+                             Content="似た内容" Checked="OnKindChanged"
                              ToolTip="意味の近さで引く（意味の層が要る）" />
             </StackPanel>
             <TextBox x:Name="Query" Padding="6,4"
