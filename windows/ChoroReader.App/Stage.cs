@@ -53,10 +53,10 @@ internal interface IStage : IDisposable
     /// <summary>書名。窓の題に出す。</summary>
     string BookTitle { get; }
 
-    /// <summary>目次。空なら札に「目次がありません」を出す。</summary>
+    /// <summary>目次。空なら「目次がありません」と出す。</summary>
     IReadOnlyList<Place> Toc { get; }
 
-    /// <summary>ページの一覧。持たない形式では空にして、札そのものを出さない。</summary>
+    /// <summary>ページの一覧。持たない形式では空にして、タブそのものを出さない。</summary>
     IReadOnlyList<Place> Pages { get; }
 
     /// <summary>引けない理由。引けるなら <c>null</c>。</summary>

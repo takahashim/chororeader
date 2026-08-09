@@ -56,7 +56,7 @@ internal sealed class WebStage : IStage
 
     /// <summary>
     /// 固定レイアウトは 1 枚ずつが 1 ページなので、読み順をそのままページの一覧にする。
-    /// リフローには紙面が無いので、札そのものを出さない。
+    /// リフローには紙面が無いので、タブそのものを出さない。
     /// </summary>
     public IReadOnlyList<Place> Pages => Reflowable
         ? []

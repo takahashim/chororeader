@@ -66,7 +66,7 @@ public partial class ReaderWindow : Window
         //
         // XAML に書くと、読み込みの最中に発火する。`Minimum="70"` を置いた時点で
         // `Value` が 0 から 70 へ引き上げられ、`ValueChanged` が走るためである。
-        // そのとき同じポップオーバーの後ろにある札（LineValue・WidthValue）は
+        // そのとき同じポップオーバーの後ろにある値の表示（LineValue・WidthValue）は
         // まだ作られていないので、null を触って落ちる。
         //
         // **`async void` の中で落ちるので、その場では落ちない。** 例外は催しの列へ
@@ -185,7 +185,7 @@ public partial class ReaderWindow : Window
     /// </summary>
     private void FillPane()
     {
-        // 紙面を持たない書籍では、ページの札そのものを出さない。
+        // 紙面を持たない書籍では、ページのタブそのものを出さない。
         PagesTab.Visibility = _stage.Pages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         var (rows, note) = _pane switch
