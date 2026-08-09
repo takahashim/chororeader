@@ -1,7 +1,12 @@
 <Application x:Class="ChoroReader.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ThemeMode="System">
     <!-- StartupUri は使わない。何を開くかは起動引数で決まるので、
-         OnStartup で窓を組み立てる。 -->
+         OnStartup で窓を組み立てる。
+
+         ThemeMode="System" で Windows 11 の見え方（Fluent）にし、明暗も OS に従う。
+         **まだ実験扱いである。** 将来の .NET で見え方や読み込み方が変わりうる。
+         XAML から設定するぶんには WPF0001 は出ない（コードから設定したときだけ）。 -->
     <Application.Resources />
 </Application>

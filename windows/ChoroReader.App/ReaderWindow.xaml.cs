@@ -66,7 +66,7 @@ public partial class ReaderWindow : Window
         //
         // XAML に書くと、読み込みの最中に発火する。`Minimum="70"` を置いた時点で
         // `Value` が 0 から 70 へ引き上げられ、`ValueChanged` が走るためである。
-        // そのとき同じポップオーバーの後ろにある札（LineValue・WidthValue）は
+        // そのとき同じポップオーバーの後ろにある値の表示（LineValue・WidthValue）は
         // まだ作られていないので、null を触って落ちる。
         //
         // **`async void` の中で落ちるので、その場では落ちない。** 例外は催しの列へ
@@ -141,8 +141,16 @@ public partial class ReaderWindow : Window
 
     // MARK: サイドバー
 
-    private void OnToggleSide(object sender, RoutedEventArgs e) =>
-        SideColumn.Width = SideToggle.IsChecked == true ? new GridLength(300) : new GridLength(0);
+    private void OnToggleSide(object sender, RoutedEventArgs e)
+    {
+        var open = SideToggle.IsChecked == true;
+        // 閉じているときは仕切りも消す。掴めるものが残っていると、
+        // 何も無いところに縦線が出て、押しても何も起きない。
+        SideColumn.Width = open ? new GridLength(300) : new GridLength(0);
+        SideColumn.MinWidth = open ? 180 : 0;
+        SplitColumn.Width = open ? GridLength.Auto : new GridLength(0);
+        SideSplitter.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void ShowSide(Pane pane)
     {
@@ -185,7 +193,7 @@ public partial class ReaderWindow : Window
     /// </summary>
     private void FillPane()
     {
-        // 紙面を持たない書籍では、ページの札そのものを出さない。
+        // 紙面を持たない書籍では、ページのタブそのものを出さない。
         PagesTab.Visibility = _stage.Pages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         var (rows, note) = _pane switch
@@ -359,7 +367,8 @@ public partial class ReaderWindow : Window
             Label: mark.Label.Length > 0 ? mark.Label : mark.Text,
             Href: mark.Href,
             Page: mark.Page,
-            Progression: mark.Progression))];
+            Progression: mark.Progression,
+            Detail: mark.Label.Length > 0 && mark.Text.Length > 0 ? mark.Text : null))];
 
     private Bookmark Here() => new()
     {

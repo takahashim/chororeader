@@ -18,6 +18,8 @@ namespace ChoroReader.App;
 /// <param name="Progression">章の中のどこか。しおりから戻るときに使う。</param>
 /// <param name="Query">当たりのとき、囲む語。</param>
 /// <param name="Nth">当たりのとき、章の中で何番目の当たりか。</param>
+/// <param name="Depth">目次の階層。字下げに使う。</param>
+/// <param name="Detail">2 行目に出すもの。当たりの本文など。無ければ 1 行で出る。</param>
 internal sealed record Place(
     string Label,
     string? Href = null,
@@ -25,8 +27,15 @@ internal sealed record Place(
     int Page = 0,
     double Progression = 0,
     string? Query = null,
-    int Nth = 0)
+    int Nth = 0,
+    int Depth = 0,
+    string? Detail = null)
 {
+    /// <summary>
+    /// 字下げ。<b>空白文字では揃わない。</b>字形の幅が一定でないためである。
+    /// </summary>
+    public Thickness Indent => new(Depth * 14, 0, 0, 0);
+
     public override string ToString() => Label;
 }
 
@@ -53,10 +62,10 @@ internal interface IStage : IDisposable
     /// <summary>書名。窓の題に出す。</summary>
     string BookTitle { get; }
 
-    /// <summary>目次。空なら札に「目次がありません」を出す。</summary>
+    /// <summary>目次。空なら「目次がありません」と出す。</summary>
     IReadOnlyList<Place> Toc { get; }
 
-    /// <summary>ページの一覧。持たない形式では空にして、札そのものを出さない。</summary>
+    /// <summary>ページの一覧。持たない形式では空にして、タブそのものを出さない。</summary>
     IReadOnlyList<Place> Pages { get; }
 
     /// <summary>引けない理由。引けるなら <c>null</c>。</summary>
